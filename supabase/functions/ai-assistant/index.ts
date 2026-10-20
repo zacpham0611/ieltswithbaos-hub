@@ -589,11 +589,12 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
       ],
     });
 
-    // 9. Call Gemini REST endpoint with timeout
+    // 9. Call Gemini REST endpoint with timeout (52s bounded limit compatible with Edge Functions)
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`;
 
+    const GEMINI_TIMEOUT_MS = 52000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 28000); // 28s timeout
+    const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
     let geminiResponse: Response;
     try {
@@ -618,8 +619,9 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
       if (networkErr.name === "AbortError") {
         return new Response(
           JSON.stringify({
-            error: "Gemini API request timed out after 28 seconds. Please try again.",
+            error: "Gemini API request timed out after 52 seconds. The model may be experiencing high load or processing a complex prompt. Please retry your request.",
             code: "TIMEOUT",
+            canRetry: true,
           }),
           { status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -636,23 +638,70 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
     }
 
     // 10. Handle upstream errors
-    if (geminiResponse.status === 429) {
-      return new Response(
-        JSON.stringify({
-          error: "Google AI Studio free-tier rate limit reached. Please wait 60 seconds before requesting another response.",
-          code: "RATE_LIMITED",
-        }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     if (!geminiResponse.ok) {
-      const errText = await geminiResponse.text();
-      console.error(`[ai-assistant] Gemini provider error: ${geminiResponse.status} - ${errText}`);
+      const rawErrorText = await geminiResponse.text();
+      let providerStatus = "";
+      let providerMessage = "";
+
+      try {
+        const parsed = JSON.parse(rawErrorText);
+        if (parsed?.error) {
+          providerStatus = String(parsed.error.status || "");
+          providerMessage = String(parsed.error.message || "");
+        }
+      } catch {
+        // rawErrorText is not JSON
+      }
+
+      // Sanitize function to redact any accidentally echoed API keys or auth tokens
+      const sanitize = (text: string): string => {
+        if (!text) return "";
+        let clean = text;
+        if (geminiApiKey) {
+          clean = clean.split(geminiApiKey).join("[REDACTED_API_KEY]");
+        }
+        if (token) {
+          clean = clean.split(token).join("[REDACTED_TOKEN]");
+        }
+        clean = clean.replace(/AIza[0-9A-Za-z-_]{35}/g, "[REDACTED_API_KEY]");
+        clean = clean.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
+        return clean.trim();
+      };
+
+      const sanitizedStatus = sanitize(providerStatus);
+      const sanitizedMessage =
+        sanitize(providerMessage) ||
+        sanitize(rawErrorText.slice(0, 500)) ||
+        "Unknown upstream error from Google AI Studio.";
+
+      // Safe server-side log (no secrets)
+      console.error(
+        `[ai-assistant] Gemini provider error: HTTP ${geminiResponse.status}${
+          sanitizedStatus ? ` (${sanitizedStatus})` : ""
+        } | ${sanitizedMessage}`
+      );
+
+      // Determine code
+      const errorCode =
+        geminiResponse.status === 429
+          ? "RATE_LIMITED"
+          : geminiResponse.status === 403
+          ? "PERMISSION_DENIED"
+          : geminiResponse.status === 404
+          ? "MODEL_NOT_FOUND"
+          : "PROVIDER_ERROR";
+
+      const errorLabel = sanitizedStatus
+        ? `AI provider error (HTTP ${geminiResponse.status} ${sanitizedStatus}): ${sanitizedMessage}`
+        : `AI provider error (HTTP ${geminiResponse.status}): ${sanitizedMessage}`;
+
       return new Response(
         JSON.stringify({
-          error: `AI provider error (HTTP ${geminiResponse.status}). Please verify prompt or model configuration.`,
-          code: "PROVIDER_ERROR",
+          error: errorLabel,
+          code: errorCode,
+          providerHttp: geminiResponse.status,
+          providerStatus: sanitizedStatus || undefined,
+          providerMessage: sanitizedMessage,
         }),
         {
           status: geminiResponse.status >= 500 ? 502 : 400,

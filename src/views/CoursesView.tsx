@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
-import { CourseSkill, TuitionModel } from '../types';
+import { Course, CourseSkill, CourseStatus, TuitionModel } from '../types';
 import {
   BookOpen,
   Plus,
@@ -27,6 +27,8 @@ import {
   Sparkles,
   DollarSign,
   GraduationCap,
+  Edit,
+  Trash2,
 } from 'lucide-react';
 
 export const CoursesView: React.FC = () => {
@@ -34,6 +36,8 @@ export const CoursesView: React.FC = () => {
     currentUser,
     courses,
     createCourse,
+    updateCourse,
+    deleteCourse,
     regenerateCourseCode,
     archiveCourse,
     enrollmentRequests,
@@ -55,6 +59,13 @@ export const CoursesView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [editCourseStatus, setEditCourseStatus] = useState<CourseStatus>('active');
+  const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const [activeCourseTab, setActiveCourseTab] = useState<
     'overview' | 'students' | 'lessons' | 'assignments' | 'assessments' | 'tuition' | 'settings'
   >('overview');
@@ -67,14 +78,14 @@ export const CoursesView: React.FC = () => {
 
   // Lock background scroll when modal is active to prevent overlapping scroll
   useEffect(() => {
-    if (showCreateModal || rejectModalReqId) {
+    if (showCreateModal || rejectModalReqId || courseToDelete) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = originalOverflow;
       };
     }
-  }, [showCreateModal, rejectModalReqId]);
+  }, [showCreateModal, rejectModalReqId, courseToDelete]);
 
   // New course form
   const [newCourseName, setNewCourseName] = useState('');
@@ -128,7 +139,37 @@ export const CoursesView: React.FC = () => {
   );
   const pendingRequests = relevantRequests.filter((r) => r.status === 'pending');
 
-  const handleCreateCourse = async (e: React.FormEvent) => {
+  const handleOpenCreateModal = () => {
+    setEditingCourse(null);
+    setNewCourseName('');
+    setNewCourseDesc('');
+    setNewCourseSkills(['reading', 'writing']);
+    setNewTuitionModel('fixed_monthly');
+    setNewTuitionAmount(4000000);
+    setNewCurrency('VND');
+    setNewStartDate('2026-11-01');
+    setNewEndDate('2027-04-30');
+    setEditCourseStatus('active');
+    setFormError(null);
+    setShowCreateModal(true);
+  };
+
+  const handleOpenEditModal = (course: Course) => {
+    setEditingCourse(course);
+    setNewCourseName(course.name);
+    setNewCourseDesc(course.description || '');
+    setNewCourseSkills(course.skills && course.skills.length > 0 ? course.skills : ['reading', 'writing']);
+    setNewTuitionModel(course.tuitionModel || 'fixed_monthly');
+    setNewTuitionAmount(course.tuitionAmount || 0);
+    setNewCurrency(course.currency || 'VND');
+    setNewStartDate(course.startDate || '');
+    setNewEndDate(course.endDate || '');
+    setEditCourseStatus(course.status || 'active');
+    setFormError(null);
+    setShowCreateModal(true);
+  };
+
+  const handleSaveCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (creating) return;
 
@@ -156,26 +197,43 @@ export const CoursesView: React.FC = () => {
     setFormError(null);
 
     try {
-      const created = await createCourse({
-        name: trimmedName,
-        description: newCourseDesc.trim(),
-        skills: newCourseSkills,
-        status: 'active',
-        code: '',
-        startDate: newStartDate,
-        endDate: newEndDate,
-        tuitionModel: newTuitionModel,
-        tuitionAmount: Number(newTuitionAmount) || 0,
-        currency: newCurrency,
-      });
+      if (editingCourse) {
+        await updateCourse(editingCourse.id, {
+          name: trimmedName,
+          description: newCourseDesc.trim(),
+          skills: newCourseSkills,
+          status: editCourseStatus,
+          startDate: newStartDate,
+          endDate: newEndDate,
+          tuitionModel: newTuitionModel,
+          tuitionAmount: Number(newTuitionAmount) || 0,
+          currency: newCurrency,
+        });
 
-      // Close modal and show success notification banner
-      setShowCreateModal(false);
-      setSuccessToast(
-        language === 'vi'
-          ? `Tạo khóa học "${created.name}" thành công! Mã khóa học: ${created.code}`
-          : `Created course "${created.name}" successfully! Discovery code: ${created.code}`
-      );
+        setShowCreateModal(false);
+        setSuccessToast(t('courses.courseUpdatedSuccess'));
+        setEditingCourse(null);
+      } else {
+        const created = await createCourse({
+          name: trimmedName,
+          description: newCourseDesc.trim(),
+          skills: newCourseSkills,
+          status: 'active',
+          code: '',
+          startDate: newStartDate,
+          endDate: newEndDate,
+          tuitionModel: newTuitionModel,
+          tuitionAmount: Number(newTuitionAmount) || 0,
+          currency: newCurrency,
+        });
+
+        setShowCreateModal(false);
+        setSuccessToast(
+          language === 'vi'
+            ? `Tạo khóa học "${created.name}" thành công! Mã khóa học: ${created.code}`
+            : `Created course "${created.name}" successfully! Discovery code: ${created.code}`
+        );
+      }
 
       // Reset form fields
       setNewCourseName('');
@@ -188,10 +246,33 @@ export const CoursesView: React.FC = () => {
       // Refresh list to update counters and database records
       await refreshData();
     } catch (err: any) {
-      console.error('Course creation error:', err);
+      console.error('Course save error:', err);
       setFormError(err.message || t('courses.loadCoursesError'));
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDeleteCourse = async () => {
+    if (!courseToDelete || isDeleting) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await deleteCourse(courseToDelete.id);
+      if (selectedCourseId === courseToDelete.id) {
+        setSelectedCourseId(null);
+      }
+      setSuccessToast(t('courses.courseDeletedSuccess'));
+      setCourseToDelete(null);
+      setDeleteConfirmInput('');
+      await refreshData();
+    } catch (err: any) {
+      console.error('Course deletion error:', err);
+      setDeleteError(err.message || 'Failed to delete course');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -269,6 +350,34 @@ export const CoursesView: React.FC = () => {
               </button>
             )}
           </div>
+
+          {/* Teacher Course Management Actions */}
+          {isTeacher && (
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => handleOpenEditModal(currentCourse)}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition-colors"
+                title={t('courses.editBtn')}
+              >
+                <Edit className="w-4 h-4 text-blue-600" />
+                <span>{t('courses.editBtn')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCourseToDelete(currentCourse);
+                  setDeleteConfirmInput('');
+                  setDeleteError(null);
+                }}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition-colors"
+                title={t('courses.deleteBtn')}
+              >
+                <Trash2 className="w-4 h-4 text-red-600" />
+                <span>{t('courses.deleteBtn')}</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
@@ -631,6 +740,26 @@ export const CoursesView: React.FC = () => {
                 <p className="mt-2 text-xs font-semibold text-slate-600">{t('courses.alreadyArchived')}</p>
               )}
             </div>
+
+            {/* Danger Zone: Delete Course */}
+            <div className="border border-red-200 bg-red-50/40 rounded-xl p-4">
+              <h3 className="text-sm font-bold text-red-900">{t('courses.deleteCourseHeading')}</h3>
+              <p className="text-xs sm:text-sm text-red-700 mt-1 leading-relaxed">
+                {t('courses.deleteCourseDesc')}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setCourseToDelete(currentCourse);
+                  setDeleteConfirmInput('');
+                  setDeleteError(null);
+                }}
+                className="mt-3 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition-colors flex items-center space-x-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{t('courses.deleteCourseHeading')}</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -719,10 +848,7 @@ export const CoursesView: React.FC = () => {
 
           {isTeacher && (
             <button
-              onClick={() => {
-                setFormError(null);
-                setShowCreateModal(true);
-              }}
+              onClick={handleOpenCreateModal}
               className="inline-flex items-center space-x-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 shadow-sm hover:shadow transition-all"
             >
               <Plus className="w-4 h-4" />
@@ -877,11 +1003,8 @@ export const CoursesView: React.FC = () => {
             </button>
           ) : isTeacher ? (
             <button
-              onClick={() => {
-                setFormError(null);
-                setShowCreateModal(true);
-              }}
-              className="mt-5 inline-flex items-center space-x-2 px-4 py-2.5 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 shadow-sm transition-all"
+              onClick={handleOpenCreateModal}
+              className="mt-5 inline-flex items-center space-x-2 px-4 py-2.5 bg-blue-600 text-white text-xs sm:text-sm font-semibold rounded-xl hover:bg-blue-700 shadow-sm transition-all"
             >
               <Plus className="w-4 h-4" />
               <span>{t('courses.createFirstCourse')}</span>
@@ -889,7 +1012,7 @@ export const CoursesView: React.FC = () => {
           ) : (
             <button
               onClick={() => setActiveTab('find_course')}
-              className="mt-5 inline-flex items-center space-x-2 px-4 py-2.5 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 shadow-sm transition-all"
+              className="mt-5 inline-flex items-center space-x-2 px-4 py-2.5 bg-blue-600 text-white text-xs sm:text-sm font-semibold rounded-xl hover:bg-blue-700 shadow-sm transition-all"
             >
               <BookOpen className="w-4 h-4" />
               <span>{t('dashboard.enterCourseCode')}</span>
@@ -914,7 +1037,7 @@ export const CoursesView: React.FC = () => {
                 className="bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer flex flex-col overflow-hidden group"
               >
                 <div className="p-5 pb-3">
-                  {/* Top Bar: Code and Status */}
+                  {/* Top Bar: Code, Status & Actions */}
                   <div className="flex items-center justify-between text-xs mb-3">
                     <button
                       type="button"
@@ -933,27 +1056,56 @@ export const CoursesView: React.FC = () => {
                       )}
                     </button>
 
-                    <span
-                      className={`inline-flex items-center space-x-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
-                        course.status === 'active'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
-                          : 'bg-slate-100 text-slate-600 border border-slate-200'
-                      }`}
-                    >
+                    <div className="flex items-center space-x-1.5">
                       <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          course.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'
+                        className={`inline-flex items-center space-x-1.5 text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                          course.status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
                         }`}
-                      ></span>
-                      <span>{t(`status.${course.status}`)}</span>
-                    </span>
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            course.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'
+                          }`}
+                        ></span>
+                        <span>{t(`status.${course.status}`)}</span>
+                      </span>
+
+                      {isTeacher && (
+                        <div className="flex items-center space-x-0.5 ml-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEditModal(course);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title={t('courses.editBtn')}
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCourseToDelete(course);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title={t('courses.deleteBtn')}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Course Title & Description */}
-                  <h3 className="font-bold text-slate-900 text-base group-hover:text-blue-600 transition-colors line-clamp-1">
+                  <h3 className="font-bold text-slate-900 text-base sm:text-lg group-hover:text-blue-600 transition-colors line-clamp-1">
                     {course.name}
                   </h3>
-                  <p className="text-xs text-slate-500 line-clamp-2 mt-1.5 leading-relaxed min-h-[32px]">
+                  <p className="text-xs sm:text-sm text-slate-600 line-clamp-2 mt-1.5 leading-relaxed min-h-[36px]">
                     {course.description || (language === 'vi' ? 'Chưa có mô tả chi tiết' : 'No description provided')}
                   </p>
                 </div>
@@ -972,7 +1124,7 @@ export const CoursesView: React.FC = () => {
                     return (
                       <span
                         key={s}
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border capitalize ${skillColor}`}
+                        className={`text-xs font-semibold px-2.5 py-0.5 rounded-md border capitalize ${skillColor}`}
                       >
                         {t(`skills.${s}`)}
                       </span>
@@ -981,21 +1133,21 @@ export const CoursesView: React.FC = () => {
                 </div>
 
                 {/* Meta details: Tuition & Dates */}
-                <div className="px-5 py-2 space-y-1 text-[11px] text-slate-500 border-t border-slate-50">
+                <div className="px-5 py-2.5 space-y-1.5 text-xs text-slate-600 border-t border-slate-50">
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center space-x-1">
-                      <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="flex items-center space-x-1.5">
+                      <DollarSign className="w-4 h-4 text-slate-400" />
                       <span>{t('courses.tuitionModel')}:</span>
                     </span>
-                    <span className="font-semibold text-slate-700">
+                    <span className="font-semibold text-slate-800">
                       {formatCurrency(course.tuitionAmount, course.currency)} /{' '}
                       {t(`tuition.${course.tuitionModel === 'fixed_monthly' ? 'fixedMonthly' : course.tuitionModel === 'per_session' ? 'perSession' : course.tuitionModel === 'hourly' ? 'hourly' : 'coursePackage'}`)}
                     </span>
                   </div>
                   {course.startDate && (
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="flex items-center space-x-1">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="flex items-center space-x-1.5">
+                        <Calendar className="w-4 h-4 text-slate-400" />
                         <span>{t('courses.startDate')}:</span>
                       </span>
                       <span>
@@ -1006,21 +1158,21 @@ export const CoursesView: React.FC = () => {
                 </div>
 
                 {/* Card Footer */}
-                <div className="mt-auto px-5 py-3.5 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between text-xs">
+                <div className="mt-auto px-5 py-3.5 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between text-xs sm:text-sm">
                   <div className="flex items-center space-x-1.5 text-slate-600">
-                    <Users className="w-3.5 h-3.5 text-slate-400" />
+                    <Users className="w-4 h-4 text-slate-400" />
                     <span className="font-semibold">
                       {formatNumber(enrolledCount)} {t('courses.enrolledCount')}
                     </span>
                     {coursePendingReqs > 0 && isTeacher && (
-                      <span className="ml-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
+                      <span className="ml-1 text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
                         +{formatNumber(coursePendingReqs)}
                       </span>
                     )}
                   </div>
                   <span className="font-bold flex items-center space-x-1 text-blue-600 group-hover:translate-x-0.5 transition-transform">
                     <span>{t('courses.manageCourse')}</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
+                    <ChevronRight className="w-4 h-4" />
                   </span>
                 </div>
               </div>
@@ -1029,7 +1181,7 @@ export const CoursesView: React.FC = () => {
         </div>
       )}
 
-      {/* Create Course Modal (Mounted via Portal to eliminate stacking-context & overflow clipping) */}
+      {/* Create / Edit Course Modal (Mounted via Portal to eliminate stacking-context & overflow clipping) */}
       {showCreateModal && typeof document !== 'undefined' && createPortal(
         <div
           role="dialog"
@@ -1038,6 +1190,7 @@ export const CoursesView: React.FC = () => {
           onClick={(e) => {
             if (e.target === e.currentTarget && !creating) {
               setShowCreateModal(false);
+              setEditingCourse(null);
             }
           }}
         >
@@ -1050,9 +1203,13 @@ export const CoursesView: React.FC = () => {
                   <GraduationCap className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-slate-900">{t('courses.modalTitle')}</h2>
-                  <p className="text-xs text-slate-500">
-                    {language === 'vi'
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    {editingCourse ? t('courses.editModalTitle') : t('courses.modalTitle')}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-500">
+                    {editingCourse
+                      ? t('courses.editModalDesc')
+                      : language === 'vi'
                       ? 'Thiết lập thông tin khóa học, kỹ năng trọng tâm và học phí'
                       : 'Configure course syllabus, target skills, and tuition settings'}
                   </p>
@@ -1060,7 +1217,12 @@ export const CoursesView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => !creating && setShowCreateModal(false)}
+                onClick={() => {
+                  if (!creating) {
+                    setShowCreateModal(false);
+                    setEditingCourse(null);
+                  }
+                }}
                 className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
                 aria-label="Close"
               >
@@ -1070,7 +1232,7 @@ export const CoursesView: React.FC = () => {
 
             {/* Form Error Alert */}
             {formError && (
-              <div className="mx-6 mt-4 p-3 rounded-xl bg-red-50 border border-red-200 flex items-start space-x-2 text-xs text-red-700 shrink-0">
+              <div className="mx-6 mt-4 p-3 rounded-xl bg-red-50 border border-red-200 flex items-start space-x-2 text-xs sm:text-sm text-red-700 shrink-0">
                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                 <span className="flex-1">{formError}</span>
                 <button
@@ -1083,16 +1245,16 @@ export const CoursesView: React.FC = () => {
             )}
 
             {/* Scrollable Form Body */}
-            <form id="create-course-form" onSubmit={handleCreateCourse} className="p-6 overflow-y-auto space-y-6 grow text-xs">
+            <form id="create-course-form" onSubmit={handleSaveCourse} className="p-6 overflow-y-auto space-y-6 grow text-sm">
               {/* Section 1: Course Info */}
               <div className="space-y-3">
-                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs uppercase tracking-wide">
+                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs sm:text-sm uppercase tracking-wide">
                   <BookOpen className="w-4 h-4 text-blue-600" />
                   <span>{t('courses.sectionInfo')}</span>
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label className="block font-semibold text-slate-700 mb-1 text-sm">
                     {t('courses.courseTitleLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -1101,12 +1263,12 @@ export const CoursesView: React.FC = () => {
                     placeholder={t('courses.courseTitlePlaceholder')}
                     value={newCourseName}
                     onChange={(e) => setNewCourseName(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden transition-all text-xs bg-white"
+                    className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden transition-all text-sm bg-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label className="block font-semibold text-slate-700 mb-1 text-sm">
                     {t('courses.descLabel')}
                   </label>
                   <textarea
@@ -1114,14 +1276,31 @@ export const CoursesView: React.FC = () => {
                     placeholder={t('courses.descPlaceholder')}
                     value={newCourseDesc}
                     onChange={(e) => setNewCourseDesc(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden transition-all text-xs leading-relaxed bg-white"
+                    className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden transition-all text-sm leading-relaxed bg-white"
                   />
                 </div>
+
+                {editingCourse && (
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1 text-sm">
+                      {t('courses.courseStatusLabel')}
+                    </label>
+                    <select
+                      value={editCourseStatus}
+                      onChange={(e) => setEditCourseStatus(e.target.value as CourseStatus)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden transition-all text-sm bg-white"
+                    >
+                      <option value="active">{t('status.active')}</option>
+                      <option value="archived">{t('status.archived')}</option>
+                      <option value="closed">{t('status.closed')}</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Section 2: Skills */}
               <div className="space-y-3">
-                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs uppercase tracking-wide">
+                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs sm:text-sm uppercase tracking-wide">
                   <Award className="w-4 h-4 text-blue-600" />
                   <span>{t('courses.sectionSkills')}</span>
                 </div>
@@ -1134,7 +1313,7 @@ export const CoursesView: React.FC = () => {
                         type="button"
                         key={sk}
                         onClick={() => toggleSkill(sk)}
-                        className={`p-3 rounded-xl border text-center font-semibold transition-all flex flex-col items-center justify-center space-y-1.5 ${
+                        className={`p-3 rounded-xl border text-center font-semibold transition-all flex flex-col items-center justify-center space-y-1.5 text-xs sm:text-sm ${
                           isSelected
                             ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-xs'
                             : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -1160,20 +1339,20 @@ export const CoursesView: React.FC = () => {
 
               {/* Section 3: Tuition */}
               <div className="space-y-3">
-                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs uppercase tracking-wide">
+                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs sm:text-sm uppercase tracking-wide">
                   <WalletCards className="w-4 h-4 text-blue-600" />
                   <span>{t('courses.sectionTuition')}</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1 text-sm">
                       {t('courses.tuitionModel')}
                     </label>
                     <select
                       value={newTuitionModel}
                       onChange={(e) => setNewTuitionModel(e.target.value as TuitionModel)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden bg-white text-xs"
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden bg-white text-sm"
                     >
                       <option value="fixed_monthly">{t('tuition.fixedMonthly')}</option>
                       <option value="per_session">{t('tuition.perSession')}</option>
@@ -1183,13 +1362,13 @@ export const CoursesView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1 text-sm">
                       {t('courses.currencyLabel')}
                     </label>
                     <select
                       value={newCurrency}
                       onChange={(e) => setNewCurrency(e.target.value as any)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden bg-white text-xs"
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden bg-white text-sm"
                     >
                       <option value="VND">VND (₫)</option>
                       <option value="USD">USD ($)</option>
@@ -1197,7 +1376,7 @@ export const CoursesView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1 text-sm">
                       {t('courses.baseAmountLabel')}
                     </label>
                     <input
@@ -1206,15 +1385,15 @@ export const CoursesView: React.FC = () => {
                       step={newCurrency === 'VND' ? '50000' : '5'}
                       value={newTuitionAmount}
                       onChange={(e) => setNewTuitionAmount(Number(e.target.value))}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden text-xs bg-white"
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden text-sm bg-white"
                     />
                   </div>
                 </div>
 
                 {/* Live Formatted Rate Preview */}
-                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between text-xs">
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between text-xs sm:text-sm">
                   <span className="text-slate-500 font-medium">{t('courses.tuitionPreview')}:</span>
-                  <span className="font-bold text-blue-700 text-sm">
+                  <span className="font-bold text-blue-700 text-sm sm:text-base">
                     {formatCurrency(newTuitionAmount, newCurrency)} /{' '}
                     {t(
                       `tuition.${
@@ -1233,32 +1412,32 @@ export const CoursesView: React.FC = () => {
 
               {/* Section 4: Schedule */}
               <div className="space-y-3">
-                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs uppercase tracking-wide">
+                <div className="flex items-center space-x-2 pb-1.5 border-b border-slate-100 text-slate-800 font-bold text-xs sm:text-sm uppercase tracking-wide">
                   <Calendar className="w-4 h-4 text-blue-600" />
                   <span>{t('courses.sectionSchedule')}</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1 text-sm">
                       {t('courses.startDate')}
                     </label>
                     <input
                       type="date"
                       value={newStartDate}
                       onChange={(e) => setNewStartDate(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden text-xs bg-white"
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1 text-sm">
                       {t('courses.endDate')}
                     </label>
                     <input
                       type="date"
                       value={newEndDate}
                       onChange={(e) => setNewEndDate(e.target.value)}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden text-xs bg-white"
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-hidden text-sm bg-white"
                     />
                   </div>
                 </div>
@@ -1267,18 +1446,25 @@ export const CoursesView: React.FC = () => {
 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/80 flex items-center justify-between shrink-0">
-              <span className="text-[11px] text-slate-500 hidden sm:inline">
-                {language === 'vi'
-                  ? 'Mã khóa học 7 ký tự sẽ tự động được tạo khi lưu'
-                  : 'A 7-character discovery code will be generated upon save'}
+              <span className="text-xs text-slate-500 hidden sm:inline">
+                {editingCourse
+                  ? (language === 'vi'
+                    ? `Mã khóa học: ${editingCourse.code}`
+                    : `Course discovery code: ${editingCourse.code}`)
+                  : (language === 'vi'
+                    ? 'Mã khóa học 7 ký tự sẽ tự động được tạo khi lưu'
+                    : 'A 7-character discovery code will be generated upon save')}
               </span>
 
               <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
                 <button
                   type="button"
                   disabled={creating}
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-200/60 rounded-xl font-semibold transition-colors disabled:opacity-50 text-xs"
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setEditingCourse(null);
+                  }}
+                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-200/60 rounded-xl font-semibold transition-colors disabled:opacity-50 text-xs sm:text-sm"
                 >
                   {t('common.cancel')}
                 </button>
@@ -1286,12 +1472,143 @@ export const CoursesView: React.FC = () => {
                   type="submit"
                   form="create-course-form"
                   disabled={creating}
-                  className="inline-flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50 text-xs"
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50 text-xs sm:text-sm"
                 >
                   {creating && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{creating ? t('common.loading') : t('courses.createAndGenerateBtn')}</span>
+                  <span>{creating ? t('common.loading') : (editingCourse ? t('courses.saveChangesBtn') : t('courses.createAndGenerateBtn'))}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Delete Course Confirmation Modal */}
+      {courseToDelete && typeof document !== 'undefined' && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs overflow-hidden"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isDeleting) {
+              setCourseToDelete(null);
+              setDeleteConfirmInput('');
+              setDeleteError(null);
+            }
+          }}
+        >
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-red-100 flex flex-col z-[10000] overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">{t('courses.deleteModalTitle')}</h3>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">
+                    {courseToDelete.name} ({courseToDelete.code})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => {
+                  setCourseToDelete(null);
+                  setDeleteConfirmInput('');
+                  setDeleteError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Error banner if any */}
+            {deleteError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-start space-x-2 text-xs sm:text-sm text-red-700">
+                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <span className="flex-1">{deleteError}</span>
+              </div>
+            )}
+
+            {/* Warning Description */}
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs sm:text-sm text-amber-800 space-y-1.5">
+              <p className="font-semibold">{t('courses.deleteModalWarning')}</p>
+              <div className="text-xs text-amber-700">
+                {(() => {
+                  const enrolled = courseMembers.filter(
+                    (m) => m.courseId === courseToDelete.id && m.status === 'enrolled'
+                  ).length;
+                  const reqs = enrollmentRequests.filter(
+                    (r) => r.courseId === courseToDelete.id
+                  ).length;
+                  return (
+                    <span>
+                      {language === 'vi'
+                        ? `Dữ liệu phụ thuộc: ${enrolled} học viên đang theo học, ${reqs} yêu cầu tham gia, cùng toàn bộ bài tập và điểm số liên quan sẽ bị xóa vĩnh viễn.`
+                        : `Dependent records: ${enrolled} enrolled students, ${reqs} join requests, and all related assignments and submissions will be permanently deleted.`}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Strict Name Confirmation if Students Enrolled */}
+            {(() => {
+              const enrolled = courseMembers.filter(
+                (m) => m.courseId === courseToDelete.id && m.status === 'enrolled'
+              ).length;
+              if (enrolled > 0) {
+                return (
+                  <div className="space-y-1.5 pt-1">
+                    <label className="block text-xs sm:text-sm font-semibold text-slate-700">
+                      {t('courses.deleteConfirmInstruction')}
+                    </label>
+                    <input
+                      type="text"
+                      value={deleteConfirmInput}
+                      onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                      placeholder={courseToDelete.name}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-hidden text-xs sm:text-sm bg-white font-medium"
+                    />
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {/* Actions */}
+            <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => {
+                  setCourseToDelete(null);
+                  setDeleteConfirmInput('');
+                  setDeleteError(null);
+                }}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-semibold transition-colors disabled:opacity-50 text-xs sm:text-sm"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={
+                  isDeleting ||
+                  (courseMembers.filter((m) => m.courseId === courseToDelete.id && m.status === 'enrolled').length > 0 &&
+                    deleteConfirmInput.trim() !== courseToDelete.name.trim())
+                }
+                onClick={handleDeleteCourse}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+              >
+                {isDeleting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeleting ? t('common.loading') : t('courses.deleteConfirmBtn')}</span>
+              </button>
             </div>
           </div>
         </div>,

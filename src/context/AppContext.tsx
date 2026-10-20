@@ -36,6 +36,7 @@ interface AppContextType {
   activeCourses: Course[];
   createCourse: (course: Omit<Course, 'id' | 'teacherId' | 'teacherName' | 'createdAt'>) => Promise<Course>;
   updateCourse: (id: string, updates: Partial<Course>) => Promise<void>;
+  deleteCourse: (courseId: string) => Promise<{ success: boolean; message?: string }>;
   regenerateCourseCode: (courseId: string) => Promise<string>;
   archiveCourse: (courseId: string) => Promise<void>;
 
@@ -1130,20 +1131,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCourse = async (id: string, updates: Partial<Course>) => {
+    if (!currentUser) throw new Error('Not authenticated');
+
     const rowUpdates: any = {
-      name: updates.name,
-      description: updates.description,
-      skills: updates.skills,
-      status: updates.status,
-      tuition_model: updates.tuitionModel,
-      tuition_amount: updates.tuitionAmount,
-      currency: updates.currency,
       updated_at: new Date().toISOString(),
     };
+    if (updates.name !== undefined) rowUpdates.name = updates.name.trim();
+    if (updates.description !== undefined) rowUpdates.description = updates.description.trim();
+    if (updates.skills !== undefined) rowUpdates.skills = updates.skills;
+    if (updates.status !== undefined) rowUpdates.status = updates.status;
+    if (updates.tuitionModel !== undefined) rowUpdates.tuition_model = updates.tuitionModel;
+    if (updates.tuitionAmount !== undefined) rowUpdates.tuition_amount = Number(updates.tuitionAmount) || 0;
+    if (updates.currency !== undefined) rowUpdates.currency = updates.currency;
+    if (updates.startDate !== undefined) rowUpdates.start_date = updates.startDate || null;
+    if (updates.endDate !== undefined) rowUpdates.end_date = updates.endDate || null;
 
-    await supabase.from('courses').update(rowUpdates).eq('id', id);
+    const { data, error } = await supabase
+      .from('courses')
+      .update(rowUpdates)
+      .eq('id', id)
+      .eq('teacher_id', currentUser.id)
+      .select()
+      .single();
 
-    setCourses((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
+    if (error) {
+      console.error('Update course error:', error);
+      throw error;
+    }
+
+    // Keep tuition_settings synchronized if tuition model/amount changed
+    if (updates.tuitionModel !== undefined || updates.tuitionAmount !== undefined || updates.currency !== undefined) {
+      try {
+        await supabase.from('tuition_settings').upsert(
+          {
+            course_id: id,
+            teacher_id: currentUser.id,
+            model: updates.tuitionModel || data.tuition_model || 'fixed_monthly',
+            currency: updates.currency || data.currency || 'VND',
+            amount: Number(updates.tuitionAmount ?? data.tuition_amount) || 0,
+          },
+          { onConflict: 'course_id' }
+        );
+      } catch (tErr) {
+        console.warn('Tuition settings sync notice on update:', tErr);
+      }
+    }
+
+    setCourses((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              ...updates,
+              name: data.name,
+              description: data.description || '',
+              skills: data.skills || c.skills,
+              status: data.status,
+              tuitionModel: data.tuition_model,
+              tuitionAmount: Number(data.tuition_amount),
+              currency: data.currency,
+              startDate: data.start_date || '',
+              endDate: data.end_date || '',
+            }
+          : c
+      )
+    );
+    addActivity(`Updated course: ${data.name || updates.name || id}`, 'enrollment', 'courses');
+  };
+
+  const deleteCourse = async (courseId: string): Promise<{ success: boolean; message?: string }> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const course = courses.find((c) => c.id === courseId);
+    if (!course) throw new Error('Course not found');
+    if (course.teacherId?.toLowerCase() !== currentUser.id?.toLowerCase()) {
+      throw new Error('Unauthorized to delete this course');
+    }
+
+    const { error } = await supabase
+      .from('courses')
+      .delete()
+      .eq('id', courseId)
+      .eq('teacher_id', currentUser.id);
+
+    if (error) {
+      console.error('Delete course error:', error);
+      throw error;
+    }
+
+    setCourses((prev) => prev.filter((c) => c.id !== courseId));
+    addActivity(`Deleted course: ${course.name}`, 'enrollment', 'courses');
+    return { success: true };
   };
 
   const regenerateCourseCode = async (courseId: string): Promise<string> => {
@@ -1960,6 +2038,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeCourses,
         createCourse,
         updateCourse,
+        deleteCourse,
         regenerateCourseCode,
         archiveCourse,
         enrollmentRequests,
