@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { CourseSkill, TuitionModel } from '../types';
@@ -63,6 +64,17 @@ export const CoursesView: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Lock background scroll when modal is active to prevent overlapping scroll
+  useEffect(() => {
+    if (showCreateModal || rejectModalReqId) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [showCreateModal, rejectModalReqId]);
 
   // New course form
   const [newCourseName, setNewCourseName] = useState('');
@@ -623,9 +635,9 @@ export const CoursesView: React.FC = () => {
         )}
 
         {/* Modal for Reject Reason */}
-        {rejectModalReqId && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+        {rejectModalReqId && typeof document !== 'undefined' && createPortal(
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] overflow-hidden">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
               <h3 className="text-sm font-bold text-slate-900 mb-2">{t('courses.rejectModalTitle')}</h3>
               <p className="text-xs text-slate-500 mb-4 leading-relaxed">
                 {t('courses.rejectModalDesc')}
@@ -639,12 +651,14 @@ export const CoursesView: React.FC = () => {
               />
               <div className="flex justify-end space-x-2 mt-4">
                 <button
+                  type="button"
                   onClick={() => setRejectModalReqId(null)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
                 >
                   {t('common.cancel')}
                 </button>
                 <button
+                  type="button"
                   onClick={async () => {
                     await reviewEnrollmentRequest(rejectModalReqId, 'rejected', rejectReason);
                     setRejectModalReqId(null);
@@ -655,7 +669,8 @@ export const CoursesView: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </div>
     );
@@ -1014,15 +1029,20 @@ export const CoursesView: React.FC = () => {
         </div>
       )}
 
-      {/* Create Course Modal */}
-      {showCreateModal && (
+      {/* Create Course Modal (Mounted via Portal to eliminate stacking-context & overflow clipping) */}
+      {showCreateModal && typeof document !== 'undefined' && createPortal(
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs overflow-hidden"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !creating) {
+              setShowCreateModal(false);
+            }
+          }}
         >
           {/* Modal Container */}
-          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] z-50">
+          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[88vh] z-[10000] overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
               <div className="flex items-center space-x-3">
@@ -1042,6 +1062,7 @@ export const CoursesView: React.FC = () => {
                 type="button"
                 onClick={() => !creating && setShowCreateModal(false)}
                 className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                aria-label="Close"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1273,7 +1294,8 @@ export const CoursesView: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

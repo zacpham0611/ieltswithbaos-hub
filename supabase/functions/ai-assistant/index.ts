@@ -58,6 +58,14 @@ const ALLOWED_ACTIONS = [
   "convert_document_to_assignment",
 ];
 
+const TEACHER_ONLY_ACTIONS = [
+  "generate_assistant_draft",
+  "lesson_planner",
+  "reading_listening_materials",
+  "assignment_drafting",
+  "convert_document_to_assignment",
+];
+
 Deno.serve(async (req: Request) => {
   // 1. Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -131,25 +139,42 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 4. Retrieve authoritative user role from public.profiles (or fallback gracefully)
-    let userRole = "student";
-    try {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
+    // 4. Retrieve authoritative user role from public.profiles using validated JWT identity.
+    // Never trust user_metadata.role or hardcoded claims. Distinguish query errors from missing profiles.
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const profileClient = serviceRoleKey
+      ? createClient(supabaseUrl, serviceRoleKey)
+      : supabase;
 
-      if (profile?.role) {
-        userRole = profile.role;
-      } else if (user.user_metadata?.role) {
-        userRole = user.user_metadata.role;
-      }
-    } catch {
-      if (user.user_metadata?.role) {
-        userRole = user.user_metadata.role;
-      }
+    const { data: profile, error: profileError } = await profileClient
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("[ai-assistant] Database error querying user profile:", profileError);
+      return new Response(
+        JSON.stringify({
+          error: "Database error while verifying user profile. Please try again later.",
+          code: "PROFILE_QUERY_ERROR",
+          details: profileError.message,
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
+
+    if (!profile) {
+      return new Response(
+        JSON.stringify({
+          error: "User profile not found. Please complete profile setup before using the AI Assistant.",
+          code: "PROFILE_NOT_FOUND",
+        }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userRole = profile.role === "teacher" ? "teacher" : "student";
 
     // 5. Parse and validate JSON request body
     let body: AssistantRequestBody;
@@ -170,6 +195,17 @@ Deno.serve(async (req: Request) => {
           code: "INVALID_ACTION",
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Enforce role authorization for teacher-only workflows
+    if (TEACHER_ONLY_ACTIONS.includes(action) && userRole !== "teacher") {
+      return new Response(
+        JSON.stringify({
+          error: `Action '${action}' requires teacher privileges. You are registered as '${userRole}'.`,
+          code: "FORBIDDEN",
+        }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
