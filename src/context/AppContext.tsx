@@ -23,6 +23,8 @@ import { I18nProvider } from '../i18n/context';
 interface AppContextType {
   currentUser: User | null;
   loadingAuth: boolean;
+  loadingData: boolean;
+  dataError: string | null;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   setAuthenticatedUser: (supabaseUser: any) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -111,6 +113,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const currentUserRef = useRef<User | null>(null);
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
+  const [loadingData, setLoadingData] = useState<boolean>(false);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   // Core production entities (defaults to empty arrays - no fake records!)
   const [courses, setCourses] = useState<Course[]>([]);
@@ -165,15 +169,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 1. DATA REFRESH FUNCTION - Pulls real records from Supabase
   const refreshData = useCallback(async () => {
     if (!currentUser) return;
+    setLoadingData(true);
+    setDataError(null);
 
     try {
       if (currentUser.role === 'teacher') {
         // Teacher sees courses where teacher_id = currentUser.id
-        const { data: coursesData } = await supabase
+        const { data: coursesData, error: coursesError } = await supabase
           .from('courses')
           .select('*')
           .eq('teacher_id', currentUser.id)
           .order('created_at', { ascending: false });
+
+        if (coursesError) {
+          console.error('Error fetching teacher courses:', coursesError);
+          setDataError(coursesError.message);
+        }
 
         if (coursesData) {
           const mappedCourses: Course[] = coursesData.map((c: any) => ({
@@ -734,8 +745,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch {
         // Safe fallback if notifications table does not yet exist
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching Supabase data:', err);
+      setDataError(err?.message || 'Error loading records from database');
+    } finally {
+      setLoadingData(false);
     }
   }, [currentUser]);
 
@@ -889,6 +903,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     currentUserRef.current = null;
     setCurrentUser(null);
+    setLoadingData(false);
+    setDataError(null);
     setCourses([]);
     setEnrollmentRequests([]);
     setCourseMembers([]);
@@ -1036,16 +1052,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const newCourseRow = {
       teacher_id: currentUser.id,
-      name: courseData.name,
-      description: courseData.description,
-      skills: courseData.skills,
+      name: courseData.name.trim(),
+      description: courseData.description?.trim() || '',
+      cover_url: courseData.coverUrl || null,
+      skills: courseData.skills && courseData.skills.length > 0 ? courseData.skills : ['reading', 'writing'],
       status: courseData.status || 'active',
       code,
       start_date: courseData.startDate || null,
       end_date: courseData.endDate || null,
-      tuition_model: courseData.tuitionModel,
-      tuition_amount: courseData.tuitionAmount,
-      currency: courseData.currency,
+      tuition_model: courseData.tuitionModel || 'fixed_monthly',
+      tuition_amount: Number(courseData.tuitionAmount) || 0,
+      currency: courseData.currency || 'VND',
     };
 
     const { data, error } = await supabase.from('courses').insert(newCourseRow).select().single();
@@ -1060,9 +1077,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       teacherId: currentUser.id,
       teacherName: currentUser.name,
       name: data.name,
-      description: data.description,
+      description: data.description || '',
       coverUrl: data.cover_url,
-      skills: data.skills,
+      skills: data.skills || [],
       status: data.status,
       code: data.code,
       startDate: data.start_date || '',
@@ -1073,7 +1090,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: data.created_at?.split('T')[0] || '',
     };
 
-    setCourses((prev) => [created, ...prev]);
+    setCourses((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+
+    // Keep tuition_settings synchronized
+    try {
+      await supabase.from('tuition_settings').upsert(
+        {
+          course_id: data.id,
+          teacher_id: currentUser.id,
+          model: data.tuition_model,
+          currency: data.currency,
+          amount: Number(data.tuition_amount),
+        },
+        { onConflict: 'course_id' }
+      );
+    } catch (tErr) {
+      console.warn('Initial tuition_settings sync notice:', tErr);
+    }
+
     addActivity(`Created course: ${created.name}`, 'enrollment', 'courses');
     return created;
   };
@@ -1874,6 +1908,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         currentUser,
         loadingAuth,
+        loadingData,
+        dataError,
         signIn,
         setAuthenticatedUser,
         logout,
