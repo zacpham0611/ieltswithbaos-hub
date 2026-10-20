@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   User,
   Course,
@@ -15,6 +15,7 @@ import {
   NotificationItem,
   PaymentRecord,
   InlineAnnotation,
+  UserRole,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
@@ -22,6 +23,8 @@ import { I18nProvider } from '../i18n/context';
 interface AppContextType {
   currentUser: User | null;
   loadingAuth: boolean;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  setAuthenticatedUser: (supabaseUser: any) => Promise<boolean>;
   logout: () => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<void>;
 
@@ -106,6 +109,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const currentUserRef = useRef<User | null>(null);
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
 
   // Core production entities (defaults to empty arrays - no fake records!)
@@ -735,53 +739,197 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentUser]);
 
+  // AUTHORITATIVE USER PROFILE LOADER & RESOLVER
+  const loadUserProfile = async (supabaseUser: any): Promise<User | null> => {
+    if (!supabaseUser?.id) return null;
+
+    try {
+      // 1. Attempt to fetch authoritative profile from public.profiles with retry
+      let profile: any = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', supabaseUser.id)
+          .maybeSingle();
+
+        if (data) {
+          profile = data;
+          break;
+        }
+
+        if (error) {
+          console.warn(`Profile fetch attempt ${attempt + 1} notice:`, error.message);
+        }
+
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+        }
+      }
+
+      // 2. If profile found, return mapped User
+      if (profile) {
+        return {
+          id: profile.id,
+          name: profile.name || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+          email: profile.email || supabaseUser.email || '',
+          role: profile.role === 'teacher' ? 'teacher' : 'student',
+          avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+          bio: profile.bio || '',
+          targetBand: profile.target_band,
+        };
+      }
+
+      // 3. If profile not found in public.profiles (e.g. trigger delay or new account):
+      // Self-heal: attempt to insert the initial profile record into public.profiles
+      const metadataRole = supabaseUser.user_metadata?.role;
+      const initialRole: UserRole = metadataRole === 'teacher' ? 'teacher' : 'student';
+      const initialName = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User';
+
+      try {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('profiles')
+          .upsert({
+            id: supabaseUser.id,
+            name: initialName,
+            email: supabaseUser.email || '',
+            role: initialRole,
+            language_preference: supabaseUser.user_metadata?.language_preference || 'vi',
+          })
+          .select()
+          .maybeSingle();
+
+        if (inserted) {
+          return {
+            id: inserted.id,
+            name: inserted.name,
+            email: inserted.email,
+            role: inserted.role === 'teacher' ? 'teacher' : 'student',
+            avatar: inserted.avatar_url || `https://images.unsplash.com/photo-${inserted.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+            bio: inserted.bio || '',
+            targetBand: inserted.target_band,
+          };
+        }
+        if (insertErr) {
+          console.warn('Profile self-heal insert notice:', insertErr.message);
+        }
+      } catch (insertCatch) {
+        console.warn('Profile self-heal exception:', insertCatch);
+      }
+
+      // 4. Safe verified fallback constructed directly from authenticated session JWT
+      return {
+        id: supabaseUser.id,
+        name: initialName,
+        email: supabaseUser.email || '',
+        role: initialRole,
+        avatar: `https://images.unsplash.com/photo-${initialRole === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+        bio: '',
+        targetBand: supabaseUser.user_metadata?.target_band,
+      };
+    } catch (err) {
+      console.error('Fatal loadUserProfile error:', err);
+      return null;
+    }
+  };
+
+  // DIRECT AUTHENTICATION HANDLERS
+  const signIn = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (!data.user || !data.session) {
+        return { success: false, error: 'Authentication failed: No active session returned.' };
+      }
+
+      // Resolve user profile
+      const user = await loadUserProfile(data.user);
+      if (!user) {
+        return { success: false, error: 'Failed to initialize authenticated profile.' };
+      }
+
+      currentUserRef.current = user;
+      setCurrentUser(user);
+      setActiveTab('dashboard');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Login failed.' };
+    }
+  };
+
+  const setAuthenticatedUser = async (supabaseUser: any): Promise<boolean> => {
+    try {
+      const user = await loadUserProfile(supabaseUser);
+      if (!user) return false;
+      currentUserRef.current = user;
+      setCurrentUser(user);
+      setActiveTab('dashboard');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // LOGOUT
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Sign out warning:', err);
+    }
+    currentUserRef.current = null;
+    setCurrentUser(null);
+    setCourses([]);
+    setEnrollmentRequests([]);
+    setCourseMembers([]);
+    setAssignments([]);
+    setSubmissions([]);
+    setMonthlyReports([]);
+    setTuitionStatements([]);
+    setActivities([]);
+    setNotifications([]);
+    setActiveTab('dashboard');
+  };
+
   // 2. AUTH SESSION LISTENER & PROFILE RESTORATION
   useEffect(() => {
     let mounted = true;
-
-    const fetchUserProfileWithRetry = async (userId: string, attempts = 3, delayMs = 350) => {
-      for (let i = 0; i < attempts; i++) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .maybeSingle();
-
-        if (profile) return profile;
-        if (i < attempts - 1) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-      }
-      return null;
-    };
 
     async function checkSession() {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error || !session?.user) {
           if (mounted) {
+            currentUserRef.current = null;
             setCurrentUser(null);
-            setLoadingAuth(false);
           }
           return;
         }
 
-        // Fetch or create profile with retry to prevent race condition on new registrations
-        const profile = await fetchUserProfileWithRetry(session.user.id);
-
-        if (profile && mounted) {
-          setCurrentUser({
-            id: profile.id,
-            name: profile.name,
-            email: profile.email,
-            role: profile.role,
-            avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
-            bio: profile.bio,
-            targetBand: profile.target_band,
-          });
+        const user = await loadUserProfile(session.user);
+        if (user && mounted) {
+          currentUserRef.current = user;
+          setCurrentUser(user);
+        } else if (mounted) {
+          currentUserRef.current = null;
+          setCurrentUser(null);
         }
       } catch (err) {
         console.error('Session check failed:', err);
+        if (mounted) {
+          currentUserRef.current = null;
+          setCurrentUser(null);
+        }
       } finally {
         if (mounted) setLoadingAuth(false);
       }
@@ -789,8 +937,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     checkSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!session?.user) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        currentUserRef.current = null;
         setCurrentUser(null);
         setCourses([]);
         setEnrollmentRequests([]);
@@ -805,20 +954,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
 
-      const profile = await fetchUserProfileWithRetry(session.user.id);
-
-      if (profile) {
-        setCurrentUser({
-          id: profile.id,
-          name: profile.name,
-          email: profile.email,
-          role: profile.role,
-          avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
-          bio: profile.bio,
-          targetBand: profile.target_band,
-        });
+      // Avoid duplicate profile resolution if signIn() already loaded this user
+      if (currentUserRef.current?.id === session.user.id) {
+        setLoadingAuth(false);
+        return;
       }
-      setLoadingAuth(false);
+
+      try {
+        const user = await loadUserProfile(session.user);
+        if (user && mounted) {
+          currentUserRef.current = user;
+          setCurrentUser(user);
+        }
+      } catch (err) {
+        console.error('Auth state change error:', err);
+      } finally {
+        if (mounted) setLoadingAuth(false);
+      }
     });
 
     return () => {
@@ -856,13 +1008,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       supabase.removeChannel(channel);
     };
   }, [currentUser, refreshData]);
-
-  // LOGOUT
-  const logout = async () => {
-    await supabase.auth.signOut();
-    setCurrentUser(null);
-    setActiveTab('dashboard');
-  };
 
   // UPDATE PROFILE
   const updateProfile = async (updates: Partial<User>) => {
@@ -1729,6 +1874,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         currentUser,
         loadingAuth,
+        signIn,
+        setAuthenticatedUser,
         logout,
         updateProfile,
         courses,

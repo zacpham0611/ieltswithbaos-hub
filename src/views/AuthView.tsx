@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useI18n } from '../i18n/context';
+import { useApp } from '../context/AppContext';
 import {
   GraduationCap,
   Mail,
@@ -22,6 +23,7 @@ interface AuthViewProps {
 
 export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   const { t, language, setLanguage } = useI18n();
+  const { signIn, setAuthenticatedUser, setActiveTab } = useApp();
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
@@ -41,26 +43,23 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
     try {
       if (mode === 'signin') {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
+        const res = await signIn(email, password);
 
-        if (error) {
-          if (error.message.includes('Invalid login credentials')) {
+        if (!res.success) {
+          const err = res.error || '';
+          if (err.includes('Invalid login credentials')) {
             setErrorMessage(t('auth.invalidCredentials'));
-          } else if (error.message.toLowerCase().includes('email not confirmed')) {
+          } else if (err.toLowerCase().includes('email not confirmed')) {
             setErrorMessage(t('auth.emailNotConfirmed'));
           } else {
-            setErrorMessage(error.message);
+            setErrorMessage(err || t('auth.authError'));
           }
           setLoading(false);
           return;
         }
 
-        if (data.user) {
-          onAuthSuccess?.();
-        }
+        // Successfully signed in: currentUser and activeTab are updated in AppContext
+        onAuthSuccess?.();
       } else {
         // Sign Up
         if (!fullName.trim()) {
@@ -93,7 +92,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         }
 
         // If auto-confirm is enabled or session created directly:
-        if (data.session) {
+        if (data.session && data.user) {
+          await setAuthenticatedUser(data.user);
           onAuthSuccess?.();
         } else if (data.user) {
           setSuccessMessage(t('auth.signUpConfirmEmail'));
