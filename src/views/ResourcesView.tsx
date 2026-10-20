@@ -18,7 +18,12 @@ import {
   Sparkles,
   BookOpen,
   Calendar,
+  FileUp,
+  ArrowRight,
 } from 'lucide-react';
+const SmartDocumentImportModal = React.lazy(() =>
+  import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
+);
 
 export const ResourcesView: React.FC = () => {
   const {
@@ -45,6 +50,7 @@ export const ResourcesView: React.FC = () => {
   const [showAddResModal, setShowAddResModal] = useState(false);
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
   const [showAiLessonModal, setShowAiLessonModal] = useState(false);
+  const [showSmartImportModal, setShowSmartImportModal] = useState(false);
 
   // New Resource Form
   const [resTitle, setResTitle] = useState('');
@@ -202,7 +208,14 @@ Submit full completed assignment with self-editing checklist.`;
         </div>
 
         {isTeacher && (
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowSmartImportModal(true)}
+              className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5"
+            >
+              <FileUp className="w-4 h-4 text-white" />
+              <span>Smart Document Import</span>
+            </button>
             <button
               onClick={() => setShowAiLessonModal(true)}
               className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 transition-colors flex items-center space-x-1.5"
@@ -227,6 +240,40 @@ Submit full completed assignment with self-editing checklist.`;
           </div>
         )}
       </div>
+
+      {/* Smart Document Import Feature Banner for Teachers */}
+      {isTeacher && (
+        <div className="bg-gradient-to-r from-blue-50 via-indigo-50/50 to-slate-50 border border-blue-200/70 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start space-x-3.5">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <FileUp className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+                  Smart Document Import & Converter
+                </h3>
+                <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.2 rounded-full">
+                  NEW
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
+                Import PDF, DOCX, TXT or Markdown files. Convert them into formatted <strong>Word (.docx)</strong> documents with answer keys, or transform them into <strong>Interactive Online Assignments</strong> for students.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={() => setShowSmartImportModal(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+            >
+              <span>Import Document</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Switcher Tab */}
       <div className="border-b border-slate-200 flex space-x-4 text-xs font-bold">
@@ -784,6 +831,16 @@ Submit full completed assignment with self-editing checklist.`;
             </div>
           </div>
         </div>
+      )}
+
+      {/* Smart Document Import & Conversion Modal (Lazy Loaded) */}
+      {showSmartImportModal && (
+        <React.Suspense fallback={null}>
+          <SmartDocumentImportModal
+            isOpen={showSmartImportModal}
+            onClose={() => setShowSmartImportModal(false)}
+          />
+        </React.Suspense>
       )}
     </div>
   );

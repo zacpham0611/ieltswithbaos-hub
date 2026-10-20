@@ -48,7 +48,7 @@ export const Sidebar: React.FC = () => {
     { id: 'assignments', label: t('nav.assignments'), icon: FileCheck2 },
     { id: 'assessments', label: t('nav.monthlyAssessments'), icon: Award },
     { id: 'tuition', label: t('nav.tuition'), icon: WalletCards },
-    { id: 'ai_assistant', label: t('nav.aiAssistant'), icon: Sparkles, badge: 'Copilot' },
+    { id: 'ai_assistant', label: t('nav.aiAssistant'), icon: Sparkles, badge: 'AI' },
     { id: 'settings', label: t('nav.settings'), icon: Settings },
   ];
 

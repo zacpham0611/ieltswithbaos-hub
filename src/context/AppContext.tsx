@@ -19,6 +19,7 @@ import {
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
+import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
 
 interface AppContextType {
   currentUser: User | null;
@@ -557,18 +558,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setEnrollmentRequests(reqs);
           setCourseMembers(members);
 
-          // Assignments for approved courses
-          if (approvedCourseIds.length > 0) {
-            const { data: assignmentsData } = await supabase
-              .from('assignments')
-              .select('*')
-              .in('course_id', approvedCourseIds)
-              .eq('status', 'published')
-              .order('created_at', { ascending: false });
+        // 1. Student Submissions
+        const { data: subsData } = await supabase
+          .from('submissions')
+          .select('*, assignments:assignment_id(*), courses:course_id(*)')
+          .eq('student_id', currentUser.id)
+          .order('submitted_at', { ascending: false });
 
-            if (assignmentsData) {
-              setAssignments(
-                assignmentsData.map((a: any) => ({
+        // 2. Assignments for approved courses
+        if (approvedCourseIds.length > 0) {
+          const { data: assignmentsData } = await supabase
+            .from('assignments')
+            .select('*')
+            .in('course_id', approvedCourseIds)
+            .eq('status', 'published')
+            .order('created_at', { ascending: false });
+
+          if (assignmentsData) {
+            setAssignments(
+              assignmentsData.map((a: any) => {
+                const studentSub = subsData?.find((s: any) => s.assignment_id === a.id);
+                const isGraded = studentSub && studentSub.status === 'graded';
+                const releasePolicy = a.answer_release_policy || a.reading_questions?.answerReleasePolicy || 'after_submission';
+                const canSeeAnswers = isGraded && releasePolicy !== 'never';
+
+                const sanitizedQuestions = Array.isArray(a.reading_questions)
+                  ? a.reading_questions.map((q: any) => {
+                      if (canSeeAnswers) return q;
+                      const { correctAnswer, explanation, ...safeQ } = q;
+                      return {
+                        ...safeQ,
+                        correctAnswer: '',
+                        explanation: '',
+                      };
+                    })
+                  : a.reading_questions;
+
+                return {
                   id: a.id,
                   courseId: a.course_id,
                   title: a.title,
@@ -578,26 +604,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   dueDate: a.due_date,
                   status: a.status,
                   readingPassage: a.reading_passage,
-                  readingQuestions: a.reading_questions,
+                  readingQuestions: sanitizedQuestions,
                   writingTaskType: a.writing_task_type,
                   writingPrompt: a.writing_prompt,
                   writingMinWords: a.writing_min_words,
                   speakingPart: a.speaking_part,
                   speakingCueCard: a.speaking_cue_card,
-                }))
-              );
-            }
+                };
+              })
+            );
           } else {
             setAssignments([]);
           }
         }
-
-        // Student Submissions
-        const { data: subsData } = await supabase
-          .from('submissions')
-          .select('*, assignments:assignment_id(*), courses:course_id(*)')
-          .eq('student_id', currentUser.id)
-          .order('submitted_at', { ascending: false });
 
         if (subsData) {
           setSubmissions(
@@ -638,8 +657,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             })
           );
         }
+      }
 
-        // Student Published Monthly Reports
+      // Student Published Monthly Reports
         const { data: assessmentsData } = await supabase
           .from('monthly_assessments')
           .select('*, courses:course_id(*)')
@@ -1357,6 +1377,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     const now = new Date().toISOString();
+
+    // Authoritative server/database grading for objective reading/document questions
+    if (data.readingAnswers && Object.keys(data.readingAnswers).length > 0) {
+      try {
+        const { data: rawAssign } = await supabase
+          .from('assignments')
+          .select('reading_questions')
+          .eq('id', assignmentId)
+          .single();
+
+        if (rawAssign && Array.isArray(rawAssign.reading_questions)) {
+          const gradeSummary = gradeAssignmentSubmission(rawAssign.reading_questions, data.readingAnswers);
+          data.readingScore = {
+            correct: gradeSummary.earnedScore,
+            total: gradeSummary.maxScore,
+            percentage: gradeSummary.percentage,
+          };
+          data.readingErrorAnalysis = gradeSummary.errorAnalysis;
+          data.score = gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate;
+          data.status = gradeSummary.finalStatus;
+        }
+      } catch (gradeErr) {
+        console.warn('Error during authoritative grading in submitAssignment:', gradeErr);
+      }
+    }
 
     if (existing) {
       await supabase

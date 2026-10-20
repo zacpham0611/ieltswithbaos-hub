@@ -9,6 +9,7 @@ import {
   ReadingQuestion,
   InlineAnnotation,
 } from '../types';
+import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
 import {
   FileCheck2,
   Clock,
@@ -337,35 +338,25 @@ export const AssignmentsView: React.FC = () => {
     }
   };
 
-  // Auto-scoring logic for reading
+  // Auto-scoring logic for reading & interactive question types
   const handleReadingSubmit = async () => {
     if (!activeAssignment || !activeAssignment.readingQuestions) return;
 
-    const questions = activeAssignment.readingQuestions;
-    let correctCount = 0;
-    const errorAnalysis = questions.map((q) => {
-      const userAns = (readingAnswers[q.id] || '').trim().toLowerCase();
-      const correctAns = q.correctAnswer.trim().toLowerCase();
-      const isCorrect = userAns === correctAns;
-      if (isCorrect) correctCount++;
-      return {
-        questionId: q.id,
-        userAnswer: readingAnswers[q.id] || '(No answer)',
-        correctAnswer: q.correctAnswer,
-        isCorrect,
-        explanation: q.explanation,
-      };
-    });
-
-    const percentage = Math.round((correctCount / questions.length) * 100);
-    const bandEstimate = percentage >= 90 ? 9.0 : percentage >= 75 ? 7.5 : percentage >= 50 ? 6.0 : 4.5;
+    const gradeSummary = gradeAssignmentSubmission(
+      activeAssignment.readingQuestions,
+      readingAnswers
+    );
 
     await submitAssignment(activeAssignment.id, {
       readingAnswers,
-      readingScore: { correct: correctCount, total: questions.length, percentage },
-      readingErrorAnalysis: errorAnalysis,
-      score: bandEstimate,
-      status: 'graded',
+      readingScore: {
+        correct: gradeSummary.earnedScore,
+        total: gradeSummary.maxScore,
+        percentage: gradeSummary.percentage,
+      },
+      readingErrorAnalysis: gradeSummary.errorAnalysis,
+      score: gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate,
+      status: gradeSummary.finalStatus,
     });
   };
 
@@ -1059,7 +1050,61 @@ export const AssignmentsView: React.FC = () => {
 
                       <p className="font-semibold text-slate-800">{q.prompt}</p>
 
-                      {q.options && q.options.length > 0 ? (
+                      {/* Question Input by Type */}
+                      {q.type === 'true_false_not_given' || q.type === 'yes_no_not_given' ? (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {(q.type === 'true_false_not_given'
+                            ? ['TRUE', 'FALSE', 'NOT GIVEN']
+                            : ['YES', 'NO', 'NOT GIVEN']
+                          ).map((choice) => (
+                            <button
+                              key={choice}
+                              type="button"
+                              disabled={mySub?.status === 'graded'}
+                              onClick={() => setReadingAnswers({ ...readingAnswers, [q.id]: choice })}
+                              className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                                answer === choice
+                                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              {choice}
+                            </button>
+                          ))}
+                        </div>
+                      ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {q.options.map((opt) => {
+                            const selectedList = answer ? answer.split(',').map((s) => s.trim()) : [];
+                            const isChecked = selectedList.includes(opt);
+                            return (
+                              <label
+                                key={opt}
+                                className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
+                                  isChecked ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold' : 'hover:bg-slate-100'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  disabled={mySub?.status === 'graded'}
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    let updated = [...selectedList];
+                                    if (e.target.checked) {
+                                      updated.push(opt);
+                                    } else {
+                                      updated = updated.filter((item) => item !== opt);
+                                    }
+                                    setReadingAnswers({ ...readingAnswers, [q.id]: updated.join(', ') });
+                                  }}
+                                  className="text-blue-600 rounded"
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : q.options && q.options.length > 0 ? (
                         <div className="space-y-1.5">
                           {q.options.map((opt) => (
                             <label
@@ -1080,6 +1125,53 @@ export const AssignmentsView: React.FC = () => {
                             </label>
                           ))}
                         </div>
+                      ) : q.type === 'matching' && q.matchingPairs && q.matchingPairs.length > 0 ? (
+                        <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50/50">
+                          <p className="text-[11px] font-bold text-slate-700 uppercase">Match each item with the correct description:</p>
+                          {q.matchingPairs.map((pair, pIdx) => {
+                            let currentMap: Record<string, string> = {};
+                            try {
+                              currentMap = answer ? JSON.parse(answer) : {};
+                            } catch {
+                              currentMap = {};
+                            }
+                            return (
+                              <div key={pIdx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white rounded border border-slate-200 text-xs">
+                                <span className="font-semibold text-slate-800">{pair.left}</span>
+                                <select
+                                  disabled={mySub?.status === 'graded'}
+                                  value={currentMap[pair.left] || ''}
+                                  onChange={(e) => {
+                                    const updated = { ...currentMap, [pair.left]: e.target.value };
+                                    setReadingAnswers({ ...readingAnswers, [q.id]: JSON.stringify(updated) });
+                                  }}
+                                  className="p-1.5 border border-slate-300 rounded text-xs bg-white text-slate-900"
+                                >
+                                  <option value="">-- Select Match --</option>
+                                  {q.matchingPairs!.map((m) => (
+                                    <option key={m.right} value={m.right}>
+                                      {m.right}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : q.type === 'essay' ? (
+                        <div className="space-y-1.5">
+                          <textarea
+                            rows={5}
+                            disabled={mySub?.status === 'graded'}
+                            placeholder="Type your extended essay or response here..."
+                            value={answer}
+                            onChange={(e) => setReadingAnswers({ ...readingAnswers, [q.id]: e.target.value })}
+                            className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-mono leading-relaxed"
+                          />
+                          <span className="text-[10px] text-slate-400 font-semibold">
+                            Word count: {answer.trim() ? answer.trim().split(/\s+/).length : 0} words
+                          </span>
+                        </div>
                       ) : (
                         <div>
                           <input
@@ -1088,12 +1180,13 @@ export const AssignmentsView: React.FC = () => {
                             placeholder={t('assignments.typeAnswerPlaceholder')}
                             value={answer}
                             onChange={(e) => setReadingAnswers({ ...readingAnswers, [q.id]: e.target.value })}
-                            className="w-full sm:w-64 p-2 border border-slate-300 rounded-lg text-xs"
+                            className="w-full sm:w-80 p-2 border border-slate-300 rounded-lg text-xs"
                           />
                         </div>
                       )}
 
-                      {(result || isTeacher) && (
+                      {/* Strict Answer Key Disclosure Guard */}
+                      {(isTeacher || (mySub?.status === 'graded' && activeAssignment.answerReleasePolicy !== 'never')) && (
                         <div className="pt-2 border-t border-slate-200/60 text-[11px] text-slate-600">
                           <span className="font-bold text-slate-700">{t('assignments.answerKey')}: </span>
                           <span className="font-semibold text-emerald-700">{q.correctAnswer}</span>

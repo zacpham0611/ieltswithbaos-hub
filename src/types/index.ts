@@ -90,13 +90,29 @@ export interface Lesson {
 
 export type AssignmentSkill = 'reading' | 'writing' | 'speaking';
 
+export type QuestionType =
+  | 'multiple_choice'
+  | 'multiple_select'
+  | 'true_false_not_given'
+  | 'yes_no_not_given'
+  | 'matching'
+  | 'sentence_completion'
+  | 'fill_in_the_blank'
+  | 'short_answer'
+  | 'essay';
+
 export interface ReadingQuestion {
   id: string;
-  type: 'multiple_choice' | 'true_false_not_given' | 'matching' | 'sentence_completion';
+  type: QuestionType;
   prompt: string;
   options?: string[];
+  matchingPairs?: { left: string; right: string }[];
   correctAnswer: string;
   explanation: string;
+  points?: number;
+  source?: 'extracted_from_doc' | 'ai_generated';
+  answerKeyConfidence?: 'high' | 'medium' | 'needs_teacher_review';
+  needsReview?: boolean;
 }
 
 export interface Assignment {
@@ -121,6 +137,8 @@ export interface Assignment {
     prepTimeSeconds: number;
     speakTimeSeconds: number;
   };
+  answerReleasePolicy?: 'immediate' | 'after_submission' | 'never';
+  sourceDocumentName?: string;
 }
 
 export type SubmissionStatus = 'submitted' | 'returned' | 'resubmitted' | 'graded';

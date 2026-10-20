@@ -12,7 +12,10 @@
     "@supabase/supabase-js": "^2.118.0",
     "canvas-confetti": "^1.9.2",
     "clsx": "^2.1.0",
+    "docx": "^9.13.0",
     "lucide-react": "^0.344.0",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^3.11.174",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.2.1"
