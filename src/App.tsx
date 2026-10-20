@@ -17,7 +17,7 @@ import { AuthView } from './views/AuthView';
 import { useI18n } from './i18n/context';
 
 export const AppContent: React.FC = () => {
-  const { currentUser, loadingAuth, activeTab } = useApp();
+  const { currentUser, loadingAuth, activeTab, setActiveTab } = useApp();
   const { t } = useI18n();
 
   if (loadingAuth) {
@@ -34,7 +34,7 @@ export const AppContent: React.FC = () => {
   }
 
   if (!currentUser) {
-    return <AuthView />;
+    return <AuthView onAuthSuccess={() => setActiveTab('dashboard')} />;
   }
 
   const isTeacher = currentUser.role === 'teacher';
@@ -72,7 +72,9 @@ export const AppContent: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
-          {renderContent()}
+          <div key={activeTab} className="page-transition min-h-full">
+            {renderContent()}
+          </div>
         </main>
       </div>
     </div>

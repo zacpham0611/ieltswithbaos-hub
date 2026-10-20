@@ -49,6 +49,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         if (error) {
           if (error.message.includes('Invalid login credentials')) {
             setErrorMessage(t('auth.invalidCredentials'));
+          } else if (error.message.toLowerCase().includes('email not confirmed')) {
+            setErrorMessage(t('auth.emailNotConfirmed'));
           } else {
             setErrorMessage(error.message);
           }
@@ -93,6 +95,9 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         // If auto-confirm is enabled or session created directly:
         if (data.session) {
           onAuthSuccess?.();
+        } else if (data.user) {
+          setSuccessMessage(t('auth.signUpConfirmEmail'));
+          setMode('signin');
         } else {
           setSuccessMessage(t('auth.signUpSuccess'));
           setMode('signin');

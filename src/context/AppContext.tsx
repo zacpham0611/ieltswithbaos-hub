@@ -14,6 +14,7 @@ import {
   ActivityItem,
   NotificationItem,
   PaymentRecord,
+  InlineAnnotation,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
@@ -135,6 +136,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       res += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return res;
+  };
+
+  // Helper to parse teacher comments and inline annotations safely
+  const parseTeacherComments = (raw: any) => {
+    let comments = raw || '';
+    let annotations: InlineAnnotation[] = [];
+    let isDraft = false;
+    if (typeof raw === 'string' && raw.trim().startsWith('{') && raw.trim().endsWith('}')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          comments = parsed.general !== undefined ? parsed.general : comments;
+          annotations = Array.isArray(parsed.annotations) ? parsed.annotations : [];
+          isDraft = Boolean(parsed.isDraft);
+        }
+      } catch {
+        // Fallback to raw text
+      }
+    }
+    return { comments, annotations, isDraft };
   };
 
   // 1. DATA REFRESH FUNCTION - Pulls real records from Supabase
@@ -260,35 +281,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
             if (subsData) {
               setSubmissions(
-                subsData.map((s: any) => ({
-                  id: s.id,
-                  assignmentId: s.assignment_id,
-                  assignmentTitle: s.assignments?.title || 'Assignment',
-                  studentId: s.student_id,
-                  studentName: s.profiles?.name || 'Student',
-                  courseId: s.course_id,
-                  courseName: mappedCourses.find((c) => c.id === s.course_id)?.name || 'Course',
-                  skill: s.skill,
-                  status: s.status,
-                  submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
-                  updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
-                  readingAnswers: s.reading_answers,
-                  readingScore: s.reading_score,
-                  readingErrorAnalysis: s.reading_error_analysis,
-                  writingText: s.writing_text,
-                  writingWordCount: s.writing_word_count,
-                  writingRevisions: s.writing_revisions,
-                  speakingAudioUrl: s.speaking_audio_url,
-                  speakingTranscript: s.speaking_transcript,
-                  speakingDuration: s.speaking_duration,
-                  rubricScores: s.rubric_scores,
-                  strengths: s.strengths,
-                  areasToImprove: s.areas_to_improve,
-                  teacherComments: s.teacher_comments,
-                  nextSteps: s.next_steps,
-                  aiSuggestedFeedback: s.ai_suggested_feedback,
-                  score: s.score ? Number(s.score) : undefined,
-                }))
+                subsData.map((s: any) => {
+                  const { comments, annotations, isDraft } = parseTeacherComments(s.teacher_comments);
+                  return {
+                    id: s.id,
+                    assignmentId: s.assignment_id,
+                    assignmentTitle: s.assignments?.title || 'Assignment',
+                    studentId: s.student_id,
+                    studentName: s.profiles?.name || 'Student',
+                    courseId: s.course_id,
+                    courseName: mappedCourses.find((c) => c.id === s.course_id)?.name || 'Course',
+                    skill: s.skill,
+                    status: s.status,
+                    submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
+                    updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
+                    readingAnswers: s.reading_answers,
+                    readingScore: s.reading_score,
+                    readingErrorAnalysis: s.reading_error_analysis,
+                    writingText: s.writing_text,
+                    writingWordCount: s.writing_word_count,
+                    writingRevisions: s.writing_revisions,
+                    speakingAudioUrl: s.speaking_audio_url,
+                    speakingTranscript: s.speaking_transcript,
+                    speakingDuration: s.speaking_duration,
+                    rubricScores: s.rubric_scores,
+                    strengths: s.strengths,
+                    areasToImprove: s.areas_to_improve,
+                    teacherComments: comments,
+                    nextSteps: s.next_steps,
+                    aiSuggestedFeedback: s.ai_suggested_feedback,
+                    score: s.score ? Number(s.score) : undefined,
+                    annotations,
+                    isDraft: isDraft || s.status === 'in_review',
+                  };
+                })
               );
             }
           } else {
@@ -560,35 +586,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         if (subsData) {
           setSubmissions(
-            subsData.map((s: any) => ({
-              id: s.id,
-              assignmentId: s.assignment_id,
-              assignmentTitle: s.assignments?.title || 'Assignment',
-              studentId: s.student_id,
-              studentName: currentUser.name,
-              courseId: s.course_id,
-              courseName: s.courses?.name || 'Course',
-              skill: s.skill,
-              status: s.status,
-              submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
-              updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
-              readingAnswers: s.reading_answers,
-              readingScore: s.reading_score,
-              readingErrorAnalysis: s.reading_error_analysis,
-              writingText: s.writing_text,
-              writingWordCount: s.writing_word_count,
-              writingRevisions: s.writing_revisions,
-              speakingAudioUrl: s.speaking_audio_url,
-              speakingTranscript: s.speaking_transcript,
-              speakingDuration: s.speaking_duration,
-              rubricScores: s.rubric_scores,
-              strengths: s.strengths,
-              areasToImprove: s.areas_to_improve,
-              teacherComments: s.teacher_comments,
-              nextSteps: s.next_steps,
-              aiSuggestedFeedback: s.ai_suggested_feedback,
-              score: s.score ? Number(s.score) : undefined,
-            }))
+            subsData.map((s: any) => {
+              const { comments, annotations, isDraft } = parseTeacherComments(s.teacher_comments);
+              const isGradedPublished = s.status === 'graded' && !isDraft;
+              return {
+                id: s.id,
+                assignmentId: s.assignment_id,
+                assignmentTitle: s.assignments?.title || 'Assignment',
+                studentId: s.student_id,
+                studentName: currentUser.name,
+                courseId: s.course_id,
+                courseName: s.courses?.name || 'Course',
+                skill: s.skill,
+                status: s.status === 'in_review' ? 'submitted' : s.status,
+                submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
+                updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
+                readingAnswers: s.reading_answers,
+                readingScore: s.reading_score,
+                readingErrorAnalysis: s.reading_error_analysis,
+                writingText: s.writing_text,
+                writingWordCount: s.writing_word_count,
+                writingRevisions: s.writing_revisions,
+                speakingAudioUrl: s.speaking_audio_url,
+                speakingTranscript: s.speaking_transcript,
+                speakingDuration: s.speaking_duration,
+                rubricScores: isGradedPublished ? s.rubric_scores : [],
+                strengths: isGradedPublished ? s.strengths : undefined,
+                areasToImprove: isGradedPublished ? s.areas_to_improve : undefined,
+                teacherComments: isGradedPublished ? comments : undefined,
+                nextSteps: isGradedPublished ? s.next_steps : undefined,
+                aiSuggestedFeedback: isGradedPublished ? s.ai_suggested_feedback : undefined,
+                score: isGradedPublished && s.score ? Number(s.score) : undefined,
+                annotations: isGradedPublished ? annotations : [],
+                isDraft,
+              };
+            })
           );
         }
 
@@ -671,6 +703,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
         }
       }
+
+      // Notifications for current user (Teacher or Student)
+      try {
+        const { data: notifData } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .order('created_at', { ascending: false })
+          .limit(30);
+
+        if (notifData) {
+          setNotifications(
+            notifData.map((n: any) => ({
+              id: n.id,
+              userId: n.user_id,
+              title: n.title,
+              message: n.message,
+              timestamp: n.created_at?.replace('T', ' ').substring(0, 16) || '',
+              read: Boolean(n.read),
+              type: n.type || 'info',
+              linkTarget: n.link_target,
+            }))
+          );
+        }
+      } catch {
+        // Safe fallback if notifications table does not yet exist
+      }
     } catch (err) {
       console.error('Error fetching Supabase data:', err);
     }
@@ -679,6 +738,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 2. AUTH SESSION LISTENER & PROFILE RESTORATION
   useEffect(() => {
     let mounted = true;
+
+    const fetchUserProfileWithRetry = async (userId: string, attempts = 3, delayMs = 350) => {
+      for (let i = 0; i < attempts; i++) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (profile) return profile;
+        if (i < attempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+      return null;
+    };
 
     async function checkSession() {
       try {
@@ -691,12 +766,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         }
 
-        // Fetch or create profile
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
+        // Fetch or create profile with retry to prevent race condition on new registrations
+        const profile = await fetchUserProfileWithRetry(session.user.id);
 
         if (profile && mounted) {
           setCurrentUser({
@@ -734,11 +805,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+      const profile = await fetchUserProfileWithRetry(session.user.id);
 
       if (profile) {
         setCurrentUser({
@@ -778,6 +845,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         refreshData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_assessments' }, () => {
+        refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
         refreshData();
       })
       .subscribe();
@@ -1049,22 +1119,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ASSIGNMENTS OPERATIONS
   const createAssignment = async (assignmentData: Omit<Assignment, 'id'>) => {
-    await supabase.from('assignments').insert({
-      course_id: assignmentData.courseId,
-      title: assignmentData.title,
-      instructions: assignmentData.instructions,
-      skill: assignmentData.skill,
-      objectives: assignmentData.objectives,
-      due_date: assignmentData.dueDate,
-      status: assignmentData.status,
-      reading_passage: assignmentData.readingPassage || null,
-      reading_questions: assignmentData.readingQuestions || [],
-      writing_task_type: assignmentData.writingTaskType || null,
-      writing_prompt: assignmentData.writingPrompt || null,
-      writing_min_words: assignmentData.writingMinWords || 250,
-      speaking_part: assignmentData.speakingPart || null,
-      speaking_cue_card: assignmentData.speakingCueCard || null,
-    });
+    const { data: newAssign, error } = await supabase
+      .from('assignments')
+      .insert({
+        course_id: assignmentData.courseId,
+        title: assignmentData.title,
+        instructions: assignmentData.instructions,
+        skill: assignmentData.skill,
+        objectives: assignmentData.objectives,
+        due_date: assignmentData.dueDate,
+        status: assignmentData.status,
+        reading_passage: assignmentData.readingPassage || null,
+        reading_questions: assignmentData.readingQuestions || [],
+        writing_task_type: assignmentData.writingTaskType || null,
+        writing_prompt: assignmentData.writingPrompt || null,
+        writing_min_words: assignmentData.writingMinWords || 250,
+        speaking_part: assignmentData.speakingPart || null,
+        speaking_cue_card: assignmentData.speakingCueCard || null,
+      })
+      .select()
+      .single();
+
+    if (!error && assignmentData.status === 'published') {
+      try {
+        const { data: enrolledStudents } = await supabase
+          .from('enrollments')
+          .select('student_id')
+          .eq('course_id', assignmentData.courseId)
+          .eq('status', 'approved');
+
+        if (enrolledStudents && enrolledStudents.length > 0) {
+          const notifs = enrolledStudents.map((e: any) => ({
+            user_id: e.student_id,
+            title: `New Assignment: ${assignmentData.title}`,
+            message: `A new ${assignmentData.skill} assignment has been posted. Due: ${assignmentData.dueDate || 'No due date'}.`,
+            type: 'info',
+            read: false,
+            link_target: 'assignments',
+          }));
+          await supabase.from('notifications').insert(notifs);
+        }
+      } catch {
+        // Non-blocking notification insert
+      }
+    }
 
     refreshData();
   };
@@ -1138,19 +1236,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const gradeSubmission = async (submissionId: string, updates: Partial<Submission>) => {
+    // Serialize comments & inline annotations safely
+    let serializedComments = updates.teacherComments || '';
+    if (updates.annotations || updates.isDraft !== undefined) {
+      serializedComments = JSON.stringify({
+        general: updates.teacherComments || '',
+        annotations: updates.annotations || [],
+        isDraft: Boolean(updates.isDraft),
+      });
+    }
+
+    const newStatus = updates.isDraft ? 'in_review' : 'graded';
+
     await supabase
       .from('submissions')
       .update({
         rubric_scores: updates.rubricScores || [],
         strengths: updates.strengths,
         areas_to_improve: updates.areasToImprove,
-        teacher_comments: updates.teacherComments,
+        teacher_comments: serializedComments,
         next_steps: updates.nextSteps,
         score: updates.score,
-        status: 'graded',
+        status: newStatus,
         updated_at: new Date().toISOString(),
       })
       .eq('id', submissionId);
+
+    // If published (not draft), notify the student
+    if (!updates.isDraft) {
+      const sub = submissions.find((s) => s.id === submissionId);
+      if (sub) {
+        try {
+          await supabase.from('notifications').insert({
+            user_id: sub.studentId,
+            title: `Grading Published: ${sub.assignmentTitle}`,
+            message: `Your teacher has completed grading your ${sub.skill} assignment with band score and detailed feedback.`,
+            type: 'success',
+            read: false,
+            link_target: 'assignments',
+          });
+        } catch {
+          // Non-blocking notification insert
+        }
+      }
+    }
 
     refreshData();
   };
@@ -1554,8 +1683,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshData();
   };
 
-  const markNotificationRead = (id: string) => {
+  const markNotificationRead = async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try {
+      await supabase.from('notifications').update({ read: true }).eq('id', id);
+    } catch {
+      // Non-blocking fallback
+    }
   };
 
   const addActivity = async (text: string, type: ActivityItem['type'], targetTab?: string) => {

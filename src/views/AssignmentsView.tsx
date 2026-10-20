@@ -7,6 +7,7 @@ import {
   AssignmentSkill,
   SubmissionStatus,
   ReadingQuestion,
+  InlineAnnotation,
 } from '../types';
 import {
   FileCheck2,
@@ -30,6 +31,10 @@ import {
   User,
   History,
   X,
+  Highlighter,
+  Trash2,
+  Save,
+  MessageSquare,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -75,19 +80,42 @@ export const AssignmentsView: React.FC = () => {
   const [audioRecorded, setAudioRecorded] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
-  // Teacher grading state
-  const [gradingRubrics, setGradingRubrics] = useState<{ criterion: string; score: number; descriptor: string }[]>([
+  // Standard IELTS Rubrics
+  const defaultWritingRubrics = [
     { criterion: 'Task Achievement / Response', score: 7.0, descriptor: 'Addresses all parts of the prompt well.' },
     { criterion: 'Coherence & Cohesion', score: 7.0, descriptor: 'Sequences information and ideas logically.' },
     { criterion: 'Lexical Resource', score: 7.0, descriptor: 'Uses a good range of vocabulary with some awareness of style.' },
     { criterion: 'Grammatical Range & Accuracy', score: 7.0, descriptor: 'Uses a variety of complex structures with good control.' },
-  ]);
+  ];
+
+  const defaultSpeakingRubrics = [
+    { criterion: 'Fluency & Coherence', score: 7.0, descriptor: 'Speaks at length with noticeable rhythm.' },
+    { criterion: 'Lexical Resource', score: 7.0, descriptor: 'Resourceful range of descriptive phrases.' },
+    { criterion: 'Grammatical Range & Accuracy', score: 7.0, descriptor: 'Uses a variety of complex structures with good control.' },
+    { criterion: 'Pronunciation', score: 7.0, descriptor: 'Clear enunciation with appropriate intonation patterns.' },
+  ];
+
+  // Teacher grading state
+  const [gradingRubrics, setGradingRubrics] = useState<{ criterion: string; score: number; descriptor: string }[]>(defaultWritingRubrics);
   const [teacherStrengths, setTeacherStrengths] = useState('');
   const [teacherAreasToImprove, setTeacherAreasToImprove] = useState('');
   const [teacherGeneralComments, setTeacherGeneralComments] = useState('');
   const [teacherNextSteps, setTeacherNextSteps] = useState('');
   const [overallScore, setOverallScore] = useState<number>(7.0);
   const [isAiDrafting, setIsAiDrafting] = useState(false);
+
+  // Teacher inline annotation & draft state
+  const [annotations, setAnnotations] = useState<InlineAnnotation[]>([]);
+  const [activeSelection, setActiveSelection] = useState<{
+    text: string;
+    startIndex: number;
+    endIndex: number;
+  } | null>(null);
+  const [newAnnotationType, setNewAnnotationType] = useState<InlineAnnotation['type']>('correction');
+  const [newAnnotationComment, setNewAnnotationComment] = useState('');
+  const [newAnnotationSuggestion, setNewAnnotationSuggestion] = useState('');
+  const [draftSaveNotice, setDraftSaveNotice] = useState(false);
+  const [activeInspectedAnnotation, setActiveInspectedAnnotation] = useState<InlineAnnotation | null>(null);
 
   // Revision return prompt
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -120,6 +148,144 @@ export const AssignmentsView: React.FC = () => {
     : submissions.find(
         (s) => s.assignmentId === selectedAssignmentId && s.studentId === currentUser.id
       );
+
+  // Synchronize grading form whenever currentSubmission changes
+  React.useEffect(() => {
+    if (!currentSubmission) return;
+
+    if (currentSubmission.rubricScores && currentSubmission.rubricScores.length > 0) {
+      setGradingRubrics(currentSubmission.rubricScores);
+    } else if (currentSubmission.skill === 'speaking') {
+      setGradingRubrics(defaultSpeakingRubrics);
+    } else {
+      setGradingRubrics(defaultWritingRubrics);
+    }
+
+    setTeacherStrengths(currentSubmission.strengths || '');
+    setTeacherAreasToImprove(currentSubmission.areasToImprove || '');
+    setTeacherGeneralComments(currentSubmission.teacherComments || '');
+    setTeacherNextSteps(currentSubmission.nextSteps || '');
+    setOverallScore(currentSubmission.score ?? 7.0);
+    setAnnotations(currentSubmission.annotations || []);
+    setActiveSelection(null);
+    setActiveInspectedAnnotation(null);
+  }, [currentSubmission?.id]);
+
+  // Teacher text selection listener on student essay
+  const handleTextMouseUp = () => {
+    if (!isTeacher) return;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !currentSubmission?.writingText) {
+      return;
+    }
+
+    const selectedStr = selection.toString().trim();
+    if (!selectedStr) return;
+
+    const rawText = currentSubmission.writingText;
+    const matchIndex = rawText.indexOf(selectedStr);
+    if (matchIndex !== -1) {
+      setActiveSelection({
+        text: selectedStr,
+        startIndex: matchIndex,
+        endIndex: matchIndex + selectedStr.length,
+      });
+      setNewAnnotationComment('');
+      setNewAnnotationSuggestion('');
+    }
+  };
+
+  const handleAddAnnotation = () => {
+    if (!activeSelection || !newAnnotationComment.trim()) return;
+
+    const newAnnot: InlineAnnotation = {
+      id: `annot-${Date.now()}`,
+      startIndex: activeSelection.startIndex,
+      endIndex: activeSelection.endIndex,
+      selectedText: activeSelection.text,
+      type: newAnnotationType,
+      comment: newAnnotationComment.trim(),
+      suggestion: newAnnotationSuggestion.trim() || undefined,
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+
+    setAnnotations((prev) => [...prev, newAnnot]);
+    setActiveSelection(null);
+    setNewAnnotationComment('');
+    setNewAnnotationSuggestion('');
+  };
+
+  const handleDeleteAnnotation = (id: string) => {
+    setAnnotations((prev) => prev.filter((a) => a.id !== id));
+    if (activeInspectedAnnotation?.id === id) {
+      setActiveInspectedAnnotation(null);
+    }
+  };
+
+  // Safe highlighted text renderer for annotations
+  const renderAnnotatedText = (
+    text: string,
+    annots: InlineAnnotation[] = [],
+    interactive = false
+  ) => {
+    if (!annots || annots.length === 0) {
+      return <span>{text}</span>;
+    }
+
+    const valid = [...annots]
+      .filter((a) => a.startIndex >= 0 && a.endIndex <= text.length && a.startIndex < a.endIndex)
+      .sort((a, b) => a.startIndex - b.startIndex);
+
+    const nonOverlapping: InlineAnnotation[] = [];
+    let lastEnd = 0;
+    for (const a of valid) {
+      if (a.startIndex >= lastEnd) {
+        nonOverlapping.push(a);
+        lastEnd = a.endIndex;
+      }
+    }
+
+    const parts: React.ReactNode[] = [];
+    let cursor = 0;
+
+    const typeHighlightMap: Record<InlineAnnotation['type'], string> = {
+      correction: 'bg-red-100 text-red-900 border-b-2 border-red-500 hover:bg-red-200',
+      grammar: 'bg-amber-100 text-amber-900 border-b-2 border-amber-500 hover:bg-amber-200',
+      vocabulary: 'bg-purple-100 text-purple-900 border-b-2 border-purple-500 hover:bg-purple-200',
+      suggestion: 'bg-blue-100 text-blue-900 border-b-2 border-blue-500 hover:bg-blue-200',
+      praise: 'bg-emerald-100 text-emerald-900 border-b-2 border-emerald-500 hover:bg-emerald-200',
+    };
+
+    nonOverlapping.forEach((a, idx) => {
+      if (a.startIndex > cursor) {
+        parts.push(<span key={`text-${cursor}`}>{text.substring(cursor, a.startIndex)}</span>);
+      }
+
+      parts.push(
+        <mark
+          key={`annot-${a.id || idx}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (interactive) setActiveInspectedAnnotation(a);
+          }}
+          className={`px-1 py-0.5 rounded-xs transition-colors font-medium cursor-pointer ${
+            typeHighlightMap[a.type] || typeHighlightMap.correction
+          } ${activeInspectedAnnotation?.id === a.id ? 'ring-2 ring-blue-600' : ''}`}
+          title={`${a.type.toUpperCase()}: ${a.comment}${a.suggestion ? ` (Suggestion: ${a.suggestion})` : ''}`}
+        >
+          {text.substring(a.startIndex, a.endIndex)}
+        </mark>
+      );
+
+      cursor = a.endIndex;
+    });
+
+    if (cursor < text.length) {
+      parts.push(<span key="text-tail">{text.substring(cursor)}</span>);
+    }
+
+    return parts;
+  };
 
   // Count words in writing draft
   const wordCount = writingDraft.trim().length === 0 ? 0 : writingDraft.trim().split(/\s+/).length;
@@ -279,6 +445,24 @@ export const AssignmentsView: React.FC = () => {
     }, 600);
   };
 
+  const handleSaveDraft = async () => {
+    if (!currentSubmission) return;
+
+    await gradeSubmission(currentSubmission.id, {
+      rubricScores: gradingRubrics,
+      strengths: teacherStrengths,
+      areasToImprove: teacherAreasToImprove,
+      teacherComments: teacherGeneralComments,
+      nextSteps: teacherNextSteps,
+      score: overallScore,
+      annotations,
+      isDraft: true,
+    });
+
+    setDraftSaveNotice(true);
+    setTimeout(() => setDraftSaveNotice(false), 3500);
+  };
+
   const handleFinalizeGrading = async () => {
     if (!currentSubmission) return;
 
@@ -289,6 +473,8 @@ export const AssignmentsView: React.FC = () => {
       teacherComments: teacherGeneralComments,
       nextSteps: teacherNextSteps,
       score: overallScore,
+      annotations,
+      isDraft: false,
     });
 
     setSelectedSubmissionId(null);
@@ -305,7 +491,7 @@ export const AssignmentsView: React.FC = () => {
   if (isTeacher && currentSubmission) {
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
           <div>
             <button
               onClick={() => setSelectedSubmissionId(null)}
@@ -313,10 +499,22 @@ export const AssignmentsView: React.FC = () => {
             >
               &larr; {t('common.back')}
             </button>
-            <h1 className="text-xl font-bold text-slate-900">
-              {t('assignments.reviewingHeader')} {currentSubmission.skill.toUpperCase()}: {currentSubmission.assignmentTitle}
-            </h1>
-            <p className="text-xs text-slate-500">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-bold text-slate-900">
+                {t('assignments.reviewingHeader')} {currentSubmission.skill.toUpperCase()}: {currentSubmission.assignmentTitle}
+              </h1>
+              {currentSubmission.isDraft && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                  {t('assignments.draftBadge')}
+                </span>
+              )}
+              {currentSubmission.status === 'graded' && !currentSubmission.isDraft && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  {t('assignments.publishedBadge')}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
               {t('assessments.studentLabel')}: <span className="font-bold text-slate-700">{currentSubmission.studentName}</span> · {currentSubmission.submittedAt}
             </p>
           </div>
@@ -344,7 +542,7 @@ export const AssignmentsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Student Submission Display */}
+        {/* Student Submission Display & Inline Annotation Suite */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-900">{t('assignments.studentWork')}</h2>
@@ -361,8 +559,166 @@ export const AssignmentsView: React.FC = () => {
           </div>
 
           {currentSubmission.skill === 'writing' && (
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-800 font-sans leading-relaxed whitespace-pre-wrap">
-              {currentSubmission.writingText}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-600 bg-blue-50/70 p-2.5 rounded-lg border border-blue-200">
+                <span className="flex items-center space-x-1.5 text-blue-900 font-medium">
+                  <Highlighter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span>{t('assignments.selectTextPrompt')}</span>
+                </span>
+                <span className="font-semibold text-slate-600 shrink-0 ml-2">
+                  {annotations.length} {t('assignments.inlineAnnotationsTitle').toLowerCase()}
+                </span>
+              </div>
+
+              {/* Essay Text with Highlights */}
+              <div
+                onMouseUp={handleTextMouseUp}
+                className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-800 font-sans leading-relaxed whitespace-pre-wrap select-text cursor-text"
+              >
+                {renderAnnotatedText(currentSubmission.writingText || '', annotations, true)}
+              </div>
+
+              {/* Annotation creation popover */}
+              {activeSelection && (
+                <div className="p-4 bg-white border-2 border-blue-500 rounded-xl shadow-lg space-y-3 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{t('assignments.addAnnotationBtn')}:</span>
+                      <span className="font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                        "{activeSelection.text}"
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => setActiveSelection(null)}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        {t('assignments.annotationType')}
+                      </label>
+                      <select
+                        value={newAnnotationType}
+                        onChange={(e) => setNewAnnotationType(e.target.value as any)}
+                        className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
+                      >
+                        <option value="correction">{t('assignments.typeCorrection')}</option>
+                        <option value="grammar">{t('assignments.typeGrammar')}</option>
+                        <option value="vocabulary">{t('assignments.typeVocabulary')}</option>
+                        <option value="suggestion">{t('assignments.typeSuggestion')}</option>
+                        <option value="praise">{t('assignments.typePraise')}</option>
+                      </select>
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        {t('assignments.annotationComment')} *
+                      </label>
+                      <input
+                        type="text"
+                        value={newAnnotationComment}
+                        onChange={(e) => setNewAnnotationComment(e.target.value)}
+                        placeholder="e.g. Inappropriate collocation; refine to academic register."
+                        className="w-full p-2 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      {t('assignments.annotationSuggestion')}
+                    </label>
+                    <input
+                      type="text"
+                      value={newAnnotationSuggestion}
+                      onChange={(e) => setNewAnnotationSuggestion(e.target.value)}
+                      placeholder="e.g. substantial growth"
+                      className="w-full p-2 border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
+
+                  <div className="flex justify-end space-x-2 pt-1">
+                    <button
+                      onClick={() => setActiveSelection(null)}
+                      className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                    >
+                      {t('assignments.cancelAnnotation')}
+                    </button>
+                    <button
+                      onClick={handleAddAnnotation}
+                      disabled={!newAnnotationComment.trim()}
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs"
+                    >
+                      {t('assignments.addAnnotationBtn')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* List of existing annotations */}
+              {annotations.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <h4 className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
+                    <span>{t('assignments.inlineAnnotationsTitle')} ({annotations.length})</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {annotations.map((annot) => (
+                      <div
+                        key={annot.id}
+                        onClick={() => setActiveInspectedAnnotation(annot)}
+                        className={`p-2.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                          activeInspectedAnnotation?.id === annot.id
+                            ? 'border-blue-500 bg-blue-50/50 shadow-xs'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              annot.type === 'correction'
+                                ? 'bg-red-100 text-red-800'
+                                : annot.type === 'grammar'
+                                ? 'bg-amber-100 text-amber-800'
+                                : annot.type === 'vocabulary'
+                                ? 'bg-purple-100 text-purple-800'
+                                : annot.type === 'praise'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
+                            {annot.type}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteAnnotation(annot.id);
+                            }}
+                            className="text-slate-400 hover:text-red-600 p-0.5"
+                            title={t('assignments.deleteAnnotation')}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <p className="font-mono text-[11px] text-slate-700 font-semibold mb-0.5">
+                          "{annot.selectedText}"
+                        </p>
+                        <p className="text-slate-600">{annot.comment}</p>
+                        {annot.suggestion && (
+                          <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                            &rarr; {annot.suggestion}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -517,20 +873,37 @@ export const AssignmentsView: React.FC = () => {
             />
           </div>
 
-          <div className="pt-3 border-t border-slate-100 flex justify-end space-x-2">
-            <button
-              onClick={() => setSelectedSubmissionId(null)}
-              className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-semibold"
-            >
-              {t('common.cancel')}
-            </button>
-            <button
-              onClick={handleFinalizeGrading}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5"
-            >
-              <CheckCircle className="w-4 h-4" />
-              <span>{t('assignments.finalizeAndSend')}</span>
-            </button>
+          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              {draftSaveNotice && (
+                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 animate-in fade-in">
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{t('assignments.draftSaved')}</span>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setSelectedSubmissionId(null)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-semibold"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSaveDraft}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5"
+              >
+                <Save className="w-4 h-4 text-slate-500" />
+                <span>{t('assignments.saveDraftBtn')}</span>
+              </button>
+              <button
+                onClick={handleFinalizeGrading}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>{t('assignments.finalizeAndSend')}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -805,14 +1178,19 @@ export const AssignmentsView: React.FC = () => {
             </div>
 
             {/* Feedback Display if graded */}
-            {mySub?.status === 'graded' && (
-              <div className="bg-white rounded-xl border border-emerald-200 p-6 shadow-xs space-y-4">
+            {mySub?.status === 'graded' && !mySub?.isDraft && (
+              <div className="bg-white rounded-xl border border-emerald-200 p-6 shadow-xs space-y-5">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                  <h3 className="text-sm font-bold text-slate-900">{t('assignments.finalFeedbackTitle')}</h3>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-bold text-slate-900">{t('assignments.finalFeedbackTitle')}</h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      {t('assignments.publishedBadge')}
+                    </span>
+                  </div>
                   <span className="text-lg font-extrabold text-blue-700">Band: {mySub.score}</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   {mySub.rubricScores?.map((r) => (
                     <div key={r.criterion} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                       <div className="flex justify-between font-bold text-slate-800 mb-1">
@@ -824,11 +1202,72 @@ export const AssignmentsView: React.FC = () => {
                   ))}
                 </div>
 
-                <div className="text-xs space-y-2 pt-2">
-                  <p className="text-emerald-800 font-semibold">{t('assignments.strengths')}: {mySub.strengths}</p>
-                  <p className="text-amber-800 font-semibold">{t('assignments.improvements')}: {mySub.areasToImprove}</p>
-                  <p className="text-slate-700">{t('assignments.teacherRemarks')}: {mySub.teacherComments}</p>
-                  <p className="text-blue-700 font-bold">{t('assignments.nextSteps')}: {mySub.nextSteps}</p>
+                {/* Inline Annotations for Student Writing */}
+                {mySub.writingText && (
+                  <div className="space-y-3 pt-2">
+                    <h4 className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                      <Highlighter className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{t('assignments.studentAnnotationsHeader')}</span>
+                    </h4>
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-800 font-sans leading-relaxed whitespace-pre-wrap">
+                      {renderAnnotatedText(mySub.writingText, mySub.annotations || [])}
+                    </div>
+
+                    {mySub.annotations && mySub.annotations.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {mySub.annotations.map((annot) => (
+                          <div
+                            key={annot.id}
+                            className="p-3 rounded-lg border border-slate-200 bg-white text-xs space-y-1"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                  annot.type === 'correction'
+                                    ? 'bg-red-100 text-red-800'
+                                    : annot.type === 'grammar'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : annot.type === 'vocabulary'
+                                    ? 'bg-purple-100 text-purple-800'
+                                    : annot.type === 'praise'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-blue-100 text-blue-800'
+                                }`}
+                              >
+                                {annot.type}
+                              </span>
+                            </div>
+                            <p className="font-mono text-[11px] text-slate-700 font-semibold">
+                              "{annot.selectedText}"
+                            </p>
+                            <p className="text-slate-600">{annot.comment}</p>
+                            {annot.suggestion && (
+                              <p className="text-[11px] text-emerald-700 font-semibold">
+                                &rarr; {annot.suggestion}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">{t('assignments.noAnnotationsYet')}</p>
+                    )}
+                  </div>
+                )}
+
+                <div className="text-xs space-y-2 pt-2 border-t border-slate-100">
+                  {mySub.strengths && (
+                    <p className="text-emerald-800 font-semibold">{t('assignments.strengths')}: {mySub.strengths}</p>
+                  )}
+                  {mySub.areasToImprove && (
+                    <p className="text-amber-800 font-semibold">{t('assignments.improvements')}: {mySub.areasToImprove}</p>
+                  )}
+                  {mySub.teacherComments && (
+                    <p className="text-slate-700">{t('assignments.teacherRemarks')}: {mySub.teacherComments}</p>
+                  )}
+                  {mySub.nextSteps && (
+                    <p className="text-blue-700 font-bold">{t('assignments.nextSteps')}: {mySub.nextSteps}</p>
+                  )}
                 </div>
               </div>
             )}
@@ -930,6 +1369,69 @@ export const AssignmentsView: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Teacher Submissions Overview for this Assignment */}
+        {isTeacher && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                <FileCheck2 className="w-4 h-4 text-blue-600" />
+                <span>Submissions for this Assignment</span>
+              </h3>
+              <span className="text-xs text-slate-500 font-semibold">
+                {submissions.filter((s) => s.assignmentId === activeAssignment.id).length} submission(s)
+              </span>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {submissions.filter((s) => s.assignmentId === activeAssignment.id).length === 0 ? (
+                <p className="py-4 text-center text-xs text-slate-400">
+                  No student submissions received for this assignment yet.
+                </p>
+              ) : (
+                submissions
+                  .filter((s) => s.assignmentId === activeAssignment.id)
+                  .map((sub) => (
+                    <div
+                      key={sub.id}
+                      className="py-3 flex items-center justify-between hover:bg-slate-50 px-2 rounded-lg"
+                    >
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-bold text-slate-900">{sub.studentName}</span>
+                          {sub.status === 'graded' && !sub.isDraft && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              Graded · Band {sub.score}
+                            </span>
+                          )}
+                          {sub.isDraft && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              {t('assignments.draftBadge')}
+                            </span>
+                          )}
+                          {(sub.status === 'submitted' || sub.status === 'resubmitted') && !sub.isDraft && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                              {sub.status}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Submitted: {sub.submittedAt}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => setSelectedSubmissionId(sub.id)}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                      >
+                        {sub.status === 'graded' && !sub.isDraft ? 'Review / Edit Feedback' : t('assignments.reviewAndGrade')} &rarr;
+                      </button>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -988,16 +1490,16 @@ export const AssignmentsView: React.FC = () => {
               <span>{t('assignments.pendingReviewTitle')}</span>
             </h2>
             <span className="text-xs text-slate-400">
-              {submissions.filter((s) => s.status === 'submitted' || s.status === 'resubmitted').length} pending
+              {submissions.filter((s) => s.status !== 'graded' || s.isDraft).length} {t('common.status').toLowerCase()}
             </span>
           </div>
 
           <div className="divide-y divide-slate-100">
-            {submissions.filter((s) => s.status === 'submitted' || s.status === 'resubmitted').length === 0 ? (
+            {submissions.filter((s) => s.status !== 'graded' || s.isDraft).length === 0 ? (
               <p className="py-6 text-center text-xs text-slate-400">{t('assignments.allGradedMsg')}</p>
             ) : (
               submissions
-                .filter((s) => s.status === 'submitted' || s.status === 'resubmitted')
+                .filter((s) => s.status !== 'graded' || s.isDraft)
                 .map((sub) => (
                   <div
                     key={sub.id}
@@ -1017,6 +1519,11 @@ export const AssignmentsView: React.FC = () => {
                           {sub.skill}
                         </span>
                         <span className="text-xs font-bold text-slate-900">{sub.assignmentTitle}</span>
+                        {sub.isDraft && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            {t('assignments.draftBadge')}
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px] text-slate-500 mt-0.5">
                         By {sub.studentName} ({sub.courseName}) · {sub.submittedAt}
@@ -1026,7 +1533,6 @@ export const AssignmentsView: React.FC = () => {
                     <button
                       onClick={() => {
                         setSelectedSubmissionId(sub.id);
-                        handleGenerateAiFeedback(sub);
                       }}
                       className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
                     >

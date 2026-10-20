@@ -167,6 +167,19 @@ export interface Submission {
   nextSteps?: string;
   aiSuggestedFeedback?: string;
   score?: number;
+  annotations?: InlineAnnotation[];
+  isDraft?: boolean;
+}
+
+export interface InlineAnnotation {
+  id: string;
+  startIndex: number;
+  endIndex: number;
+  selectedText: string;
+  comment: string;
+  type: 'correction' | 'suggestion' | 'grammar' | 'vocabulary' | 'praise';
+  suggestion?: string;
+  createdAt: string;
 }
 
 export type AssessmentState = 'draft' | 'ai_generated' | 'in_review' | 'approved' | 'published' | 'void';
