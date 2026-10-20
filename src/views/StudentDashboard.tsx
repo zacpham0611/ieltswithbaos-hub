@@ -1,14 +1,12 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../i18n/context';
 import {
   BookOpen,
-  Calendar,
   Clock,
   ArrowRight,
   Award,
   WalletCards,
-  FileCheck2,
-  AlertCircle,
   CheckCircle,
 } from 'lucide-react';
 
@@ -26,6 +24,9 @@ export const StudentDashboard: React.FC = () => {
     setSelectedStatementId,
     setSelectedReportId,
   } = useApp();
+  const { t, formatCurrency, formatNumber } = useI18n();
+
+  if (!currentUser) return null;
 
   // Enrolled courses for this student
   const myMemberships = courseMembers.filter(
@@ -65,9 +66,11 @@ export const StudentDashboard: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Student Dashboard</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            {t('dashboard.studentTitle')}
+          </h1>
           <p className="text-sm text-slate-500">
-            Welcome back, {currentUser.name}! Track your assignments, progress, and tuition in one place.
+            {t('dashboard.studentSubtitle')}
           </p>
         </div>
         <button
@@ -75,11 +78,11 @@ export const StudentDashboard: React.FC = () => {
           className="inline-flex items-center space-x-2 px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 shadow-xs transition-colors"
         >
           <BookOpen className="w-4 h-4" />
-          <span>Enroll in New Course</span>
+          <span>{t('nav.findCourse')}</span>
         </button>
       </div>
 
-      {/* Top Cards: Active courses, Assignments due, Latest Report, Tuition balance */}
+      {/* Top Cards: Enrolled courses, Assignments due, Monthly Reports, Tuition balance */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Active courses */}
         <div
@@ -87,11 +90,13 @@ export const StudentDashboard: React.FC = () => {
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-blue-300 transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>Enrolled courses</span>
+            <span>{t('dashboard.enrolledCourses')}</span>
             <BookOpen className="w-4 h-4 text-blue-600 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">{myCourses.length}</div>
-          <p className="text-xs text-slate-400 mt-1">Across independent teachers</p>
+          <div className="text-3xl font-extrabold text-slate-900">
+            {formatNumber(myCourses.length)}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">{t('dashboard.acrossTeachers')}</p>
         </div>
 
         {/* Action Required */}
@@ -100,11 +105,13 @@ export const StudentDashboard: React.FC = () => {
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-amber-300 transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>Assignments to do</span>
+            <span>{t('dashboard.assignmentsToDo')}</span>
             <Clock className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">{actionRequiredAssignments.length}</div>
-          <p className="text-xs text-amber-600 font-medium mt-1">Due soon or revision requested</p>
+          <div className="text-3xl font-extrabold text-slate-900">
+            {formatNumber(actionRequiredAssignments.length)}
+          </div>
+          <p className="text-xs text-amber-600 font-medium mt-1">{t('dashboard.dueSoon')}</p>
         </div>
 
         {/* Latest Report */}
@@ -113,14 +120,14 @@ export const StudentDashboard: React.FC = () => {
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-indigo-300 transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>Monthly Reports</span>
+            <span>{t('nav.monthlyReports')}</span>
             <Award className="w-4 h-4 text-indigo-600 group-hover:scale-110 transition-transform" />
           </div>
           <div className="text-2xl font-extrabold text-slate-900 truncate">
-            {latestReport ? latestReport.month : 'None published'}
+            {latestReport ? latestReport.month : t('status.unpaid')}
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            {latestReport ? `${latestReport.teacherEvaluation.estimatedBand || 'Approved report'}` : 'Awaiting teacher review'}
+            {latestReport ? `${latestReport.teacherEvaluation?.estimatedBand || t('status.approved')}` : t('dashboard.noReportsYet')}
           </p>
         </div>
 
@@ -130,14 +137,14 @@ export const StudentDashboard: React.FC = () => {
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-emerald-300 transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>Tuition balance</span>
+            <span>{t('dashboard.tuitionBalance')}</span>
             <WalletCards className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
           </div>
           <div className="text-2xl font-extrabold text-slate-900">
-            {totalTuitionBalance === 0 ? 'Fully Paid' : `$${totalTuitionBalance.toLocaleString()}`}
+            {totalTuitionBalance === 0 ? t('status.paid') : formatCurrency(totalTuitionBalance, myStatements[0]?.currency || 'VND')}
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            {myStatements.filter((s) => s.remainingBalance > 0).length} statement(s) pending
+            {formatNumber(myStatements.filter((s) => s.remainingBalance > 0).length)} {t('dashboard.tuitionPending')}
           </p>
         </div>
       </div>
@@ -149,12 +156,12 @@ export const StudentDashboard: React.FC = () => {
           {/* Active Courses List */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h2 className="text-sm font-bold text-slate-900 tracking-tight">My Courses</h2>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">{t('courses.titleStudent')}</h2>
               <button
                 onClick={() => setActiveTab('courses')}
                 className="text-xs text-blue-600 font-semibold hover:underline flex items-center space-x-1"
               >
-                <span>View all</span>
+                <span>{t('common.viewAll')}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -162,13 +169,13 @@ export const StudentDashboard: React.FC = () => {
             {myCourses.length === 0 ? (
               <div className="text-center py-8">
                 <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm font-medium text-slate-600">You are not enrolled in any course yet.</p>
-                <p className="text-xs text-slate-400 mt-1">Enter a course code provided by your teacher to request access.</p>
+                <p className="text-sm font-medium text-slate-600">{t('dashboard.noCoursesEnrolled')}</p>
+                <p className="text-xs text-slate-400 mt-1">{t('dashboard.noCoursesPrompt')}</p>
                 <button
                   onClick={() => setActiveTab('find_course')}
                   className="mt-3 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Enter Course Code
+                  {t('dashboard.enterCourseCode')}
                 </button>
               </div>
             ) : (
@@ -193,8 +200,8 @@ export const StudentDashboard: React.FC = () => {
                       {course.description}
                     </p>
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200/60">
-                      <span>Tuition: {course.tuitionModel.replace('_', ' ')}</span>
-                      <span className="font-semibold text-blue-600">Enter &rarr;</span>
+                      <span>{t('courses.tuitionModel')}: {course.tuitionModel.replace('_', ' ')}</span>
+                      <span className="font-semibold text-blue-600">{t('common.enter')} &rarr;</span>
                     </div>
                   </div>
                 ))}
@@ -207,15 +214,15 @@ export const StudentDashboard: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
               <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center space-x-2">
                 <Clock className="w-4 h-4 text-amber-500" />
-                <span>Upcoming Deadlines & Actions</span>
+                <span>{t('dashboard.upcomingDeadlines')}</span>
               </h2>
-              <span className="text-xs text-slate-400">{actionRequiredAssignments.length} pending</span>
+              <span className="text-xs text-slate-400">{formatNumber(actionRequiredAssignments.length)} {t('status.pending')}</span>
             </div>
 
             {actionRequiredAssignments.length === 0 ? (
               <div className="text-center py-6 text-xs text-slate-400">
                 <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-1.5" />
-                You are all caught up! No pending assignments to submit.
+                {t('dashboard.allCaughtUpStudent')}
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
@@ -243,17 +250,17 @@ export const StudentDashboard: React.FC = () => {
                           </span>
                           <span className="text-xs font-semibold text-slate-900">{a.title}</span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-1">Due date: {a.dueDate}</p>
+                        <p className="text-[11px] text-slate-500 mt-1">{t('courses.startDate')}: {a.dueDate}</p>
                       </div>
 
                       <div className="flex items-center space-x-2 shrink-0">
                         {isRevision ? (
                           <span className="text-[11px] font-semibold text-red-600 bg-red-50 border border-red-200 px-2.5 py-1 rounded-full">
-                            Revision Needed
+                            {t('status.returned')}
                           </span>
                         ) : (
                           <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
-                            Submit Now
+                            {t('common.submit')}
                           </span>
                         )}
                       </div>
@@ -272,7 +279,7 @@ export const StudentDashboard: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
               <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center space-x-2">
                 <Award className="w-4 h-4 text-indigo-600" />
-                <span>Latest Monthly Report</span>
+                <span>{t('dashboard.latestMonthlyReport')}</span>
               </h2>
             </div>
 
@@ -282,19 +289,19 @@ export const StudentDashboard: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-indigo-900">{latestReport.month}</span>
                     <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                      Approved
+                      {t('status.approved')}
                     </span>
                   </div>
                   <p className="text-xs text-indigo-700 mt-1">{latestReport.courseName}</p>
                   <div className="mt-2 text-xs font-semibold text-slate-800">
-                    {latestReport.teacherEvaluation.estimatedBand}
+                    {latestReport.teacherEvaluation?.estimatedBand}
                   </div>
                 </div>
 
                 <div className="text-xs text-slate-600 space-y-1">
-                  <p className="font-semibold text-slate-700">Teacher Professional Evaluation:</p>
+                  <p className="font-semibold text-slate-700">{t('assessments.profJudgement')}:</p>
                   <p className="text-slate-500 text-[11px] line-clamp-3 leading-relaxed">
-                    {latestReport.teacherEvaluation.professionalJudgement}
+                    {latestReport.teacherEvaluation?.professionalJudgement}
                   </p>
                 </div>
 
@@ -305,13 +312,13 @@ export const StudentDashboard: React.FC = () => {
                   }}
                   className="w-full mt-2 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center justify-center space-x-1.5"
                 >
-                  <span>View Full Report & Export PDF</span>
+                  <span>{t('dashboard.viewReportPdf')}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             ) : (
               <div className="py-8 text-center text-xs text-slate-400">
-                No published monthly reports yet. Your teacher will evaluate your submitted assignments at the end of the month.
+                {t('dashboard.noReportsYet')}
               </div>
             )}
           </div>
@@ -321,24 +328,24 @@ export const StudentDashboard: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
               <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center space-x-2">
                 <WalletCards className="w-4 h-4 text-emerald-600" />
-                <span>Tuition & Statements</span>
+                <span>{t('dashboard.tuitionSummary')}</span>
               </h2>
             </div>
 
             {myStatements.length > 0 ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">Latest Statement:</span>
+                  <span className="text-slate-500">{t('tuition.statementNoLabel')}:</span>
                   <span className="font-bold text-slate-800">{myStatements[0].statementNumber}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">Period:</span>
+                  <span className="text-slate-500">{t('tuition.billingPeriodLabel')}:</span>
                   <span className="font-medium text-slate-700">{myStatements[0].billingPeriod}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                  <span className="text-slate-500">Due Amount:</span>
+                  <span className="text-slate-500">{t('tuition.totalAmountDueLabel')}:</span>
                   <span className="font-bold text-base text-slate-900">
-                    {myStatements[0].remainingBalance.toLocaleString()} {myStatements[0].currency}
+                    {formatCurrency(myStatements[0].remainingBalance, myStatements[0].currency)}
                   </span>
                 </div>
                 <button
@@ -348,13 +355,13 @@ export const StudentDashboard: React.FC = () => {
                   }}
                   className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center justify-center space-x-1.5"
                 >
-                  <span>View Statement & Pay</span>
+                  <span>{t('dashboard.viewAndPay')}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             ) : (
               <div className="py-6 text-center text-xs text-slate-400">
-                No active tuition statements.
+                {t('dashboard.noActiveTuition')}
               </div>
             )}
           </div>

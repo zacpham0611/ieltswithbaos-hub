@@ -1,0 +1,5 @@
+# Supabase Local Configuration & Function Registry
+project_id = "ielts-teaching-hub"
+
+[functions.ai-assistant]
+verify_jwt = true

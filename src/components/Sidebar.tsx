@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../i18n/context';
 import {
   LayoutDashboard,
   BookOpen,
@@ -14,7 +15,17 @@ import {
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { currentUser, activeTab, setActiveTab, setSelectedCourseId, setSelectedStatementId, setSelectedReportId } = useApp();
+  const {
+    currentUser,
+    activeTab,
+    setActiveTab,
+    setSelectedCourseId,
+    setSelectedStatementId,
+    setSelectedReportId,
+  } = useApp();
+  const { t } = useI18n();
+
+  if (!currentUser) return null;
 
   const handleNav = (tabId: string) => {
     setActiveTab(tabId);
@@ -31,25 +42,25 @@ export const Sidebar: React.FC = () => {
   }
 
   const teacherItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'courses', label: 'My Courses', icon: BookOpen },
-    { id: 'resources', label: 'Resources', icon: FolderArchive },
-    { id: 'assignments', label: 'Assignments', icon: FileCheck2 },
-    { id: 'assessments', label: 'Monthly Assessments', icon: Award },
-    { id: 'tuition', label: 'Tuition', icon: WalletCards },
-    { id: 'ai_assistant', label: 'AI Assistant', icon: Sparkles, badge: 'Copilot' },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
+    { id: 'courses', label: t('nav.myCourses'), icon: BookOpen },
+    { id: 'resources', label: t('nav.resources'), icon: FolderArchive },
+    { id: 'assignments', label: t('nav.assignments'), icon: FileCheck2 },
+    { id: 'assessments', label: t('nav.monthlyAssessments'), icon: Award },
+    { id: 'tuition', label: t('nav.tuition'), icon: WalletCards },
+    { id: 'ai_assistant', label: t('nav.aiAssistant'), icon: Sparkles, badge: 'Copilot' },
+    { id: 'settings', label: t('nav.settings'), icon: Settings },
   ];
 
   const studentItems: NavItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'courses', label: 'My Courses', icon: BookOpen },
-    { id: 'find_course', label: 'Find a Course', icon: Compass },
-    { id: 'assignments', label: 'Assignments', icon: FileCheck2 },
-    { id: 'progress', label: 'My Progress', icon: LineChart },
-    { id: 'assessments', label: 'Monthly Reports', icon: Award },
-    { id: 'tuition', label: 'Tuition', icon: WalletCards },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
+    { id: 'courses', label: t('nav.myCourses'), icon: BookOpen },
+    { id: 'find_course', label: t('nav.findCourse'), icon: Compass },
+    { id: 'assignments', label: t('nav.assignments'), icon: FileCheck2 },
+    { id: 'progress', label: t('nav.myProgress'), icon: LineChart },
+    { id: 'assessments', label: t('nav.monthlyReports'), icon: Award },
+    { id: 'tuition', label: t('nav.tuition'), icon: WalletCards },
+    { id: 'settings', label: t('nav.settings'), icon: Settings },
   ];
 
   const navItems: NavItem[] = currentUser.role === 'teacher' ? teacherItems : studentItems;
@@ -61,7 +72,9 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center space-x-2 text-white">
           <div className="w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-blue-500/20" />
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            {currentUser.role === 'teacher' ? 'Teaching Workspace' : 'Student Hub'}
+            {currentUser.role === 'teacher'
+              ? t('nav.teacherWorkspace')
+              : t('nav.studentWorkspace')}
           </span>
         </div>
         <p className="text-xs text-slate-300 font-medium mt-1 truncate">
@@ -105,13 +118,13 @@ export const Sidebar: React.FC = () => {
       {/* Bottom info badge */}
       <div className="p-4 border-t border-slate-800/80 text-[11px] text-slate-400 bg-slate-950/40">
         <div className="flex items-center justify-between">
-          <span>Privacy Enforced</span>
+          <span>{t('nav.privacyEnforced')}</span>
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
         </div>
         <p className="text-[10px] text-slate-400 mt-1">
           {currentUser.role === 'teacher'
-            ? 'Scoped to your private courses and students'
-            : 'Accessing published materials only'}
+            ? t('nav.privacyTeacherNote')
+            : t('nav.privacyStudentNote')}
         </p>
       </div>
     </aside>

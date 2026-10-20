@@ -13,9 +13,29 @@ import { TuitionView } from './views/TuitionView';
 import { AiAssistantView } from './views/AiAssistantView';
 import { ProgressView } from './views/ProgressView';
 import { SettingsView } from './views/SettingsView';
+import { AuthView } from './views/AuthView';
+import { useI18n } from './i18n/context';
 
 export const AppContent: React.FC = () => {
-  const { currentUser, activeTab } = useApp();
+  const { currentUser, loadingAuth, activeTab } = useApp();
+  const { t } = useI18n();
+
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-xl font-bold shadow-md animate-bounce">
+          🎓
+        </div>
+        <p className="text-xs text-slate-500 font-semibold tracking-wider uppercase animate-pulse">
+          {t('common.loading')}
+        </p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthView />;
+  }
 
   const isTeacher = currentUser.role === 'teacher';
 

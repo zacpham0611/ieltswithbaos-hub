@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Course, CourseSkill, CourseStatus, TuitionModel } from '../types';
+import { useI18n } from '../i18n/context';
+import { CourseSkill, TuitionModel } from '../types';
 import {
   BookOpen,
   Plus,
@@ -9,11 +10,8 @@ import {
   RefreshCw,
   Check,
   X,
-  AlertCircle,
   Archive,
   ChevronRight,
-  ShieldCheck,
-  Calendar,
   Layers,
   FileCheck2,
   Award,
@@ -21,7 +19,6 @@ import {
   Settings,
   UserX,
   Clock,
-  Sparkles,
 } from 'lucide-react';
 
 export const CoursesView: React.FC = () => {
@@ -29,7 +26,6 @@ export const CoursesView: React.FC = () => {
     currentUser,
     courses,
     createCourse,
-    updateCourse,
     regenerateCourseCode,
     archiveCourse,
     enrollmentRequests,
@@ -40,10 +36,11 @@ export const CoursesView: React.FC = () => {
     setSelectedCourseId,
     setActiveTab,
   } = useApp();
+  const { t, formatCurrency, formatNumber } = useI18n();
 
+  if (!currentUser) return null;
   const isTeacher = currentUser.role === 'teacher';
 
-  // Filters for Teacher
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeCourseTab, setActiveCourseTab] = useState<
@@ -52,6 +49,7 @@ export const CoursesView: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [rejectModalReqId, setRejectModalReqId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [creating, setCreating] = useState(false);
 
   // New course form
   const [newCourseName, setNewCourseName] = useState('');
@@ -87,27 +85,34 @@ export const CoursesView: React.FC = () => {
   );
   const pendingRequests = relevantRequests.filter((r) => r.status === 'pending');
 
-  const handleCreateCourse = (e: React.FormEvent) => {
+  const handleCreateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCourseName.trim()) return;
+    if (!newCourseName.trim() || creating) return;
 
-    const created = createCourse({
-      name: newCourseName,
-      description: newCourseDesc,
-      skills: newCourseSkills,
-      status: 'active',
-      code: '',
-      startDate: newStartDate,
-      endDate: newEndDate,
-      tuitionModel: newTuitionModel,
-      tuitionAmount: Number(newTuitionAmount),
-      currency: newCurrency,
-    });
+    setCreating(true);
+    try {
+      const created = await createCourse({
+        name: newCourseName.trim(),
+        description: newCourseDesc.trim(),
+        skills: newCourseSkills,
+        status: 'active',
+        code: '',
+        startDate: newStartDate,
+        endDate: newEndDate,
+        tuitionModel: newTuitionModel,
+        tuitionAmount: Number(newTuitionAmount),
+        currency: newCurrency,
+      });
 
-    setShowCreateModal(false);
-    setSelectedCourseId(created.id);
-    setNewCourseName('');
-    setNewCourseDesc('');
+      setShowCreateModal(false);
+      setSelectedCourseId(created.id);
+      setNewCourseName('');
+      setNewCourseDesc('');
+    } catch (err: any) {
+      alert(err.message || 'Error creating course');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const toggleSkill = (skill: CourseSkill) => {
@@ -136,7 +141,7 @@ export const CoursesView: React.FC = () => {
               onClick={() => setSelectedCourseId(null)}
               className="text-xs font-semibold text-blue-600 hover:underline flex items-center space-x-1 mb-1.5"
             >
-              <span>&larr; Back to all courses</span>
+              <span>&larr; {t('courses.backToCourses')}</span>
             </button>
             <div className="flex items-center space-x-3">
               <h1 className="text-2xl font-bold text-slate-900">{currentCourse.name}</h1>
@@ -147,16 +152,18 @@ export const CoursesView: React.FC = () => {
                     : 'bg-slate-200 text-slate-700'
                 }`}
               >
-                {currentCourse.status}
+                {t(`status.${currentCourse.status}`)}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">Teacher: {currentCourse.teacherName}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{t('tuition.teacherLabel')}: {currentCourse.teacherName}</p>
           </div>
 
           {/* Course Code box for sharing */}
           <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center space-x-3 shadow-xs">
             <div>
-              <div className="text-[10px] uppercase font-bold text-slate-400">Course Discovery Code</div>
+              <div className="text-[10px] uppercase font-bold text-slate-400">
+                {t('courses.discoveryCode')}
+              </div>
               <div className="text-sm font-mono font-bold text-blue-700 tracking-wider">
                 {currentCourse.code}
               </div>
@@ -164,19 +171,19 @@ export const CoursesView: React.FC = () => {
             <button
               onClick={() => handleCopyCode(currentCourse.code)}
               className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
-              title="Copy code"
+              title={t('courses.copyCodeTitle')}
             >
               {copiedCode ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
             </button>
             {isTeacher && (
               <button
-                onClick={() => {
-                  if (confirm('Regenerating code will invalidate the old code for future requests. Current students stay enrolled. Continue?')) {
-                    regenerateCourseCode(currentCourse.id);
+                onClick={async () => {
+                  if (confirm(t('courses.regenerateWarning'))) {
+                    await regenerateCourseCode(currentCourse.id);
                   }
                 }}
                 className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
-                title="Regenerate code"
+                title={t('courses.regenerateCodeTitle')}
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
@@ -184,16 +191,16 @@ export const CoursesView: React.FC = () => {
           </div>
         </div>
 
-        {/* Tabs: Overview, Students, Lessons & Resources, Assignments, Monthly Assessments, Tuition, Settings */}
+        {/* Tabs */}
         <div className="border-b border-slate-200 flex space-x-2 overflow-x-auto text-xs font-semibold">
           {[
-            { id: 'overview', label: 'Overview', icon: BookOpen },
-            { id: 'students', label: `Students (${courseStudents.filter(s => s.status === 'enrolled').length})`, icon: Users },
-            { id: 'lessons', label: 'Lessons & Resources', icon: Layers },
-            { id: 'assignments', label: 'Assignments', icon: FileCheck2 },
-            { id: 'assessments', label: 'Monthly Assessments', icon: Award },
-            { id: 'tuition', label: 'Tuition', icon: WalletCards },
-            ...(isTeacher ? [{ id: 'settings', label: 'Settings', icon: Settings }] : []),
+            { id: 'overview', label: t('courses.tabs.overview'), icon: BookOpen },
+            { id: 'students', label: `${t('courses.tabs.students')} (${formatNumber(courseStudents.filter(s => s.status === 'enrolled').length)})`, icon: Users },
+            { id: 'lessons', label: t('courses.tabs.lessons'), icon: Layers },
+            { id: 'assignments', label: t('courses.tabs.assignments'), icon: FileCheck2 },
+            { id: 'assessments', label: t('courses.tabs.assessments'), icon: Award },
+            { id: 'tuition', label: t('courses.tabs.tuition'), icon: WalletCards },
+            ...(isTeacher ? [{ id: 'settings', label: t('courses.tabs.settings'), icon: Settings }] : []),
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeCourseTab === tab.id;
@@ -218,11 +225,13 @@ export const CoursesView: React.FC = () => {
         {activeCourseTab === 'overview' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
-              <h2 className="text-base font-bold text-slate-900">About this Course</h2>
+              <h2 className="text-base font-bold text-slate-900">{t('courses.aboutCourse')}</h2>
               <p className="text-xs text-slate-600 leading-relaxed">{currentCourse.description}</p>
 
               <div>
-                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Target IELTS Skills</h3>
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  {t('courses.targetSkills')}
+                </h3>
                 <div className="flex flex-wrap gap-2">
                   {currentCourse.skills.map((skill) => (
                     <span
@@ -237,12 +246,12 @@ export const CoursesView: React.FC = () => {
 
               <div className="pt-4 border-t border-slate-100 grid grid-cols-2 gap-4 text-xs">
                 <div>
-                  <span className="text-slate-400 block mb-0.5">Start Date</span>
-                  <span className="font-semibold text-slate-800">{currentCourse.startDate}</span>
+                  <span className="text-slate-400 block mb-0.5">{t('courses.startDate')}</span>
+                  <span className="font-semibold text-slate-800">{currentCourse.startDate || '—'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block mb-0.5">End Date</span>
-                  <span className="font-semibold text-slate-800">{currentCourse.endDate}</span>
+                  <span className="text-slate-400 block mb-0.5">{t('courses.endDate')}</span>
+                  <span className="font-semibold text-slate-800">{currentCourse.endDate || '—'}</span>
                 </div>
               </div>
             </div>
@@ -251,21 +260,15 @@ export const CoursesView: React.FC = () => {
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
               <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
                 <WalletCards className="w-4 h-4 text-emerald-600" />
-                <span>Tuition Model</span>
+                <span>{t('courses.tuitionModel')}</span>
               </h3>
               <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                 <div className="text-xs font-semibold text-slate-700 capitalize">
                   {currentCourse.tuitionModel.replace('_', ' ')}
                 </div>
                 <div className="text-xl font-extrabold text-slate-900 mt-1">
-                  {currentCourse.tuitionAmount.toLocaleString()} {currentCourse.currency}
+                  {formatCurrency(currentCourse.tuitionAmount, currentCourse.currency)}
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {currentCourse.tuitionModel === 'fixed_monthly' && 'Charged each billing month with proration rules.'}
-                  {currentCourse.tuitionModel === 'per_session' && 'Calculated per billable session attended.'}
-                  {currentCourse.tuitionModel === 'hourly' && 'Approved hours multiplied by hourly rate.'}
-                  {currentCourse.tuitionModel === 'course_package' && 'Defined course bundle or instalments.'}
-                </p>
               </div>
 
               <div className="pt-2">
@@ -273,7 +276,7 @@ export const CoursesView: React.FC = () => {
                   onClick={() => setActiveCourseTab('tuition')}
                   className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
                 >
-                  Manage Tuition & Statements &rarr;
+                  {t('courses.manageTuitionLink')} &rarr;
                 </button>
               </div>
             </div>
@@ -285,19 +288,21 @@ export const CoursesView: React.FC = () => {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-base font-bold text-slate-900">Course Roster</h2>
+                <h2 className="text-base font-bold text-slate-900">{t('courses.rosterTitle')}</h2>
                 <p className="text-xs text-slate-500">
-                  Enrolled students and pending requests. Removing a student stops future access but preserves legitimate historical records.
+                  {t('courses.rosterDesc')}
                 </p>
               </div>
             </div>
 
-            {/* Pending Requests for this course */}
+            {/* Pending Requests */}
             {isTeacher && courseRequests.filter((r) => r.status === 'pending').length > 0 && (
               <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4">
                 <h3 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-2 flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-amber-600" />
-                  <span>Pending Enrollment Requests ({courseRequests.filter((r) => r.status === 'pending').length})</span>
+                  <span>
+                    {t('courses.pendingRequests')} ({formatNumber(courseRequests.filter((r) => r.status === 'pending').length)})
+                  </span>
                 </h3>
                 <div className="divide-y divide-amber-200/60">
                   {courseRequests
@@ -307,7 +312,7 @@ export const CoursesView: React.FC = () => {
                         <div>
                           <p className="text-xs font-bold text-slate-900">{req.studentName}</p>
                           <p className="text-[11px] text-slate-500">
-                            {req.studentEmail} · Requested: {req.requestedAt}
+                            {req.studentEmail} · {t('findCourse.requestedOn')}: {req.requestedAt}
                           </p>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -316,7 +321,7 @@ export const CoursesView: React.FC = () => {
                             className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors flex items-center space-x-1"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>Approve</span>
+                            <span>{t('courses.approve')}</span>
                           </button>
                           <button
                             onClick={() => {
@@ -326,7 +331,7 @@ export const CoursesView: React.FC = () => {
                             className="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-md border border-red-200 transition-colors flex items-center space-x-1"
                           >
                             <X className="w-3.5 h-3.5" />
-                            <span>Reject</span>
+                            <span>{t('courses.reject')}</span>
                           </button>
                         </div>
                       </div>
@@ -340,19 +345,19 @@ export const CoursesView: React.FC = () => {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="py-3 px-4">Student</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Join Date</th>
-                    <th className="py-3 px-4">Recent Activity</th>
-                    <th className="py-3 px-4">Outstanding Work</th>
-                    {isTeacher && <th className="py-3 px-4 text-right">Actions</th>}
+                    <th className="py-3 px-4">{t('courses.tableStudent')}</th>
+                    <th className="py-3 px-4">{t('courses.tableStatus')}</th>
+                    <th className="py-3 px-4">{t('courses.tableJoinDate')}</th>
+                    <th className="py-3 px-4">{t('courses.tableRecentActivity')}</th>
+                    <th className="py-3 px-4">{t('courses.tableOutstanding')}</th>
+                    {isTeacher && <th className="py-3 px-4 text-right">{t('common.actions')}</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {courseStudents.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="text-center py-8 text-slate-400">
-                        No students enrolled yet. Share the course code with students to begin enrollment.
+                        {t('courses.noStudentsYet')}
                       </td>
                     </tr>
                   ) : (
@@ -370,16 +375,16 @@ export const CoursesView: React.FC = () => {
                                 : 'bg-slate-200 text-slate-600'
                             }`}
                           >
-                            {member.status}
+                            {t(`status.${member.status === 'enrolled' ? 'approved' : 'removed'}`)}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-slate-600">{member.joinedAt}</td>
                         <td className="py-3 px-4 text-slate-600">{member.recentActivity}</td>
                         <td className="py-3 px-4">
                           {member.outstandingWork > 0 ? (
-                            <span className="text-amber-600 font-bold">{member.outstandingWork} task(s)</span>
+                            <span className="text-amber-600 font-bold">{member.outstandingWork} tasks</span>
                           ) : (
-                            <span className="text-slate-400">Up to date</span>
+                            <span className="text-slate-400">{t('dashboard.allCaughtUpStudent')}</span>
                           )}
                         </td>
                         {isTeacher && (
@@ -387,18 +392,18 @@ export const CoursesView: React.FC = () => {
                             {member.status === 'enrolled' ? (
                               <button
                                 onClick={() => {
-                                  if (confirm(`Remove ${member.studentName} from this course? Historical work and submissions will be preserved.`)) {
+                                  if (confirm(t('courses.removeStudentConfirm', { name: member.studentName }))) {
                                     removeStudentFromCourse(currentCourse.id, member.studentId);
                                   }
                                 }}
                                 className="text-red-600 hover:text-red-800 font-semibold text-xs flex items-center space-x-1 ml-auto"
-                                title="Remove student (preserves history)"
+                                title={t('courses.removeStudent')}
                               >
                                 <UserX className="w-3.5 h-3.5" />
-                                <span>Remove</span>
+                                <span>{t('courses.removeStudent')}</span>
                               </button>
                             ) : (
-                              <span className="text-slate-400 italic text-[11px]">Historical record</span>
+                              <span className="text-slate-400 italic text-[11px]">{t('courses.historicalRecord')}</span>
                             )}
                           </td>
                         )}
@@ -409,11 +414,11 @@ export const CoursesView: React.FC = () => {
               </table>
             </div>
 
-            {/* Rejected / Historical Requests Section */}
+            {/* Previously Rejected Requests */}
             {isTeacher && courseRequests.filter((r) => r.status === 'rejected').length > 0 && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                 <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">
-                  Previously Rejected Requests (Visibly Logged)
+                  {t('courses.previouslyRejected')}
                 </h3>
                 <div className="divide-y divide-slate-200 text-xs">
                   {courseRequests
@@ -424,11 +429,11 @@ export const CoursesView: React.FC = () => {
                           <span className="font-semibold text-slate-800">{rej.studentName}</span>
                           <span className="text-slate-400 ml-2">({rej.studentEmail})</span>
                           {rej.rejectionReason && (
-                            <p className="text-[11px] text-slate-500 mt-0.5">Note: {rej.rejectionReason}</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">{t('courses.reasonNote')}: {rej.rejectionReason}</p>
                           )}
                         </div>
                         <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-red-100 text-red-700 rounded">
-                          Rejected
+                          {t('status.rejected')}
                         </span>
                       </div>
                     ))}
@@ -438,52 +443,50 @@ export const CoursesView: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 3: Lessons & Resources */}
+        {/* Tab 3: Lessons */}
         {activeCourseTab === 'lessons' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs text-center">
-            <h2 className="text-base font-bold text-slate-900 mb-2">Lessons & Resources</h2>
+            <h2 className="text-base font-bold text-slate-900 mb-2">{t('courses.tabs.lessons')}</h2>
             <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
-              Access the complete resource library, handouts, and weekly lesson plans.
+              {t('courses.lessonsHubDesc')}
             </p>
-            <div className="flex justify-center space-x-3">
-              <button
-                onClick={() => setActiveTab('resources')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors"
-              >
-                Go to Resource Library &rarr;
-              </button>
-            </div>
+            <button
+              onClick={() => setActiveTab('resources')}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors"
+            >
+              {t('courses.openResources')} &rarr;
+            </button>
           </div>
         )}
 
         {/* Tab 4: Assignments */}
         {activeCourseTab === 'assignments' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs text-center">
-            <h2 className="text-base font-bold text-slate-900 mb-2">Course Assignments</h2>
+            <h2 className="text-base font-bold text-slate-900 mb-2">{t('courses.tabs.assignments')}</h2>
             <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
-              Manage Reading quizzes, Writing Task 1 & 2 prompts, and Speaking cue cards.
+              {t('courses.assignmentsHubDesc')}
             </p>
             <button
               onClick={() => setActiveTab('assignments')}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors"
             >
-              Open Assignment Center &rarr;
+              {t('courses.openAssignments')} &rarr;
             </button>
           </div>
         )}
 
-        {/* Tab 5: Monthly Assessments */}
+        {/* Tab 5: Assessments */}
         {activeCourseTab === 'assessments' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs text-center">
-            <h2 className="text-base font-bold text-slate-900 mb-2">Monthly Student Assessments</h2>
+            <h2 className="text-base font-bold text-slate-900 mb-2">{t('courses.tabs.assessments')}</h2>
             <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
-              Prepare AI-assisted draft evaluations based on real evidence and approve professional teacher reports.
+              {t('courses.assessmentsHubDesc')}
             </p>
             <button
               onClick={() => setActiveTab('assessments')}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors"
             >
-              Open Assessment Hub &rarr;
+              {t('courses.openAssessments')} &rarr;
             </button>
           </div>
         )}
@@ -491,15 +494,15 @@ export const CoursesView: React.FC = () => {
         {/* Tab 6: Tuition */}
         {activeCourseTab === 'tuition' && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs text-center">
-            <h2 className="text-base font-bold text-slate-900 mb-2">Course Tuition & Statements</h2>
+            <h2 className="text-base font-bold text-slate-900 mb-2">{t('courses.tabs.tuition')}</h2>
             <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
-              Configure billing models, calculate statements, track student payments, and export individual PDFs.
+              {t('courses.tuitionHubDesc')}
             </p>
             <button
               onClick={() => setActiveTab('tuition')}
               className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition-colors"
             >
-              Open Tuition Management &rarr;
+              {t('courses.openTuition')} &rarr;
             </button>
           </div>
         )}
@@ -507,47 +510,45 @@ export const CoursesView: React.FC = () => {
         {/* Tab 7: Settings */}
         {activeCourseTab === 'settings' && isTeacher && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
-            <h2 className="text-base font-bold text-slate-900">Course Administration</h2>
+            <h2 className="text-base font-bold text-slate-900">{t('courses.courseAdmin')}</h2>
 
-            {/* Code Regeneration */}
             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
-              <h3 className="text-xs font-bold text-slate-800">Regenerate Discovery Code</h3>
+              <h3 className="text-xs font-bold text-slate-800">{t('courses.regenerateHeading')}</h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Regenerating will invalidate the existing code ({currentCourse.code}) for future requests. Current enrolled students remain unaffected.
+                {t('courses.regenerateDesc', { code: currentCourse.code })}
               </p>
               <button
-                onClick={() => {
-                  if (confirm('Are you sure you want to invalidate the old code and generate a new one?')) {
-                    regenerateCourseCode(currentCourse.id);
+                onClick={async () => {
+                  if (confirm(t('courses.regenerateWarning'))) {
+                    await regenerateCourseCode(currentCourse.id);
                   }
                 }}
                 className="mt-3 px-3 py-1.5 bg-slate-800 hover:bg-black text-white text-xs font-semibold rounded-md shadow-xs transition-colors flex items-center space-x-1.5"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span>Generate New Code</span>
+                <span>{t('courses.generateNewCodeBtn')}</span>
               </button>
             </div>
 
-            {/* Archive Course */}
             <div className="border border-amber-200 bg-amber-50/40 rounded-lg p-4">
-              <h3 className="text-xs font-bold text-amber-900">Archive Course</h3>
+              <h3 className="text-xs font-bold text-amber-900">{t('courses.archiveHeading')}</h3>
               <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                Archived courses stop accepting new enrollments and explain to students why the course is closed, while preserving full past submissions and records.
+                {t('courses.archiveDesc')}
               </p>
               {currentCourse.status === 'active' ? (
                 <button
-                  onClick={() => {
-                    if (confirm('Archive this course? New requests will be stopped.')) {
-                      archiveCourse(currentCourse.id);
+                  onClick={async () => {
+                    if (confirm(t('courses.archiveConfirm'))) {
+                      await archiveCourse(currentCourse.id);
                     }
                   }}
                   className="mt-3 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors flex items-center space-x-1.5"
                 >
                   <Archive className="w-3.5 h-3.5" />
-                  <span>Archive Course</span>
+                  <span>{t('courses.archiveBtn')}</span>
                 </button>
               ) : (
-                <p className="mt-2 text-xs font-semibold text-slate-600">This course is already archived.</p>
+                <p className="mt-2 text-xs font-semibold text-slate-600">{t('courses.alreadyArchived')}</p>
               )}
             </div>
           </div>
@@ -557,14 +558,14 @@ export const CoursesView: React.FC = () => {
         {rejectModalReqId && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-900 mb-2">Reject Enrollment Request</h3>
-              <p className="text-xs text-slate-500 mb-4">
-                Please provide an explanation so the student understands why their request was not approved (e.g. prerequisite band or schedule clash).
+              <h3 className="text-sm font-bold text-slate-900 mb-2">{t('courses.rejectModalTitle')}</h3>
+              <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                {t('courses.rejectModalDesc')}
               </p>
               <textarea
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="e.g. Target band is too high for foundation level; recommended Intermediate course."
+                placeholder="Reason..."
                 rows={3}
                 className="w-full text-xs p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden"
               />
@@ -573,16 +574,16 @@ export const CoursesView: React.FC = () => {
                   onClick={() => setRejectModalReqId(null)}
                   className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
-                  onClick={() => {
-                    reviewEnrollmentRequest(rejectModalReqId, 'rejected', rejectReason);
+                  onClick={async () => {
+                    await reviewEnrollmentRequest(rejectModalReqId, 'rejected', rejectReason);
                     setRejectModalReqId(null);
                   }}
                   className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-xs"
                 >
-                  Confirm Rejection
+                  {t('courses.confirmRejection')}
                 </button>
               </div>
             </div>
@@ -599,12 +600,10 @@ export const CoursesView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-            {isTeacher ? 'My Teaching Courses' : 'Enrolled Courses'}
+            {isTeacher ? t('courses.titleTeacher') : t('courses.titleStudent')}
           </h1>
           <p className="text-sm text-slate-500">
-            {isTeacher
-              ? 'Manage your private IELTS courses, enrollment roster, and discovery codes.'
-              : 'Browse and enter your active courses across your teachers.'}
+            {isTeacher ? t('courses.descTeacher') : t('courses.descStudent')}
           </p>
         </div>
 
@@ -615,7 +614,7 @@ export const CoursesView: React.FC = () => {
               className="inline-flex items-center space-x-2 px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 shadow-xs transition-colors"
             >
               <Plus className="w-4 h-4" />
-              <span>Create Course</span>
+              <span>{t('courses.createBtn')}</span>
             </button>
           )}
           {!isTeacher && (
@@ -624,7 +623,7 @@ export const CoursesView: React.FC = () => {
               className="inline-flex items-center space-x-2 px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 shadow-xs transition-colors"
             >
               <BookOpen className="w-4 h-4" />
-              <span>Join Course with Code</span>
+              <span>{t('courses.joinBtn')}</span>
             </button>
           )}
         </div>
@@ -644,14 +643,14 @@ export const CoursesView: React.FC = () => {
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                {status} ({courses.filter((c) => c.teacherId === currentUser.id && (status === 'all' || c.status === status)).length})
+                {t(`status.${status}`)} ({formatNumber(courses.filter((c) => c.teacherId === currentUser.id && (status === 'all' || c.status === status)).length)})
               </button>
             ))}
           </div>
 
           {pendingRequests.length > 0 && (
             <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-              {pendingRequests.length} student request(s) awaiting review
+              {formatNumber(pendingRequests.length)} {t('courses.pendingRequests')}
             </span>
           )}
         </div>
@@ -661,25 +660,23 @@ export const CoursesView: React.FC = () => {
       {filteredCourses.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center shadow-xs">
           <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-sm font-bold text-slate-800">No courses found</h3>
+          <h3 className="text-sm font-bold text-slate-800">{t('courses.noCoursesFound')}</h3>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            {isTeacher
-              ? 'Start by creating your first IELTS course to accept student enrollment requests.'
-              : 'You have not joined any courses yet. Use a course code from your teacher to enroll.'}
+            {isTeacher ? t('courses.noCoursesTeacherDesc') : t('courses.noCoursesStudentDesc')}
           </p>
           {isTeacher ? (
             <button
               onClick={() => setShowCreateModal(true)}
               className="mt-4 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Create First Course
+              {t('courses.createFirstCourse')}
             </button>
           ) : (
             <button
               onClick={() => setActiveTab('find_course')}
               className="mt-4 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Enter Course Code
+              {t('dashboard.enterCourseCode')}
             </button>
           )}
         </div>
@@ -699,11 +696,10 @@ export const CoursesView: React.FC = () => {
                 onClick={() => setSelectedCourseId(course.id)}
                 className="bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer flex flex-col overflow-hidden group"
               >
-                {/* Course Header Banner */}
                 <div className="p-5 pb-3">
                   <div className="flex items-center justify-between text-xs mb-2">
                     <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                      CODE: {course.code}
+                      {t('courses.codeLabel')}: {course.code}
                     </span>
                     <span
                       className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
@@ -712,7 +708,7 @@ export const CoursesView: React.FC = () => {
                           : 'bg-slate-200 text-slate-600'
                       }`}
                     >
-                      {course.status}
+                      {t(`status.${course.status}`)}
                     </span>
                   </div>
 
@@ -724,7 +720,6 @@ export const CoursesView: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Skills tags */}
                 <div className="px-5 py-2 flex flex-wrap gap-1.5">
                   {course.skills.map((s) => (
                     <span
@@ -736,19 +731,18 @@ export const CoursesView: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Footer details */}
                 <div className="mt-auto px-5 py-3.5 bg-slate-50/70 border-t border-slate-100 flex items-center justify-between text-xs">
                   <div className="flex items-center space-x-1.5 text-slate-600">
                     <Users className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="font-semibold">{enrolledCount} enrolled</span>
+                    <span className="font-semibold">{formatNumber(enrolledCount)} {t('courses.enrolledCount')}</span>
                     {coursePendingReqs > 0 && isTeacher && (
                       <span className="ml-1 text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                        +{coursePendingReqs} req
+                        +{formatNumber(coursePendingReqs)}
                       </span>
                     )}
                   </div>
                   <span className="font-bold text-slate-800 flex items-center space-x-1 text-blue-600">
-                    <span>Manage</span>
+                    <span>{t('courses.manageCourse')}</span>
                     <ChevronRight className="w-3.5 h-3.5" />
                   </span>
                 </div>
@@ -763,7 +757,7 @@ export const CoursesView: React.FC = () => {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h2 className="text-base font-bold text-slate-900">Create New IELTS Course</h2>
+              <h2 className="text-base font-bold text-slate-900">{t('courses.modalTitle')}</h2>
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="text-slate-400 hover:text-slate-600"
@@ -774,11 +768,11 @@ export const CoursesView: React.FC = () => {
 
             <form onSubmit={handleCreateCourse} className="space-y-4 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Course Title</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('courses.courseTitleLabel')}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. IELTS Writing & Speaking Intensive 7.0+"
+                  placeholder={t('courses.courseTitlePlaceholder')}
                   value={newCourseName}
                   onChange={(e) => setNewCourseName(e.target.value)}
                   className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden"
@@ -786,10 +780,10 @@ export const CoursesView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Description & Objectives</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('courses.descLabel')}</label>
                 <textarea
                   rows={3}
-                  placeholder="Outline syllabus, target score range, and teaching methods..."
+                  placeholder={t('courses.descPlaceholder')}
                   value={newCourseDesc}
                   onChange={(e) => setNewCourseDesc(e.target.value)}
                   className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden"
@@ -797,7 +791,7 @@ export const CoursesView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">Target IELTS Skills</label>
+                <label className="block font-semibold text-slate-700 mb-1.5">{t('courses.targetSkills')}</label>
                 <div className="grid grid-cols-2 gap-2">
                   {(['reading', 'writing', 'listening', 'speaking'] as CourseSkill[]).map((sk) => {
                     const isSelected = newCourseSkills.includes(sk);
@@ -812,7 +806,7 @@ export const CoursesView: React.FC = () => {
                             : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                         }`}
                       >
-                        {sk}
+                        {t(`skills.${sk}`)}
                       </button>
                     );
                   })}
@@ -821,16 +815,16 @@ export const CoursesView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Tuition Model</label>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('courses.tuitionModel')}</label>
                   <select
                     value={newTuitionModel}
                     onChange={(e) => setNewTuitionModel(e.target.value as TuitionModel)}
                     className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
                   >
-                    <option value="fixed_monthly">Fixed Monthly</option>
-                    <option value="per_session">Per Session</option>
-                    <option value="hourly">Hourly</option>
-                    <option value="course_package">Course Package</option>
+                    <option value="fixed_monthly">{t('tuition.fixedMonthly')}</option>
+                    <option value="per_session">{t('tuition.perSession')}</option>
+                    <option value="hourly">{t('tuition.hourly')}</option>
+                    <option value="course_package">{t('tuition.coursePackage')}</option>
                   </select>
                 </div>
                 <div>
@@ -847,7 +841,7 @@ export const CoursesView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Default Base Amount</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('courses.baseAmountLabel')}</label>
                 <input
                   type="number"
                   value={newTuitionAmount}
@@ -858,7 +852,7 @@ export const CoursesView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Start Date</label>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('courses.startDate')}</label>
                   <input
                     type="date"
                     value={newStartDate}
@@ -867,7 +861,7 @@ export const CoursesView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">End Date</label>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('courses.endDate')}</label>
                   <input
                     type="date"
                     value={newEndDate}
@@ -883,13 +877,14 @@ export const CoursesView: React.FC = () => {
                   onClick={() => setShowCreateModal(false)}
                   className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
+                  disabled={creating}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-xs"
                 >
-                  Create & Generate Code
+                  {creating ? t('common.loading') : t('courses.createAndGenerateBtn')}
                 </button>
               </div>
             </form>

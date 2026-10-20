@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../i18n/context';
 import {
   LineChart,
   Award,
@@ -13,6 +14,9 @@ import {
 
 export const ProgressView: React.FC = () => {
   const { currentUser, submissions, monthlyReports, setActiveTab } = useApp();
+  const { t } = useI18n();
+
+  if (!currentUser) return null;
 
   const mySubs = submissions.filter((s) => s.studentId === currentUser.id);
   const myReports = monthlyReports.filter((r) => r.studentId === currentUser.id && r.state === 'published');
@@ -20,7 +24,6 @@ export const ProgressView: React.FC = () => {
   const readingSubs = mySubs.filter((s) => s.skill === 'reading');
   const writingSubs = mySubs.filter((s) => s.skill === 'writing');
   const speakingSubs = mySubs.filter((s) => s.skill === 'speaking');
-  const listeningSubs = mySubs.filter((s) => s.skill === ('listening' as any));
 
   // Average reading percentage
   const readingAvg = readingSubs.length > 0
@@ -43,9 +46,9 @@ export const ProgressView: React.FC = () => {
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* Title */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">My Learning Progress</h1>
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{t('progress.title')}</h1>
         <p className="text-sm text-slate-500">
-          Real evidence tracked from your submitted homework, diagnostic quizzes, and teacher assessments.
+          {t('progress.subtitle')}
         </p>
       </div>
 
@@ -53,15 +56,15 @@ export const ProgressView: React.FC = () => {
       <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white rounded-xl p-5 shadow-xs flex items-center justify-between">
         <div>
           <span className="text-[10px] uppercase font-bold tracking-widest text-blue-200">
-            STUDENT TARGET
+            {t('progress.studentTarget')}
           </span>
           <h2 className="text-xl font-extrabold mt-0.5">
-            {currentUser.targetBand ? `Band ${currentUser.targetBand} Target` : 'Target Band Not Configured'}
+            {currentUser.targetBand ? t('progress.targetBandTitle', { band: currentUser.targetBand }) : t('progress.targetNotSet')}
           </h2>
           <p className="text-xs text-blue-100 mt-1">
             {myReports.length > 0
-              ? `Latest monthly diagnostic estimate: ${myReports[0].teacherEvaluation.estimatedBand || 'Pending'}`
-              : 'Complete upcoming monthly assignments for your diagnostic evaluation.'}
+              ? t('progress.latestEstimate', { band: myReports[0].teacherEvaluation.estimatedBand || 'Pending' })
+              : t('progress.completeUpcomingPrompt')}
           </p>
         </div>
         <div className="text-right">
@@ -69,23 +72,23 @@ export const ProgressView: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 Skill Cards — Missing data is labelled "not enough data", never treated as zero! */}
+      {/* 4 Skill Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Reading */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase">
-            <span>Reading</span>
-            <span className="text-emerald-600">{readingSubs.length} drills</span>
+            <span>{t('skills.reading')}</span>
+            <span className="text-emerald-600">{t('progress.drillsLogged', { count: String(readingSubs.length) })}</span>
           </div>
           {readingAvg !== null ? (
             <div>
               <div className="text-2xl font-extrabold text-slate-900">{readingAvg}%</div>
-              <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">Average accuracy</p>
+              <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">{t('progress.avgAccuracy')}</p>
             </div>
           ) : (
             <div>
-              <div className="text-sm font-bold text-slate-400 italic">Not enough data</div>
-              <p className="text-[11px] text-slate-400 mt-0.5">0 quizzes logged</p>
+              <div className="text-sm font-bold text-slate-400 italic">{t('progress.notEnoughData')}</div>
+              <p className="text-[11px] text-slate-400 mt-0.5">{t('progress.quizzesLogged')}</p>
             </div>
           )}
         </div>
@@ -93,19 +96,19 @@ export const ProgressView: React.FC = () => {
         {/* Writing */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase">
-            <span>Writing</span>
-            <span className="text-amber-600">{writingSubs.length} essays</span>
+            <span>{t('skills.writing')}</span>
+            <span className="text-amber-600">{t('progress.essaysLogged', { count: String(writingSubs.length) })}</span>
           </div>
           {writingAvg !== null ? (
             <div>
               <div className="text-2xl font-extrabold text-slate-900">Band {writingAvg}</div>
-              <p className="text-[11px] text-amber-600 font-semibold mt-0.5">Teacher evaluated</p>
+              <p className="text-[11px] text-amber-600 font-semibold mt-0.5">{t('progress.teacherEvaluated')}</p>
             </div>
           ) : (
             <div>
-              <div className="text-sm font-bold text-slate-400 italic">Not enough data</div>
+              <div className="text-sm font-bold text-slate-400 italic">{t('progress.notEnoughData')}</div>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                {writingSubs.length > 0 ? 'Awaiting grading' : '0 submissions'}
+                {writingSubs.length > 0 ? t('progress.awaitingGrading') : t('progress.zeroSubmissions')}
               </p>
             </div>
           )}
@@ -114,18 +117,18 @@ export const ProgressView: React.FC = () => {
         {/* Speaking */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase">
-            <span>Speaking</span>
-            <span className="text-purple-600">{speakingSubs.length} recorded</span>
+            <span>{t('skills.speaking')}</span>
+            <span className="text-purple-600">{t('progress.speakingLogged', { count: String(speakingSubs.length) })}</span>
           </div>
           {speakingAvg !== null ? (
             <div>
               <div className="text-2xl font-extrabold text-slate-900">Band {speakingAvg}</div>
-              <p className="text-[11px] text-purple-600 font-semibold mt-0.5">With verified audio</p>
+              <p className="text-[11px] text-purple-600 font-semibold mt-0.5">{t('progress.verifiedAudio')}</p>
             </div>
           ) : (
             <div>
-              <div className="text-sm font-bold text-slate-400 italic">Not enough data</div>
-              <p className="text-[11px] text-slate-400 mt-0.5">Awaiting audio grading</p>
+              <div className="text-sm font-bold text-slate-400 italic">{t('progress.notEnoughData')}</div>
+              <p className="text-[11px] text-slate-400 mt-0.5">{t('progress.awaitingAudioGrading')}</p>
             </div>
           )}
         </div>
@@ -133,21 +136,21 @@ export const ProgressView: React.FC = () => {
         {/* Listening */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase">
-            <span>Listening</span>
-            <span className="text-slate-400">0 logged</span>
+            <span>{t('skills.listening')}</span>
+            <span className="text-slate-400">{t('progress.listeningLogged')}</span>
           </div>
           <div>
-            <div className="text-sm font-bold text-slate-400 italic">Not enough data</div>
-            <p className="text-[11px] text-slate-400 mt-0.5">No mock tests logged</p>
+            <div className="text-sm font-bold text-slate-400 italic">{t('progress.notEnoughData')}</div>
+            <p className="text-[11px] text-slate-400 mt-0.5">{t('progress.noMockTests')}</p>
           </div>
         </div>
       </div>
 
       {/* Completed Submissions Log */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
-        <h3 className="text-sm font-bold text-slate-900 mb-3">Evidence Log & Detailed Feedback</h3>
+        <h3 className="text-sm font-bold text-slate-900 mb-3">{t('progress.evidenceLogTitle')}</h3>
         {mySubs.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">No assignments submitted yet.</p>
+          <p className="text-xs text-slate-400 py-4 text-center">{t('progress.noSubsYet')}</p>
         ) : (
           <div className="divide-y divide-slate-100">
             {mySubs.map((sub) => (
@@ -172,30 +175,29 @@ export const ProgressView: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Feedback Separation: Rubrics, Strengths, Areas to Improve, Next Steps */}
                 {sub.status === 'graded' && (
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-1.5 text-slate-700">
                     {sub.strengths && (
                       <p>
-                        <strong className="text-emerald-800">Strengths: </strong>
+                        <strong className="text-emerald-800">{t('assignments.strengths')}: </strong>
                         {sub.strengths}
                       </p>
                     )}
                     {sub.areasToImprove && (
                       <p>
-                        <strong className="text-amber-800">Areas to Improve: </strong>
+                        <strong className="text-amber-800">{t('assignments.improvements')}: </strong>
                         {sub.areasToImprove}
                       </p>
                     )}
                     {sub.teacherComments && (
                       <p>
-                        <strong className="text-slate-800">Teacher Comments: </strong>
+                        <strong className="text-slate-800">{t('assignments.teacherRemarks')}: </strong>
                         {sub.teacherComments}
                       </p>
                     )}
                     {sub.nextSteps && (
                       <p>
-                        <strong className="text-blue-700">Next Steps: </strong>
+                        <strong className="text-blue-700">{t('assignments.nextSteps')}: </strong>
                         {sub.nextSteps}
                       </p>
                     )}

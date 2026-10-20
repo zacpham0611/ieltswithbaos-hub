@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   User,
   Course,
@@ -15,93 +15,80 @@ import {
   NotificationItem,
   PaymentRecord,
 } from '../types';
-import {
-  initialUsers,
-  initialCourses,
-  initialEnrollmentRequests,
-  initialCourseMembers,
-  initialResources,
-  initialLessons,
-  initialAssignments,
-  initialSubmissions,
-  initialMonthlyReports,
-  initialFeeConfigurations,
-  initialTuitionStatements,
-  initialActivities,
-  initialNotifications,
-} from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { I18nProvider } from '../i18n/context';
 
 interface AppContextType {
-  currentUser: User;
-  switchUser: (userId: string) => void;
-  users: User[];
-  registerUser: (name: string, email: string, role: 'teacher' | 'student') => void;
+  currentUser: User | null;
+  loadingAuth: boolean;
+  logout: () => Promise<void>;
+  updateProfile: (updates: Partial<User>) => Promise<void>;
 
   // Courses
   courses: Course[];
   activeCourses: Course[];
-  createCourse: (course: Omit<Course, 'id' | 'teacherId' | 'teacherName' | 'createdAt'>) => Course;
-  updateCourse: (id: string, updates: Partial<Course>) => void;
-  regenerateCourseCode: (courseId: string) => string;
-  archiveCourse: (courseId: string) => void;
+  createCourse: (course: Omit<Course, 'id' | 'teacherId' | 'teacherName' | 'createdAt'>) => Promise<Course>;
+  updateCourse: (id: string, updates: Partial<Course>) => Promise<void>;
+  regenerateCourseCode: (courseId: string) => Promise<string>;
+  archiveCourse: (courseId: string) => Promise<void>;
 
   // Enrollment & Roster
   enrollmentRequests: EnrollmentRequest[];
   courseMembers: CourseMember[];
-  requestEnrollment: (courseCode: string) => { success: boolean; message: string };
-  reviewEnrollmentRequest: (requestId: string, status: 'approved' | 'rejected', reason?: string) => void;
-  removeStudentFromCourse: (courseId: string, studentId: string) => void;
+  requestEnrollment: (courseCode: string) => Promise<{ success: boolean; message: string }>;
+  reviewEnrollmentRequest: (requestId: string, status: 'approved' | 'rejected', reason?: string) => Promise<void>;
+  removeStudentFromCourse: (courseId: string, studentId: string) => Promise<void>;
 
   // Resources & Lessons
   resources: Resource[];
-  addResource: (resource: Omit<Resource, 'id' | 'teacherId' | 'createdAt'>) => void;
-  deleteResource: (id: string) => void;
-  toggleResourcePublish: (id: string) => void;
+  addResource: (resource: Omit<Resource, 'id' | 'teacherId' | 'createdAt'>) => Promise<void>;
+  deleteResource: (id: string) => Promise<void>;
+  toggleResourcePublish: (id: string) => Promise<void>;
   lessons: Lesson[];
-  createLesson: (lesson: Omit<Lesson, 'id'>) => void;
-  updateLesson: (id: string, updates: Partial<Lesson>) => void;
+  createLesson: (lesson: Omit<Lesson, 'id'>) => Promise<void>;
+  updateLesson: (id: string, updates: Partial<Lesson>) => Promise<void>;
 
   // Assignments & Submissions
   assignments: Assignment[];
-  createAssignment: (assignment: Omit<Assignment, 'id'>) => void;
+  createAssignment: (assignment: Omit<Assignment, 'id'>) => Promise<void>;
   submissions: Submission[];
-  submitAssignment: (assignmentId: string, data: Partial<Submission>) => void;
-  gradeSubmission: (submissionId: string, updates: Partial<Submission>) => void;
-  returnForRevision: (submissionId: string, teacherComments: string) => void;
+  submitAssignment: (assignmentId: string, data: Partial<Submission>) => Promise<void>;
+  gradeSubmission: (submissionId: string, updates: Partial<Submission>) => Promise<void>;
+  returnForRevision: (submissionId: string, teacherComments: string) => Promise<void>;
 
   // Monthly Assessments
   monthlyReports: MonthlyReport[];
-  createMonthlyReportDraft: (courseId: string, studentId: string, month: string) => MonthlyReport;
-  updateMonthlyReport: (id: string, updates: Partial<MonthlyReport>) => void;
-  approveMonthlyReport: (id: string) => void;
-  publishMonthlyReport: (id: string) => void;
-  voidMonthlyReport: (id: string) => void;
+  createMonthlyReportDraft: (courseId: string, studentId: string, month: string) => Promise<MonthlyReport>;
+  updateMonthlyReport: (id: string, updates: Partial<MonthlyReport>) => Promise<void>;
+  approveMonthlyReport: (id: string) => Promise<void>;
+  publishMonthlyReport: (id: string) => Promise<void>;
+  voidMonthlyReport: (id: string) => Promise<void>;
 
   // Tuition
   feeConfigurations: FeeConfiguration[];
-  createFeeConfiguration: (config: Omit<FeeConfiguration, 'id' | 'teacherId'>) => void;
+  createFeeConfiguration: (config: Omit<FeeConfiguration, 'id' | 'teacherId'>) => Promise<void>;
   tuitionStatements: TuitionStatement[];
   generateTuitionStatement: (data: {
     courseId: string;
     studentId: string;
     billingPeriod: string;
     dueDate: string;
-    billableUnits?: number; // sessions or hours
+    billableUnits?: number;
     customDiscount?: number;
     customDiscountNote?: string;
-  }) => TuitionStatement;
-  approveTuitionStatement: (id: string) => void;
-  publishTuitionStatement: (id: string) => void;
-  voidTuitionStatement: (id: string) => void;
-  recordPayment: (statementId: string, payment: Omit<PaymentRecord, 'id' | 'statementId'>) => void;
+  }) => Promise<TuitionStatement>;
+  approveTuitionStatement: (id: string) => Promise<void>;
+  publishTuitionStatement: (id: string) => Promise<void>;
+  voidTuitionStatement: (id: string) => Promise<void>;
+  recordPayment: (statementId: string, payment: Omit<PaymentRecord, 'id' | 'statementId'>) => Promise<void>;
 
   // Activities & Notifications
   activities: ActivityItem[];
   notifications: NotificationItem[];
   markNotificationRead: (id: string) => void;
-  addActivity: (text: string, type: ActivityItem['type'], targetTab?: string) => void;
+  addActivity: (text: string, type: ActivityItem['type'], targetTab?: string) => Promise<void>;
 
-  // Navigation
+  // Navigation state
   activeTab: string;
   setActiveTab: (tab: string) => void;
   selectedCourseId: string | null;
@@ -110,82 +97,29 @@ interface AppContextType {
   setSelectedStatementId: (id: string | null) => void;
   selectedReportId: string | null;
   setSelectedReportId: (id: string | null) => void;
+
+  refreshData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Local storage keys or fallback
-  const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem('ielts_users');
-    return saved ? JSON.parse(saved) : initialUsers;
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
 
-  const [currentUserId, setCurrentUserId] = useState<string>(() => {
-    return localStorage.getItem('ielts_current_user') || 'teacher-1';
-  });
-
-  const currentUser = users.find((u) => u.id === currentUserId) || users[0];
-
-  const [courses, setCourses] = useState<Course[]>(() => {
-    const saved = localStorage.getItem('ielts_courses');
-    return saved ? JSON.parse(saved) : initialCourses;
-  });
-
-  const [enrollmentRequests, setEnrollmentRequests] = useState<EnrollmentRequest[]>(() => {
-    const saved = localStorage.getItem('ielts_enrollment_requests');
-    return saved ? JSON.parse(saved) : initialEnrollmentRequests;
-  });
-
-  const [courseMembers, setCourseMembers] = useState<CourseMember[]>(() => {
-    const saved = localStorage.getItem('ielts_course_members');
-    return saved ? JSON.parse(saved) : initialCourseMembers;
-  });
-
-  const [resources, setResources] = useState<Resource[]>(() => {
-    const saved = localStorage.getItem('ielts_resources');
-    return saved ? JSON.parse(saved) : initialResources;
-  });
-
-  const [lessons, setLessons] = useState<Lesson[]>(() => {
-    const saved = localStorage.getItem('ielts_lessons');
-    return saved ? JSON.parse(saved) : initialLessons;
-  });
-
-  const [assignments, setAssignments] = useState<Assignment[]>(() => {
-    const saved = localStorage.getItem('ielts_assignments');
-    return saved ? JSON.parse(saved) : initialAssignments;
-  });
-
-  const [submissions, setSubmissions] = useState<Submission[]>(() => {
-    const saved = localStorage.getItem('ielts_submissions');
-    return saved ? JSON.parse(saved) : initialSubmissions;
-  });
-
-  const [monthlyReports, setMonthlyReports] = useState<MonthlyReport[]>(() => {
-    const saved = localStorage.getItem('ielts_monthly_reports');
-    return saved ? JSON.parse(saved) : initialMonthlyReports;
-  });
-
-  const [feeConfigurations, setFeeConfigurations] = useState<FeeConfiguration[]>(() => {
-    const saved = localStorage.getItem('ielts_fee_configs');
-    return saved ? JSON.parse(saved) : initialFeeConfigurations;
-  });
-
-  const [tuitionStatements, setTuitionStatements] = useState<TuitionStatement[]>(() => {
-    const saved = localStorage.getItem('ielts_tuition_statements');
-    return saved ? JSON.parse(saved) : initialTuitionStatements;
-  });
-
-  const [activities, setActivities] = useState<ActivityItem[]>(() => {
-    const saved = localStorage.getItem('ielts_activities');
-    return saved ? JSON.parse(saved) : initialActivities;
-  });
-
-  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
-    const saved = localStorage.getItem('ielts_notifications');
-    return saved ? JSON.parse(saved) : initialNotifications;
-  });
+  // Core production entities (defaults to empty arrays - no fake records!)
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [enrollmentRequests, setEnrollmentRequests] = useState<EnrollmentRequest[]>([]);
+  const [courseMembers, setCourseMembers] = useState<CourseMember[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [monthlyReports, setMonthlyReports] = useState<MonthlyReport[]>([]);
+  const [feeConfigurations, setFeeConfigurations] = useState<FeeConfiguration[]>([]);
+  const [tuitionStatements, setTuitionStatements] = useState<TuitionStatement[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   // Navigation state
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -193,72 +127,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
 
-  // Sync to local storage
-  useEffect(() => {
-    localStorage.setItem('ielts_current_user', currentUserId);
-  }, [currentUserId]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_courses', JSON.stringify(courses));
-  }, [courses]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_enrollment_requests', JSON.stringify(enrollmentRequests));
-  }, [enrollmentRequests]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_course_members', JSON.stringify(courseMembers));
-  }, [courseMembers]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_resources', JSON.stringify(resources));
-  }, [resources]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_lessons', JSON.stringify(lessons));
-  }, [lessons]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_assignments', JSON.stringify(assignments));
-  }, [assignments]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_submissions', JSON.stringify(submissions));
-  }, [submissions]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_monthly_reports', JSON.stringify(monthlyReports));
-  }, [monthlyReports]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_fee_configs', JSON.stringify(feeConfigurations));
-  }, [feeConfigurations]);
-
-  useEffect(() => {
-    localStorage.setItem('ielts_tuition_statements', JSON.stringify(tuitionStatements));
-  }, [tuitionStatements]);
-
-  const switchUser = (userId: string) => {
-    setCurrentUserId(userId);
-    setActiveTab('dashboard');
-    setSelectedCourseId(null);
-    setSelectedStatementId(null);
-    setSelectedReportId(null);
-  };
-
-  const registerUser = (name: string, email: string, role: 'teacher' | 'student') => {
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      name,
-      email,
-      role,
-      avatar: `https://images.unsplash.com/photo-${role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
-    };
-    setUsers((prev) => [...prev, newUser]);
-    switchUser(newUser.id);
-  };
-
-  // Helper for generating course codes
+  // Generate 7-character course code helper
   const generateCode = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let res = '';
@@ -268,369 +137,1046 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   };
 
-  const createCourse = (courseData: Omit<Course, 'id' | 'teacherId' | 'teacherName' | 'createdAt'>): Course => {
-    const newCourse: Course = {
-      ...courseData,
-      id: `course-${Date.now()}`,
+  // 1. DATA REFRESH FUNCTION - Pulls real records from Supabase
+  const refreshData = useCallback(async () => {
+    if (!currentUser) return;
+
+    try {
+      if (currentUser.role === 'teacher') {
+        // Teacher sees courses where teacher_id = currentUser.id
+        const { data: coursesData } = await supabase
+          .from('courses')
+          .select('*')
+          .eq('teacher_id', currentUser.id)
+          .order('created_at', { ascending: false });
+
+        if (coursesData) {
+          const mappedCourses: Course[] = coursesData.map((c: any) => ({
+            id: c.id,
+            teacherId: c.teacher_id,
+            teacherName: currentUser.name,
+            name: c.name,
+            description: c.description,
+            coverUrl: c.cover_url,
+            skills: c.skills || [],
+            status: c.status,
+            code: c.code,
+            startDate: c.start_date || '',
+            endDate: c.end_date || '',
+            tuitionModel: c.tuition_model,
+            tuitionAmount: Number(c.tuition_amount),
+            currency: c.currency,
+            createdAt: c.created_at?.split('T')[0] || '',
+          }));
+          setCourses(mappedCourses);
+
+          const courseIds = mappedCourses.map((c) => c.id);
+
+          if (courseIds.length > 0) {
+            // Enrollments
+            const { data: enrollmentsData } = await supabase
+              .from('enrollments')
+              .select('*, profiles:student_id(*)')
+              .in('course_id', courseIds);
+
+            if (enrollmentsData) {
+              const reqs: EnrollmentRequest[] = [];
+              const members: CourseMember[] = [];
+
+              enrollmentsData.forEach((e: any) => {
+                const courseName = mappedCourses.find((c) => c.id === e.course_id)?.name || 'Course';
+                const studentProfile = e.profiles || {};
+
+                if (e.status === 'pending' || e.status === 'rejected') {
+                  reqs.push({
+                    id: e.id,
+                    courseId: e.course_id,
+                    courseName,
+                    studentId: e.student_id,
+                    studentName: studentProfile.name || 'Student',
+                    studentEmail: studentProfile.email || '',
+                    status: e.status,
+                    requestedAt: e.requested_at?.replace('T', ' ').substring(0, 16) || '',
+                    reviewedAt: e.reviewed_at?.replace('T', ' ').substring(0, 16),
+                    rejectionReason: e.rejection_reason,
+                  });
+                }
+
+                if (e.status === 'approved' || e.status === 'removed') {
+                  members.push({
+                    id: e.id,
+                    courseId: e.course_id,
+                    studentId: e.student_id,
+                    studentName: studentProfile.name || 'Student',
+                    studentEmail: studentProfile.email || '',
+                    status: e.status === 'approved' ? 'enrolled' : 'removed',
+                    joinedAt: e.reviewed_at?.split('T')[0] || e.created_at?.split('T')[0] || '',
+                    recentActivity: e.notes || 'Enrolled in course',
+                    outstandingWork: 0,
+                    targetBand: studentProfile.target_band,
+                  });
+                }
+              });
+
+              setEnrollmentRequests(reqs);
+              setCourseMembers(members);
+            }
+
+            // Assignments
+            const { data: assignmentsData } = await supabase
+              .from('assignments')
+              .select('*')
+              .in('course_id', courseIds)
+              .order('created_at', { ascending: false });
+
+            if (assignmentsData) {
+              setAssignments(
+                assignmentsData.map((a: any) => ({
+                  id: a.id,
+                  courseId: a.course_id,
+                  title: a.title,
+                  instructions: a.instructions,
+                  skill: a.skill,
+                  objectives: a.objectives,
+                  dueDate: a.due_date,
+                  status: a.status,
+                  readingPassage: a.reading_passage,
+                  readingQuestions: a.reading_questions,
+                  writingTaskType: a.writing_task_type,
+                  writingPrompt: a.writing_prompt,
+                  writingMinWords: a.writing_min_words,
+                  speakingPart: a.speaking_part,
+                  speakingCueCard: a.speaking_cue_card,
+                }))
+              );
+            }
+
+            // Submissions
+            const { data: subsData } = await supabase
+              .from('submissions')
+              .select('*, profiles:student_id(*), assignments:assignment_id(*)')
+              .in('course_id', courseIds)
+              .order('submitted_at', { ascending: false });
+
+            if (subsData) {
+              setSubmissions(
+                subsData.map((s: any) => ({
+                  id: s.id,
+                  assignmentId: s.assignment_id,
+                  assignmentTitle: s.assignments?.title || 'Assignment',
+                  studentId: s.student_id,
+                  studentName: s.profiles?.name || 'Student',
+                  courseId: s.course_id,
+                  courseName: mappedCourses.find((c) => c.id === s.course_id)?.name || 'Course',
+                  skill: s.skill,
+                  status: s.status,
+                  submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
+                  updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
+                  readingAnswers: s.reading_answers,
+                  readingScore: s.reading_score,
+                  readingErrorAnalysis: s.reading_error_analysis,
+                  writingText: s.writing_text,
+                  writingWordCount: s.writing_word_count,
+                  writingRevisions: s.writing_revisions,
+                  speakingAudioUrl: s.speaking_audio_url,
+                  speakingTranscript: s.speaking_transcript,
+                  speakingDuration: s.speaking_duration,
+                  rubricScores: s.rubric_scores,
+                  strengths: s.strengths,
+                  areasToImprove: s.areas_to_improve,
+                  teacherComments: s.teacher_comments,
+                  nextSteps: s.next_steps,
+                  aiSuggestedFeedback: s.ai_suggested_feedback,
+                  score: s.score ? Number(s.score) : undefined,
+                }))
+              );
+            }
+          } else {
+            setEnrollmentRequests([]);
+            setCourseMembers([]);
+            setAssignments([]);
+            setSubmissions([]);
+          }
+        }
+
+        // Monthly Assessments
+        const { data: assessmentsData } = await supabase
+          .from('monthly_assessments')
+          .select('*, profiles:student_id(*), courses:course_id(*)')
+          .eq('teacher_id', currentUser.id)
+          .order('created_at', { ascending: false });
+
+        if (assessmentsData) {
+          setMonthlyReports(
+            assessmentsData.map((m: any) => ({
+              id: m.id,
+              courseId: m.course_id,
+              courseName: m.courses?.name || 'Course',
+              studentId: m.student_id,
+              studentName: m.profiles?.name || 'Student',
+              studentEmail: m.profiles?.email || '',
+              teacherId: m.teacher_id,
+              teacherName: currentUser.name,
+              month: m.month,
+              targetBand: m.target_band,
+              state: m.state,
+              createdAt: m.created_at?.replace('T', ' ').substring(0, 16) || '',
+              publishedAt: m.published_at?.replace('T', ' ').substring(0, 16),
+              learningEvidence: m.learning_evidence || {},
+              aiDraft: m.ai_draft || {},
+              teacherEvaluation: m.teacher_evaluation || {},
+              history: m.history || [],
+            }))
+          );
+        }
+
+        // Tuition Statements
+        const { data: statementsData } = await supabase
+          .from('tuition_statements')
+          .select('*, profiles:student_id(*), courses:course_id(*), payment_records(*)')
+          .eq('teacher_id', currentUser.id)
+          .order('created_at', { ascending: false });
+
+        if (statementsData) {
+          setTuitionStatements(
+            statementsData.map((s: any) => ({
+              id: s.id,
+              statementNumber: s.statement_number,
+              studentId: s.student_id,
+              studentName: s.profiles?.name || 'Student',
+              teacherId: s.teacher_id,
+              teacherName: currentUser.name,
+              courseId: s.course_id,
+              courseName: s.courses?.name || 'Course',
+              billingPeriod: s.billing_period,
+              issueDate: s.issue_date,
+              dueDate: s.due_date,
+              currency: s.currency,
+              status: s.status,
+              model: s.model,
+              itemizedCharges: s.itemized_charges || [],
+              discountAmount: Number(s.discount_amount || 0),
+              discountDescription: s.discount_description,
+              previousBalance: Number(s.previous_balance || 0),
+              totalAmountDue: Number(s.total_amount_due || 0),
+              amountPaid: Number(s.amount_paid || 0),
+              remainingBalance: Number(s.remaining_balance || 0),
+              payments: (s.payment_records || []).map((p: any) => ({
+                id: p.id,
+                statementId: p.statement_id,
+                amount: Number(p.amount),
+                paymentDate: p.payment_date,
+                paymentMethod: p.payment_method,
+                transactionReference: p.transaction_reference,
+                notes: p.notes,
+              })),
+              bankInfo: s.bank_info || {},
+              auditHistory: s.audit_history || [],
+            }))
+          );
+        }
+
+        // Resources
+        const { data: resData } = await supabase
+          .from('resources')
+          .select('*')
+          .eq('teacher_id', currentUser.id)
+          .order('created_at', { ascending: false });
+
+        if (resData) {
+          setResources(
+            resData.map((r: any) => ({
+              id: r.id,
+              teacherId: r.teacher_id,
+              courseId: r.course_id,
+              title: r.title,
+              type: r.type,
+              url: r.url,
+              content: r.content,
+              tags: r.tags || [],
+              skill: r.skill,
+              folder: r.folder,
+              isPublished: r.is_published,
+              createdAt: r.created_at?.split('T')[0] || '',
+            }))
+          );
+        }
+
+        // Lessons
+        const { data: lessonsData } = await supabase
+          .from('class_sessions')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (lessonsData) {
+          setLessons(
+            lessonsData.map((l: any) => ({
+              id: l.id,
+              courseId: l.course_id,
+              title: l.title,
+              objectives: l.objectives,
+              skill: l.skill,
+              teacherNotes: l.teacher_notes,
+              resources: [],
+              activities: l.activities,
+              homework: l.homework,
+              date: l.session_date,
+              isPublished: l.is_published,
+            }))
+          );
+        }
+
+        // Activities
+        const { data: actsData } = await supabase
+          .from('activity_logs')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (actsData) {
+          setActivities(
+            actsData.map((a: any) => ({
+              id: a.id,
+              teacherId: a.user_id,
+              text: a.text,
+              timeAgo: 'Just now',
+              timestamp: a.created_at?.replace('T', ' ').substring(0, 16) || '',
+              type: a.type || 'info',
+              targetTab: a.target_tab,
+            }))
+          );
+        }
+      } else {
+        // STUDENT DATA FETCHING
+        // 1. My Enrollments
+        const { data: enrollmentsData } = await supabase
+          .from('enrollments')
+          .select('*, courses:course_id(*)')
+          .eq('student_id', currentUser.id);
+
+        if (enrollmentsData) {
+          const reqs: EnrollmentRequest[] = [];
+          const members: CourseMember[] = [];
+          const approvedCourseIds: string[] = [];
+          const loadedCourses: Course[] = [];
+
+          enrollmentsData.forEach((e: any) => {
+            const c = e.courses;
+            if (c) {
+              loadedCourses.push({
+                id: c.id,
+                teacherId: c.teacher_id,
+                teacherName: 'Teacher',
+                name: c.name,
+                description: c.description,
+                coverUrl: c.cover_url,
+                skills: c.skills || [],
+                status: c.status,
+                code: c.code,
+                startDate: c.start_date || '',
+                endDate: c.end_date || '',
+                tuitionModel: c.tuition_model,
+                tuitionAmount: Number(c.tuition_amount),
+                currency: c.currency,
+                createdAt: c.created_at?.split('T')[0] || '',
+              });
+            }
+
+            reqs.push({
+              id: e.id,
+              courseId: e.course_id,
+              courseName: c?.name || 'Course',
+              studentId: currentUser.id,
+              studentName: currentUser.name,
+              studentEmail: currentUser.email,
+              status: e.status,
+              requestedAt: e.requested_at?.replace('T', ' ').substring(0, 16) || '',
+              reviewedAt: e.reviewed_at?.replace('T', ' ').substring(0, 16),
+              rejectionReason: e.rejection_reason,
+            });
+
+            if (e.status === 'approved') {
+              approvedCourseIds.push(e.course_id);
+              members.push({
+                id: e.id,
+                courseId: e.course_id,
+                studentId: currentUser.id,
+                studentName: currentUser.name,
+                studentEmail: currentUser.email,
+                status: 'enrolled',
+                joinedAt: e.reviewed_at?.split('T')[0] || e.created_at?.split('T')[0] || '',
+                recentActivity: 'Enrolled in course',
+                outstandingWork: 0,
+              });
+            }
+          });
+
+          setCourses(loadedCourses);
+          setEnrollmentRequests(reqs);
+          setCourseMembers(members);
+
+          // Assignments for approved courses
+          if (approvedCourseIds.length > 0) {
+            const { data: assignmentsData } = await supabase
+              .from('assignments')
+              .select('*')
+              .in('course_id', approvedCourseIds)
+              .eq('status', 'published')
+              .order('created_at', { ascending: false });
+
+            if (assignmentsData) {
+              setAssignments(
+                assignmentsData.map((a: any) => ({
+                  id: a.id,
+                  courseId: a.course_id,
+                  title: a.title,
+                  instructions: a.instructions,
+                  skill: a.skill,
+                  objectives: a.objectives,
+                  dueDate: a.due_date,
+                  status: a.status,
+                  readingPassage: a.reading_passage,
+                  readingQuestions: a.reading_questions,
+                  writingTaskType: a.writing_task_type,
+                  writingPrompt: a.writing_prompt,
+                  writingMinWords: a.writing_min_words,
+                  speakingPart: a.speaking_part,
+                  speakingCueCard: a.speaking_cue_card,
+                }))
+              );
+            }
+          } else {
+            setAssignments([]);
+          }
+        }
+
+        // Student Submissions
+        const { data: subsData } = await supabase
+          .from('submissions')
+          .select('*, assignments:assignment_id(*), courses:course_id(*)')
+          .eq('student_id', currentUser.id)
+          .order('submitted_at', { ascending: false });
+
+        if (subsData) {
+          setSubmissions(
+            subsData.map((s: any) => ({
+              id: s.id,
+              assignmentId: s.assignment_id,
+              assignmentTitle: s.assignments?.title || 'Assignment',
+              studentId: s.student_id,
+              studentName: currentUser.name,
+              courseId: s.course_id,
+              courseName: s.courses?.name || 'Course',
+              skill: s.skill,
+              status: s.status,
+              submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
+              updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
+              readingAnswers: s.reading_answers,
+              readingScore: s.reading_score,
+              readingErrorAnalysis: s.reading_error_analysis,
+              writingText: s.writing_text,
+              writingWordCount: s.writing_word_count,
+              writingRevisions: s.writing_revisions,
+              speakingAudioUrl: s.speaking_audio_url,
+              speakingTranscript: s.speaking_transcript,
+              speakingDuration: s.speaking_duration,
+              rubricScores: s.rubric_scores,
+              strengths: s.strengths,
+              areasToImprove: s.areas_to_improve,
+              teacherComments: s.teacher_comments,
+              nextSteps: s.next_steps,
+              aiSuggestedFeedback: s.ai_suggested_feedback,
+              score: s.score ? Number(s.score) : undefined,
+            }))
+          );
+        }
+
+        // Student Published Monthly Reports
+        const { data: assessmentsData } = await supabase
+          .from('monthly_assessments')
+          .select('*, courses:course_id(*)')
+          .eq('student_id', currentUser.id)
+          .eq('state', 'published')
+          .order('created_at', { ascending: false });
+
+        if (assessmentsData) {
+          setMonthlyReports(
+            assessmentsData.map((m: any) => ({
+              id: m.id,
+              courseId: m.course_id,
+              courseName: m.courses?.name || 'Course',
+              studentId: currentUser.id,
+              studentName: currentUser.name,
+              studentEmail: currentUser.email,
+              teacherId: m.teacher_id,
+              teacherName: 'Teacher',
+              month: m.month,
+              targetBand: m.target_band,
+              state: m.state,
+              createdAt: m.created_at?.replace('T', ' ').substring(0, 16) || '',
+              publishedAt: m.published_at?.replace('T', ' ').substring(0, 16),
+              learningEvidence: m.learning_evidence || {},
+              aiDraft: m.ai_draft || {},
+              teacherEvaluation: m.teacher_evaluation || {},
+              history: m.history || [],
+            }))
+          );
+        }
+
+        // Student Tuition Statements
+        const { data: statementsData } = await supabase
+          .from('tuition_statements')
+          .select('*, courses:course_id(*), payment_records(*)')
+          .eq('student_id', currentUser.id)
+          .in('status', ['approved', 'published', 'paid', 'partially_paid', 'overdue'])
+          .order('created_at', { ascending: false });
+
+        if (statementsData) {
+          setTuitionStatements(
+            statementsData.map((s: any) => ({
+              id: s.id,
+              statementNumber: s.statement_number,
+              studentId: s.student_id,
+              studentName: currentUser.name,
+              teacherId: s.teacher_id,
+              teacherName: 'Teacher',
+              courseId: s.course_id,
+              courseName: s.courses?.name || 'Course',
+              billingPeriod: s.billing_period,
+              issueDate: s.issue_date,
+              dueDate: s.due_date,
+              currency: s.currency,
+              status: s.status,
+              model: s.model,
+              itemizedCharges: s.itemized_charges || [],
+              discountAmount: Number(s.discount_amount || 0),
+              discountDescription: s.discount_description,
+              previousBalance: Number(s.previous_balance || 0),
+              totalAmountDue: Number(s.total_amount_due || 0),
+              amountPaid: Number(s.amount_paid || 0),
+              remainingBalance: Number(s.remaining_balance || 0),
+              payments: (s.payment_records || []).map((p: any) => ({
+                id: p.id,
+                statementId: p.statement_id,
+                amount: Number(p.amount),
+                paymentDate: p.payment_date,
+                paymentMethod: p.payment_method,
+                transactionReference: p.transaction_reference,
+                notes: p.notes,
+              })),
+              bankInfo: s.bank_info || {},
+              auditHistory: s.audit_history || [],
+            }))
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching Supabase data:', err);
+    }
+  }, [currentUser]);
+
+  // 2. AUTH SESSION LISTENER & PROFILE RESTORATION
+  useEffect(() => {
+    let mounted = true;
+
+    async function checkSession() {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error || !session?.user) {
+          if (mounted) {
+            setCurrentUser(null);
+            setLoadingAuth(false);
+          }
+          return;
+        }
+
+        // Fetch or create profile
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profile && mounted) {
+          setCurrentUser({
+            id: profile.id,
+            name: profile.name,
+            email: profile.email,
+            role: profile.role,
+            avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+            bio: profile.bio,
+            targetBand: profile.target_band,
+          });
+        }
+      } catch (err) {
+        console.error('Session check failed:', err);
+      } finally {
+        if (mounted) setLoadingAuth(false);
+      }
+    }
+
+    checkSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session?.user) {
+        setCurrentUser(null);
+        setCourses([]);
+        setEnrollmentRequests([]);
+        setCourseMembers([]);
+        setAssignments([]);
+        setSubmissions([]);
+        setMonthlyReports([]);
+        setTuitionStatements([]);
+        setActivities([]);
+        setNotifications([]);
+        setLoadingAuth(false);
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profile) {
+        setCurrentUser({
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          role: profile.role,
+          avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+          bio: profile.bio,
+          targetBand: profile.target_band,
+        });
+      }
+      setLoadingAuth(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // 3. LOAD DATA ON USER CHANGE & REALTIME SUBSCRIPTIONS
+  useEffect(() => {
+    if (!currentUser) return;
+    refreshData();
+
+    // Supabase Realtime Channels for Cross-Device Synchronization
+    const channel = supabase
+      .channel('public_realtime_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, () => {
+        refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'submissions' }, () => {
+        refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tuition_statements' }, () => {
+        refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_assessments' }, () => {
+        refreshData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser, refreshData]);
+
+  // LOGOUT
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+    setActiveTab('dashboard');
+  };
+
+  // UPDATE PROFILE
+  const updateProfile = async (updates: Partial<User>) => {
+    if (!currentUser) return;
+
+    // Do NOT allow changing role to admin or tampering
+    const sanitized: any = {
+      name: updates.name,
+      bio: updates.bio,
+      target_band: updates.targetBand,
+      updated_at: new Date().toISOString(),
+    };
+
+    await supabase.from('profiles').update(sanitized).eq('id', currentUser.id);
+
+    setCurrentUser((prev) => (prev ? { ...prev, ...updates } : null));
+  };
+
+  // COURSES OPERATIONS
+  const createCourse = async (
+    courseData: Omit<Course, 'id' | 'teacherId' | 'teacherName' | 'createdAt'>
+  ): Promise<Course> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const code = courseData.code?.trim().toUpperCase() || generateCode();
+
+    const newCourseRow = {
+      teacher_id: currentUser.id,
+      name: courseData.name,
+      description: courseData.description,
+      skills: courseData.skills,
+      status: courseData.status || 'active',
+      code,
+      start_date: courseData.startDate || null,
+      end_date: courseData.endDate || null,
+      tuition_model: courseData.tuitionModel,
+      tuition_amount: courseData.tuitionAmount,
+      currency: courseData.currency,
+    };
+
+    const { data, error } = await supabase.from('courses').insert(newCourseRow).select().single();
+
+    if (error) {
+      console.error('Create course error:', error);
+      throw error;
+    }
+
+    const created: Course = {
+      id: data.id,
       teacherId: currentUser.id,
       teacherName: currentUser.name,
-      code: courseData.code || generateCode(),
-      createdAt: new Date().toISOString().split('T')[0],
+      name: data.name,
+      description: data.description,
+      coverUrl: data.cover_url,
+      skills: data.skills,
+      status: data.status,
+      code: data.code,
+      startDate: data.start_date || '',
+      endDate: data.end_date || '',
+      tuitionModel: data.tuition_model,
+      tuitionAmount: Number(data.tuition_amount),
+      currency: data.currency,
+      createdAt: data.created_at?.split('T')[0] || '',
     };
-    setCourses((prev) => [newCourse, ...prev]);
-    addActivity(`Created course: ${newCourse.name}`, 'enrollment', 'courses');
-    return newCourse;
+
+    setCourses((prev) => [created, ...prev]);
+    addActivity(`Created course: ${created.name}`, 'enrollment', 'courses');
+    return created;
   };
 
-  const updateCourse = (id: string, updates: Partial<Course>) => {
-    setCourses((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
-    );
+  const updateCourse = async (id: string, updates: Partial<Course>) => {
+    const rowUpdates: any = {
+      name: updates.name,
+      description: updates.description,
+      skills: updates.skills,
+      status: updates.status,
+      tuition_model: updates.tuitionModel,
+      tuition_amount: updates.tuitionAmount,
+      currency: updates.currency,
+      updated_at: new Date().toISOString(),
+    };
+
+    await supabase.from('courses').update(rowUpdates).eq('id', id);
+
+    setCourses((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
   };
 
-  const regenerateCourseCode = (courseId: string): string => {
+  const regenerateCourseCode = async (courseId: string): Promise<string> => {
     const newCode = generateCode();
-    setCourses((prev) =>
-      prev.map((c) => (c.id === courseId ? { ...c, code: newCode } : c))
-    );
+    await supabase.from('courses').update({ code: newCode }).eq('id', courseId);
+
+    setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, code: newCode } : c)));
     addActivity(`Regenerated course code to ${newCode}`, 'enrollment', 'courses');
     return newCode;
   };
 
-  const archiveCourse = (courseId: string) => {
-    setCourses((prev) =>
-      prev.map((c) => (c.id === courseId ? { ...c, status: 'archived' } : c))
-    );
+  const archiveCourse = async (courseId: string) => {
+    await supabase.from('courses').update({ status: 'archived' }).eq('id', courseId);
+    setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, status: 'archived' } : c)));
     addActivity(`Archived course`, 'enrollment', 'courses');
   };
 
-  // Enrollment
-  const requestEnrollment = (courseCode: string) => {
-    const trimmed = courseCode.trim().toUpperCase();
-    const course = courses.find((c) => c.code.toUpperCase() === trimmed);
+  // ENROLLMENT OPERATIONS
+  const requestEnrollment = async (courseCode: string) => {
+    if (!currentUser) return { success: false, message: 'Please log in to join a course.' };
 
-    if (!course) {
-      return { success: false, message: 'No course found with this code. Please verify with your teacher.' };
+    const trimmed = courseCode.trim().toUpperCase();
+
+    // Query course from Supabase
+    const { data: course, error } = await supabase
+      .from('courses')
+      .select('*')
+      .eq('code', trimmed)
+      .single();
+
+    if (error || !course) {
+      return { success: false, message: `No course found with code "${trimmed}".` };
     }
 
     if (course.status !== 'active') {
-      return {
-        success: false,
-        message: `This course is currently ${course.status}. New enrollments are not accepted.`,
-      };
+      return { success: false, message: `This course is currently ${course.status}. Enrollments are not accepted.` };
     }
 
-    // Check if already enrolled
-    const alreadyEnrolled = courseMembers.some(
-      (m) => m.courseId === course.id && m.studentId === currentUser.id && m.status === 'enrolled'
-    );
-    if (alreadyEnrolled) {
-      return { success: false, message: 'You are already enrolled in this course.' };
+    // Check existing enrollment
+    const { data: existing } = await supabase
+      .from('enrollments')
+      .select('*')
+      .eq('course_id', course.id)
+      .eq('student_id', currentUser.id)
+      .maybeSingle();
+
+    if (existing) {
+      if (existing.status === 'approved') {
+        return { success: false, message: 'You are already enrolled in this course.' };
+      }
+      if (existing.status === 'pending') {
+        return { success: false, message: 'You already have a pending request for this course. Please wait for the teacher to review.' };
+      }
+      if (existing.status === 'rejected') {
+        // Re-apply
+        await supabase
+          .from('enrollments')
+          .update({ status: 'pending', requested_at: new Date().toISOString() })
+          .eq('id', existing.id);
+
+        refreshData();
+        return { success: true, message: `Re-applied for ${course.name} successfully!` };
+      }
     }
 
-    // Check if duplicate pending request
-    const existingPending = enrollmentRequests.find(
-      (r) => r.courseId === course.id && r.studentId === currentUser.id && r.status === 'pending'
-    );
-    if (existingPending) {
-      return {
-        success: false,
-        message: 'You already have a pending request for this course. Please wait for the teacher to review.',
-      };
-    }
-
-    const newRequest: EnrollmentRequest = {
-      id: `req-${Date.now()}`,
-      courseId: course.id,
-      courseName: course.name,
-      studentId: currentUser.id,
-      studentName: currentUser.name,
-      studentEmail: currentUser.email,
+    // Insert new pending enrollment
+    await supabase.from('enrollments').insert({
+      course_id: course.id,
+      student_id: currentUser.id,
       status: 'pending',
-      requestedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-    };
+    });
 
-    setEnrollmentRequests((prev) => [newRequest, ...prev]);
-
-    // Send notification to teacher
-    setNotifications((prev) => [
-      {
-        id: `notif-${Date.now()}`,
-        userId: course.teacherId,
-        title: 'New Enrollment Request',
-        message: `${currentUser.name} requested to join ${course.name}.`,
-        timestamp: 'Just now',
-        read: false,
-        type: 'info',
-        linkTarget: 'courses',
-      },
-      ...prev,
-    ]);
-
+    refreshData();
     return { success: true, message: `Request to join ${course.name} submitted successfully!` };
   };
 
-  const reviewEnrollmentRequest = (requestId: string, status: 'approved' | 'rejected', reason?: string) => {
-    const req = enrollmentRequests.find((r) => r.id === requestId);
-    if (!req) return;
+  const reviewEnrollmentRequest = async (
+    requestId: string,
+    status: 'approved' | 'rejected',
+    reason?: string
+  ) => {
+    await supabase
+      .from('enrollments')
+      .update({
+        status,
+        rejection_reason: reason || null,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', requestId);
 
-    setEnrollmentRequests((prev) =>
-      prev.map((r) =>
-        r.id === requestId
-          ? {
-              ...r,
-              status,
-              rejectionReason: reason,
-              reviewedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-            }
-          : r
-      )
-    );
-
-    if (status === 'approved') {
-      // Add to course roster if not already added
-      const exists = courseMembers.find((m) => m.courseId === req.courseId && m.studentId === req.studentId);
-      if (exists) {
-        setCourseMembers((prev) =>
-          prev.map((m) => (m.id === exists.id ? { ...m, status: 'enrolled' } : m))
-        );
-      } else {
-        const newMember: CourseMember = {
-          id: `member-${Date.now()}`,
-          courseId: req.courseId,
-          studentId: req.studentId,
-          studentName: req.studentName,
-          studentEmail: req.studentEmail,
-          status: 'enrolled',
-          joinedAt: new Date().toISOString().split('T')[0],
-          recentActivity: 'Joined course',
-          outstandingWork: 0,
-        };
-        setCourseMembers((prev) => [...prev, newMember]);
-      }
-
-      // Notify student
-      setNotifications((prev) => [
-        {
-          id: `notif-${Date.now()}`,
-          userId: req.studentId,
-          title: 'Enrollment Approved!',
-          message: `Your request to join ${req.courseName} was approved. You can now access all course lessons and assignments.`,
-          timestamp: 'Just now',
-          read: false,
-          type: 'success',
-          linkTarget: 'courses',
-        },
-        ...prev,
-      ]);
-    } else {
-      // Notify student rejected
-      setNotifications((prev) => [
-        {
-          id: `notif-${Date.now()}`,
-          userId: req.studentId,
-          title: 'Enrollment Request Update',
-          message: `Your request to join ${req.courseName} was not approved.${reason ? ` Reason: ${reason}` : ''}`,
-          timestamp: 'Just now',
-          read: false,
-          type: 'warning',
-          linkTarget: 'courses',
-        },
-        ...prev,
-      ]);
-    }
-
-    addActivity(
-      `${status === 'approved' ? 'Approved' : 'Rejected'} enrollment request for ${req.studentName} in ${req.courseName}`,
-      'enrollment',
-      'courses'
-    );
+    refreshData();
   };
 
-  const removeStudentFromCourse = (courseId: string, studentId: string) => {
-    // History preserved: we set status to 'removed', not delete record!
-    setCourseMembers((prev) =>
-      prev.map((m) =>
-        m.courseId === courseId && m.studentId === studentId ? { ...m, status: 'removed' } : m
-      )
-    );
-    addActivity(`Removed student from course (historical records preserved)`, 'enrollment', 'courses');
+  const removeStudentFromCourse = async (courseId: string, studentId: string) => {
+    await supabase
+      .from('enrollments')
+      .update({ status: 'removed', reviewed_at: new Date().toISOString() })
+      .eq('course_id', courseId)
+      .eq('student_id', studentId);
+
+    refreshData();
   };
 
-  // Resources
-  const addResource = (resourceData: Omit<Resource, 'id' | 'teacherId' | 'createdAt'>) => {
-    const newRes: Resource = {
-      ...resourceData,
-      id: `res-${Date.now()}`,
-      teacherId: currentUser.id,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setResources((prev) => [newRes, ...prev]);
+  // RESOURCES OPERATIONS
+  const addResource = async (resourceData: Omit<Resource, 'id' | 'teacherId' | 'createdAt'>) => {
+    if (!currentUser) return;
+
+    await supabase.from('resources').insert({
+      teacher_id: currentUser.id,
+      course_id: resourceData.courseId || null,
+      title: resourceData.title,
+      type: resourceData.type,
+      url: resourceData.url || null,
+      content: resourceData.content || null,
+      tags: resourceData.tags,
+      skill: resourceData.skill,
+      folder: resourceData.folder || null,
+      is_published: resourceData.isPublished,
+    });
+
+    refreshData();
   };
 
-  const deleteResource = (id: string) => {
+  const deleteResource = async (id: string) => {
+    await supabase.from('resources').delete().eq('id', id);
     setResources((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const toggleResourcePublish = (id: string) => {
-    setResources((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, isPublished: !r.isPublished } : r))
-    );
+  const toggleResourcePublish = async (id: string) => {
+    const res = resources.find((r) => r.id === id);
+    if (!res) return;
+
+    await supabase.from('resources').update({ is_published: !res.isPublished }).eq('id', id);
+    setResources((prev) => prev.map((r) => (r.id === id ? { ...r, isPublished: !r.isPublished } : r)));
   };
 
-  // Lessons
-  const createLesson = (lessonData: Omit<Lesson, 'id'>) => {
-    const newLesson: Lesson = {
-      ...lessonData,
-      id: `les-${Date.now()}`,
-    };
-    setLessons((prev) => [...prev, newLesson]);
+  // LESSONS OPERATIONS
+  const createLesson = async (lessonData: Omit<Lesson, 'id'>) => {
+    await supabase.from('class_sessions').insert({
+      course_id: lessonData.courseId,
+      title: lessonData.title,
+      objectives: lessonData.objectives,
+      skill: lessonData.skill,
+      teacher_notes: lessonData.teacherNotes,
+      activities: lessonData.activities,
+      homework: lessonData.homework,
+      session_date: lessonData.date || new Date().toISOString().split('T')[0],
+      is_published: lessonData.isPublished,
+    });
+
+    refreshData();
   };
 
-  const updateLesson = (id: string, updates: Partial<Lesson>) => {
-    setLessons((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, ...updates } : l))
-    );
+  const updateLesson = async (id: string, updates: Partial<Lesson>) => {
+    await supabase
+      .from('class_sessions')
+      .update({
+        title: updates.title,
+        objectives: updates.objectives,
+        teacher_notes: updates.teacherNotes,
+        activities: updates.activities,
+        homework: updates.homework,
+        is_published: updates.isPublished,
+      })
+      .eq('id', id);
+
+    setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
   };
 
-  // Assignments
-  const createAssignment = (assignmentData: Omit<Assignment, 'id'>) => {
-    const newAssign: Assignment = {
-      ...assignmentData,
-      id: `assign-${Date.now()}`,
-    };
-    setAssignments((prev) => [...prev, newAssign]);
-    addActivity(`Published new assignment: ${newAssign.title}`, 'submission', 'assignments');
+  // ASSIGNMENTS OPERATIONS
+  const createAssignment = async (assignmentData: Omit<Assignment, 'id'>) => {
+    await supabase.from('assignments').insert({
+      course_id: assignmentData.courseId,
+      title: assignmentData.title,
+      instructions: assignmentData.instructions,
+      skill: assignmentData.skill,
+      objectives: assignmentData.objectives,
+      due_date: assignmentData.dueDate,
+      status: assignmentData.status,
+      reading_passage: assignmentData.readingPassage || null,
+      reading_questions: assignmentData.readingQuestions || [],
+      writing_task_type: assignmentData.writingTaskType || null,
+      writing_prompt: assignmentData.writingPrompt || null,
+      writing_min_words: assignmentData.writingMinWords || 250,
+      speaking_part: assignmentData.speakingPart || null,
+      speaking_cue_card: assignmentData.speakingCueCard || null,
+    });
+
+    refreshData();
   };
 
-  const submitAssignment = (assignmentId: string, data: Partial<Submission>) => {
+  // SUBMISSIONS OPERATIONS
+  const submitAssignment = async (assignmentId: string, data: Partial<Submission>) => {
+    if (!currentUser) return;
     const assign = assignments.find((a) => a.id === assignmentId);
     if (!assign) return;
 
-    const existingIndex = submissions.findIndex(
+    const existing = submissions.find(
       (s) => s.assignmentId === assignmentId && s.studentId === currentUser.id
     );
 
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    const now = new Date().toISOString();
 
-    if (existingIndex >= 0) {
-      // Resubmission or revision
-      const existing = submissions[existingIndex];
-      const updated: Submission = {
-        ...existing,
-        ...data,
-        status: existing.status === 'returned' ? 'resubmitted' : 'submitted',
-        updatedAt: now,
-        writingRevisions: [
-          ...(existing.writingRevisions || []),
-          {
-            text: data.writingText || '',
-            timestamp: now,
-            wordCount: data.writingWordCount || 0,
-          },
-        ],
-      };
-      const updatedSubmissions = [...submissions];
-      updatedSubmissions[existingIndex] = updated;
-      setSubmissions(updatedSubmissions);
+    if (existing) {
+      await supabase
+        .from('submissions')
+        .update({
+          status: existing.status === 'returned' ? 'resubmitted' : 'submitted',
+          updated_at: now,
+          writing_text: data.writingText ?? existing.writingText,
+          writing_word_count: data.writingWordCount ?? existing.writingWordCount,
+          writing_revisions: [
+            ...(existing.writingRevisions || []),
+            {
+              text: data.writingText || '',
+              timestamp: now.replace('T', ' ').substring(0, 16),
+              wordCount: data.writingWordCount || 0,
+            },
+          ],
+          reading_answers: data.readingAnswers ?? existing.readingAnswers,
+          reading_score: data.readingScore ?? existing.readingScore,
+          reading_error_analysis: data.readingErrorAnalysis ?? existing.readingErrorAnalysis,
+          speaking_audio_url: data.speakingAudioUrl ?? existing.speakingAudioUrl,
+          speaking_transcript: data.speakingTranscript ?? existing.speakingTranscript,
+          speaking_duration: data.speakingDuration ?? existing.speakingDuration,
+          score: data.score ?? existing.score,
+        })
+        .eq('id', existing.id);
     } else {
-      const newSub: Submission = {
-        id: `sub-${Date.now()}`,
-        assignmentId,
-        assignmentTitle: assign.title,
-        studentId: currentUser.id,
-        studentName: currentUser.name,
-        courseId: assign.courseId,
-        courseName: courses.find((c) => c.id === assign.courseId)?.name || 'Course',
+      await supabase.from('submissions').insert({
+        assignment_id: assignmentId,
+        student_id: currentUser.id,
+        course_id: assign.courseId,
         skill: assign.skill,
-        status: 'submitted',
-        submittedAt: now,
-        updatedAt: now,
-        writingRevisions: data.writingText
+        status: data.status || 'submitted',
+        writing_text: data.writingText || null,
+        writing_word_count: data.writingWordCount || 0,
+        writing_revisions: data.writingText
           ? [
               {
                 text: data.writingText,
-                timestamp: now,
+                timestamp: now.replace('T', ' ').substring(0, 16),
                 wordCount: data.writingWordCount || 0,
               },
             ]
           : [],
-        ...data,
-      };
-      setSubmissions((prev) => [newSub, ...prev]);
+        reading_answers: data.readingAnswers || null,
+        reading_score: data.readingScore || null,
+        reading_error_analysis: data.readingErrorAnalysis || null,
+        speaking_audio_url: data.speakingAudioUrl || null,
+        speaking_transcript: data.speakingTranscript || null,
+        speaking_duration: data.speakingDuration || null,
+        score: data.score || null,
+      });
     }
 
-    addActivity(`${currentUser.name} submitted assignment: ${assign.title}`, 'submission', 'assignments');
+    refreshData();
   };
 
-  const gradeSubmission = (submissionId: string, updates: Partial<Submission>) => {
-    setSubmissions((prev) =>
-      prev.map((s) =>
-        s.id === submissionId
-          ? {
-              ...s,
-              ...updates,
-              status: 'graded',
-              updatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-            }
-          : s
-      )
-    );
-    const sub = submissions.find((s) => s.id === submissionId);
-    if (sub) {
-      setNotifications((prev) => [
-        {
-          id: `notif-${Date.now()}`,
-          userId: sub.studentId,
-          title: 'Assignment Graded',
-          message: `Your work for "${sub.assignmentTitle}" has been graded with feedback.`,
-          timestamp: 'Just now',
-          read: false,
-          type: 'success',
-          linkTarget: 'assignments',
-        },
-        ...prev,
-      ]);
-    }
+  const gradeSubmission = async (submissionId: string, updates: Partial<Submission>) => {
+    await supabase
+      .from('submissions')
+      .update({
+        rubric_scores: updates.rubricScores || [],
+        strengths: updates.strengths,
+        areas_to_improve: updates.areasToImprove,
+        teacher_comments: updates.teacherComments,
+        next_steps: updates.nextSteps,
+        score: updates.score,
+        status: 'graded',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', submissionId);
+
+    refreshData();
   };
 
-  const returnForRevision = (submissionId: string, teacherComments: string) => {
-    setSubmissions((prev) =>
-      prev.map((s) =>
-        s.id === submissionId
-          ? {
-              ...s,
-              teacherComments,
-              status: 'returned',
-              updatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-            }
-          : s
-      )
-    );
-    const sub = submissions.find((s) => s.id === submissionId);
-    if (sub) {
-      setNotifications((prev) => [
-        {
-          id: `notif-${Date.now()}`,
-          userId: sub.studentId,
-          title: 'Submission Returned for Revision',
-          message: `Teacher requested revision for "${sub.assignmentTitle}": ${teacherComments}`,
-          timestamp: 'Just now',
-          read: false,
-          type: 'warning',
-          linkTarget: 'assignments',
-        },
-        ...prev,
-      ]);
-    }
+  const returnForRevision = async (submissionId: string, teacherComments: string) => {
+    await supabase
+      .from('submissions')
+      .update({
+        teacher_comments: teacherComments,
+        status: 'returned',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', submissionId);
+
+    refreshData();
   };
 
-  // Monthly Reports
-  const createMonthlyReportDraft = (courseId: string, studentId: string, month: string): MonthlyReport => {
+  // MONTHLY ASSESSMENTS OPERATIONS
+  const createMonthlyReportDraft = async (
+    courseId: string,
+    studentId: string,
+    month: string
+  ): Promise<MonthlyReport> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
     const course = courses.find((c) => c.id === courseId);
-    const student = users.find((u) => u.id === studentId);
-
-    // Collect real student learning evidence
     const studentSubs = submissions.filter((s) => s.studentId === studentId && s.courseId === courseId);
     const readingSubs = studentSubs.filter((s) => s.skill === 'reading');
     const writingSubs = studentSubs.filter((s) => s.skill === 'writing');
@@ -650,37 +1196,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (speakingSubs.length === 0) missingSkills.push('Speaking');
     missingSkills.push('Listening (No logged tests)');
 
-    const newReport: MonthlyReport = {
-      id: `rep-${Date.now()}`,
-      courseId,
-      courseName: course?.name || 'IELTS Course',
-      studentId,
-      studentName: student?.name || 'Student',
-      studentEmail: student?.email || '',
-      teacherId: currentUser.id,
-      teacherName: currentUser.name,
+    const learningEvidence = {
+      readingAccuracy: readingAccuracyStr,
+      readingAttempts: readingSubs.length,
+      writingSubmissions: writingSubs.length,
+      writingLastFeedback: writingSubs.length > 0 ? writingSubs[0].areasToImprove || 'Good task structure' : 'No writing submissions logged',
+      speakingSubmissions: speakingSubs.length,
+      speakingAudioAvailable: speakingSubs.some((s) => !!s.speakingAudioUrl),
+      insufficientEvidenceSkills: missingSkills,
+      summaryNotes: `Gathered ${studentSubs.length} real submission(s) for ${month}. Evidence strictly scoped to verified activities.`,
+    };
+
+    const aiDraft = {
+      strengths: `• Demonstrates consistent effort in ${writingSubs.length > 0 ? 'Writing essays' : 'Reading exercises'}.\n• Maintained active submission timeline.`,
+      focusAreas: `• Precision in lexical selection.\n• Address flagged evidence gaps before mock testing.`,
+      evidenceGapsFlagged: missingSkills.length > 0 ? `Flagged: Insufficient evidence in ${missingSkills.join(', ')}. Band estimates must not be invented for these skills.` : 'No gaps flagged.',
+      recurringPatterns: 'Shows analytical strengths with text comprehension; needs structured grammar drills on complex compound sentences.',
+      generatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+
+    const newReportRow = {
+      course_id: courseId,
+      student_id: studentId,
+      teacher_id: currentUser.id,
       month,
-      targetBand: student?.targetBand ? `Band ${student.targetBand}` : 'Band 7.0',
+      target_band: 'Band 7.0',
       state: 'ai_generated',
-      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-      learningEvidence: {
-        readingAccuracy: readingAccuracyStr,
-        readingAttempts: readingSubs.length,
-        writingSubmissions: writingSubs.length,
-        writingLastFeedback: writingSubs.length > 0 ? writingSubs[0].areasToImprove || 'Good task structure' : 'No writing submissions logged',
-        speakingSubmissions: speakingSubs.length,
-        speakingAudioAvailable: speakingSubs.some((s) => !!s.speakingAudioUrl),
-        insufficientEvidenceSkills: missingSkills,
-        summaryNotes: `Gathered ${studentSubs.length} real submission(s) for ${month}. Evidence strictly scoped to verified activities.`,
-      },
-      aiDraft: {
-        strengths: `• Demonstrates consistent effort in ${writingSubs.length > 0 ? 'Writing essays' : 'Reading exercises'}.\n• Maintained active submission timeline.`,
-        focusAreas: `• Precision in lexical selection.\n• Address flagged evidence gaps before mock testing.`,
-        evidenceGapsFlagged: missingSkills.length > 0 ? `Flagged: Insufficient evidence in ${missingSkills.join(', ')}. Band estimates must not be invented for these skills.` : 'No gaps flagged.',
-        recurringPatterns: 'Shows analytical strengths with text comprehension; needs structured grammar drills on complex compound sentences.',
-        generatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-      },
-      teacherEvaluation: {
+      learning_evidence: learningEvidence,
+      ai_draft: aiDraft,
+      teacher_evaluation: {
         professionalJudgement: '',
         nextMonthPriorities: '',
         estimatedBand: '',
@@ -688,137 +1232,139 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       history: [
         {
           version: 1,
-          action: 'AI draft generated from real logs',
+          action: 'AI draft generated from real verified evidence',
           timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
           actor: 'AI Assistant',
         },
       ],
     };
 
-    setMonthlyReports((prev) => [newReport, ...prev]);
-    return newReport;
+    const { data, error } = await supabase.from('monthly_assessments').insert(newReportRow).select().single();
+
+    if (error) throw error;
+
+    const created: MonthlyReport = {
+      id: data.id,
+      courseId,
+      courseName: course?.name || 'Course',
+      studentId,
+      studentName: 'Student',
+      studentEmail: '',
+      teacherId: currentUser.id,
+      teacherName: currentUser.name,
+      month: data.month,
+      targetBand: data.target_band,
+      state: data.state,
+      createdAt: data.created_at?.replace('T', ' ').substring(0, 16),
+      learningEvidence: data.learning_evidence,
+      aiDraft: data.ai_draft,
+      teacherEvaluation: data.teacher_evaluation,
+      history: data.history,
+    };
+
+    setMonthlyReports((prev) => [created, ...prev]);
+    return created;
   };
 
-  const updateMonthlyReport = (id: string, updates: Partial<MonthlyReport>) => {
-    setMonthlyReports((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const updated = {
-          ...r,
-          ...updates,
-          state: r.state === 'ai_generated' ? 'in_review' : (updates.state || r.state),
-        };
-        return updated;
+  const updateMonthlyReport = async (id: string, updates: Partial<MonthlyReport>) => {
+    await supabase
+      .from('monthly_assessments')
+      .update({
+        teacher_evaluation: updates.teacherEvaluation,
+        state: updates.state || 'in_review',
       })
-    );
+      .eq('id', id);
+
+    setMonthlyReports((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
   };
 
-  const approveMonthlyReport = (id: string) => {
-    setMonthlyReports((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              state: 'approved',
-              teacherEvaluation: {
-                ...r.teacherEvaluation,
-                approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-              },
-              history: [
-                ...r.history,
-                {
-                  version: r.history.length + 1,
-                  action: 'Report approved by Teacher',
-                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                  actor: currentUser.name,
-                },
-              ],
-            }
-          : r
-      )
-    );
-  };
-
-  const publishMonthlyReport = (id: string) => {
+  const approveMonthlyReport = async (id: string) => {
     const report = monthlyReports.find((r) => r.id === id);
     if (!report) return;
 
-    if (!report.teacherEvaluation.professionalJudgement.trim()) {
+    const newHistory = [
+      ...report.history,
+      {
+        version: report.history.length + 1,
+        action: 'Report approved by Teacher',
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        actor: currentUser?.name || 'Teacher',
+      },
+    ];
+
+    await supabase
+      .from('monthly_assessments')
+      .update({
+        state: 'approved',
+        history: newHistory,
+      })
+      .eq('id', id);
+
+    setMonthlyReports((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, state: 'approved', history: newHistory } : r))
+    );
+  };
+
+  const publishMonthlyReport = async (id: string) => {
+    const report = monthlyReports.find((r) => r.id === id);
+    if (!report) return;
+
+    if (!report.teacherEvaluation.professionalJudgement?.trim()) {
       alert('Cannot publish report: Separate teacher professional evaluation is required before publication.');
       return;
     }
 
-    setMonthlyReports((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              state: 'published',
-              publishedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-              history: [
-                ...r.history,
-                {
-                  version: r.history.length + 1,
-                  action: 'Report published to student workspace',
-                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                  actor: currentUser.name,
-                },
-              ],
-            }
-          : r
-      )
-    );
-
-    setNotifications((prev) => [
+    const now = new Date().toISOString();
+    const newHistory = [
+      ...report.history,
       {
-        id: `notif-${Date.now()}`,
-        userId: report.studentId,
-        title: 'Monthly Learning Report Published',
-        message: `Your ${report.month} report for ${report.courseName} is now available in your workspace.`,
-        timestamp: 'Just now',
-        read: false,
-        type: 'info',
-        linkTarget: 'assessments',
+        version: report.history.length + 1,
+        action: 'Report published to student workspace',
+        timestamp: now.replace('T', ' ').substring(0, 16),
+        actor: currentUser?.name || 'Teacher',
       },
-      ...prev,
-    ]);
+    ];
 
-    addActivity(`Published monthly assessment report for ${report.studentName}`, 'report', 'assessments');
-  };
+    await supabase
+      .from('monthly_assessments')
+      .update({
+        state: 'published',
+        published_at: now,
+        history: newHistory,
+      })
+      .eq('id', id);
 
-  const voidMonthlyReport = (id: string) => {
     setMonthlyReports((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              state: 'void',
-              history: [
-                ...r.history,
-                {
-                  version: r.history.length + 1,
-                  action: 'Report marked as Void (archived with history)',
-                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                  actor: currentUser.name,
-                },
-              ],
-            }
-          : r
-      )
+      prev.map((r) => (r.id === id ? { ...r, state: 'published', publishedAt: now, history: newHistory } : r))
     );
   };
 
-  // Tuition & Statements
-  const createFeeConfiguration = (configData: Omit<FeeConfiguration, 'id' | 'teacherId'>) => {
-    const newConfig: FeeConfiguration = {
-      ...configData,
-      id: `fee-${Date.now()}`,
-      teacherId: currentUser.id,
-    };
-    setFeeConfigurations((prev) => [newConfig, ...prev]);
+  const voidMonthlyReport = async (id: string) => {
+    await supabase.from('monthly_assessments').update({ state: 'void' }).eq('id', id);
+    setMonthlyReports((prev) => prev.map((r) => (r.id === id ? { ...r, state: 'void' } : r)));
   };
 
-  const generateTuitionStatement = (data: {
+  // TUITION OPERATIONS
+  const createFeeConfiguration = async (configData: Omit<FeeConfiguration, 'id' | 'teacherId'>) => {
+    if (!currentUser) return;
+
+    await supabase.from('tuition_settings').upsert({
+      course_id: configData.courseId,
+      teacher_id: currentUser.id,
+      model: configData.model,
+      currency: configData.currency,
+      amount: configData.amount,
+      session_rate: configData.sessionRate,
+      hourly_rate: configData.hourlyRate,
+      due_days: configData.dueDays,
+      proration_rule: configData.prorationRule,
+      early_payment_discount_percent: configData.earlyPaymentDiscountPercent,
+    });
+
+    refreshData();
+  };
+
+  const generateTuitionStatement = async (data: {
     courseId: string;
     studentId: string;
     billingPeriod: string;
@@ -826,22 +1372,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     billableUnits?: number;
     customDiscount?: number;
     customDiscountNote?: string;
-  }): TuitionStatement => {
-    const course = courses.find((c) => c.id === data.courseId);
-    const student = users.find((u) => u.id === data.studentId);
-    const feeConfig = feeConfigurations.find((f) => f.courseId === data.courseId);
+  }): Promise<TuitionStatement> => {
+    if (!currentUser) throw new Error('Not authenticated');
 
-    const model = feeConfig?.model || course?.tuitionModel || 'fixed_monthly';
-    const currency = feeConfig?.currency || course?.currency || 'USD';
-    const baseRate = feeConfig?.amount || course?.tuitionAmount || 100;
+    const course = courses.find((c) => c.id === data.courseId);
     const units = data.billableUnits ?? 4;
+    const baseRate = course?.tuitionAmount || 60;
+    const model = course?.tuitionModel || 'fixed_monthly';
+    const currency = course?.currency || 'VND';
 
     let itemizedCharges = [];
     let subtotal = 0;
 
     if (model === 'fixed_monthly') {
       itemizedCharges.push({
-        id: `c-${Date.now()}-1`,
+        id: `c-1`,
         description: `Monthly tuition (${data.billingPeriod})`,
         quantity: 1,
         unitPrice: baseRate,
@@ -849,36 +1394,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       subtotal = baseRate;
     } else if (model === 'per_session') {
-      const lineTotal = units * (feeConfig?.sessionRate || baseRate);
+      const lineTotal = units * baseRate;
       itemizedCharges.push({
-        id: `c-${Date.now()}-1`,
+        id: `c-1`,
         description: 'Tuition fee',
         quantity: `${units} sessions`,
-        unitPrice: feeConfig?.sessionRate || baseRate,
+        unitPrice: baseRate,
         amount: lineTotal,
       });
       itemizedCharges.push({
-        id: `c-${Date.now()}-2`,
+        id: `c-2`,
         description: `Number of sessions (${units} attended)`,
         quantity: `${units} attended`,
         amount: 0,
       });
       subtotal = lineTotal;
     } else if (model === 'hourly') {
-      const lineTotal = units * (feeConfig?.hourlyRate || baseRate);
+      const lineTotal = units * baseRate;
       itemizedCharges.push({
-        id: `c-${Date.now()}-1`,
+        id: `c-1`,
         description: 'Billable tuition hours',
         quantity: `${units} hours`,
-        unitPrice: feeConfig?.hourlyRate || baseRate,
+        unitPrice: baseRate,
         amount: lineTotal,
       });
       subtotal = lineTotal;
     } else {
-      // Course package
       itemizedCharges.push({
-        id: `c-${Date.now()}-1`,
-        description: `Course Package Bundle: ${course?.name || 'Complete Track'}`,
+        id: `c-1`,
+        description: `Course Package: ${course?.name || 'Complete Track'}`,
         quantity: 1,
         unitPrice: baseRate,
         amount: baseRate,
@@ -886,42 +1430,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       subtotal = baseRate;
     }
 
-    const discountAmount = data.customDiscount ?? (feeConfig?.earlyPaymentDiscountPercent ? (subtotal * feeConfig.earlyPaymentDiscountPercent) / 100 : 0);
+    const discountAmount = data.customDiscount ?? 0;
     const totalDue = Math.max(0, subtotal - discountAmount);
-
     const statementNumber = `TS-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const newStatement: TuitionStatement = {
-      id: `stmt-${Date.now()}`,
-      statementNumber,
-      studentId: data.studentId,
-      studentName: student?.name || 'Student',
-      teacherId: currentUser.id,
-      teacherName: currentUser.name,
-      courseId: data.courseId,
-      courseName: course?.name || 'Course',
-      billingPeriod: data.billingPeriod,
-      issueDate: new Date().toISOString().split('T')[0],
-      dueDate: data.dueDate,
+    const bankInfo = {
+      bankName: 'Vietcombank',
+      accountHolder: currentUser.name.toUpperCase(),
+      accountNumber: '1234 5678 9012',
+      branch: 'Ho Chi Minh City',
+      transferDescription: `${statementNumber}`,
+    };
+
+    const newStatementRow = {
+      statement_number: statementNumber,
+      teacher_id: currentUser.id,
+      student_id: data.studentId,
+      course_id: data.courseId,
+      billing_period: data.billingPeriod,
+      issue_date: new Date().toISOString().split('T')[0],
+      due_date: data.dueDate,
       currency,
       status: 'pending_approval',
       model,
-      itemizedCharges,
-      discountAmount,
-      discountDescription: data.customDiscountNote || (discountAmount > 0 ? 'Applied Discount' : undefined),
-      previousBalance: 0,
-      totalAmountDue: totalDue,
-      amountPaid: 0,
-      remainingBalance: totalDue,
-      payments: [],
-      bankInfo: {
-        bankName: 'Vietcombank',
-        accountHolder: currentUser.name.toUpperCase(),
-        accountNumber: '1234 5678 9012',
-        branch: 'Ho Chi Minh City',
-        transferDescription: `${student?.name.toUpperCase()} ${statementNumber}`,
-      },
-      auditHistory: [
+      itemized_charges: itemizedCharges,
+      discount_amount: discountAmount,
+      discount_description: data.customDiscountNote || (discountAmount > 0 ? 'Discount' : null),
+      previous_balance: 0,
+      total_amount_due: totalDue,
+      amount_paid: 0,
+      remaining_balance: totalDue,
+      bank_info: bankInfo,
+      audit_history: [
         {
           action: 'Statement drafted with transparent calculation breakdown',
           timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
@@ -931,159 +1471,107 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ],
     };
 
-    setTuitionStatements((prev) => [newStatement, ...prev]);
-    return newStatement;
+    const { data: createdRow, error } = await supabase.from('tuition_statements').insert(newStatementRow).select().single();
+
+    if (error) throw error;
+
+    const created: TuitionStatement = {
+      id: createdRow.id,
+      statementNumber,
+      studentId: data.studentId,
+      studentName: 'Student',
+      teacherId: currentUser.id,
+      teacherName: currentUser.name,
+      courseId: data.courseId,
+      courseName: course?.name || 'Course',
+      billingPeriod: data.billingPeriod,
+      issueDate: createdRow.issue_date,
+      dueDate: createdRow.due_date,
+      currency,
+      status: createdRow.status,
+      model,
+      itemizedCharges,
+      discountAmount,
+      discountDescription: createdRow.discount_description,
+      previousBalance: 0,
+      totalAmountDue: totalDue,
+      amountPaid: 0,
+      remainingBalance: totalDue,
+      payments: [],
+      bankInfo,
+      auditHistory: createdRow.audit_history,
+    };
+
+    setTuitionStatements((prev) => [created, ...prev]);
+    return created;
   };
 
-  const approveTuitionStatement = (id: string) => {
-    setTuitionStatements((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: 'approved',
-              auditHistory: [
-                ...s.auditHistory,
-                {
-                  action: 'Statement approved by Teacher',
-                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                  user: currentUser.name,
-                  details: 'Ready for publishing or PDF generation',
-                },
-              ],
-            }
-          : s
-      )
-    );
+  const approveTuitionStatement = async (id: string) => {
+    await supabase.from('tuition_statements').update({ status: 'approved' }).eq('id', id);
+    setTuitionStatements((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'approved' } : s)));
   };
 
-  const publishTuitionStatement = (id: string) => {
-    const stmt = tuitionStatements.find((s) => s.id === id);
-    if (!stmt) return;
-
-    setTuitionStatements((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: s.amountPaid >= s.totalAmountDue ? 'paid' : (s.amountPaid > 0 ? 'partially_paid' : 'approved'),
-              auditHistory: [
-                ...s.auditHistory,
-                {
-                  action: 'Statement published to student workspace',
-                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                  user: currentUser.name,
-                  details: 'Student can now view breakdown and export PDF',
-                },
-              ],
-            }
-          : s
-      )
-    );
-
-    setNotifications((prev) => [
-      {
-        id: `notif-${Date.now()}`,
-        userId: stmt.studentId,
-        title: 'Tuition Statement Published',
-        message: `Your statement ${stmt.statementNumber} for ${stmt.billingPeriod} has been published. Due: ${stmt.dueDate}`,
-        timestamp: 'Just now',
-        read: false,
-        type: 'info',
-        linkTarget: 'tuition',
-      },
-      ...prev,
-    ]);
+  const publishTuitionStatement = async (id: string) => {
+    await supabase.from('tuition_statements').update({ status: 'published' }).eq('id', id);
+    setTuitionStatements((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'published' } : s)));
   };
 
-  const voidTuitionStatement = (id: string) => {
-    setTuitionStatements((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: 'void',
-              auditHistory: [
-                ...s.auditHistory,
-                {
-                  action: 'Statement voided',
-                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                  user: currentUser.name,
-                  details: 'Withdrawn from active statements, history preserved.',
-                },
-              ],
-            }
-          : s
-      )
-    );
+  const voidTuitionStatement = async (id: string) => {
+    await supabase.from('tuition_statements').update({ status: 'void' }).eq('id', id);
+    setTuitionStatements((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'void' } : s)));
   };
 
-  const recordPayment = (statementId: string, paymentData: Omit<PaymentRecord, 'id' | 'statementId'>) => {
+  const recordPayment = async (
+    statementId: string,
+    paymentData: Omit<PaymentRecord, 'id' | 'statementId'>
+  ) => {
     const stmt = tuitionStatements.find((s) => s.id === statementId);
     if (!stmt) return;
 
-    const newPayment: PaymentRecord = {
-      ...paymentData,
-      id: `pay-${Date.now()}`,
-      statementId,
-    };
+    await supabase.from('payment_records').insert({
+      statement_id: statementId,
+      amount: paymentData.amount,
+      payment_date: paymentData.paymentDate,
+      payment_method: paymentData.paymentMethod,
+      transaction_reference: paymentData.transactionReference,
+      notes: paymentData.notes,
+    });
 
     const newPaid = stmt.amountPaid + paymentData.amount;
     const newRemaining = Math.max(0, stmt.totalAmountDue - newPaid);
     const newStatus = newRemaining <= 0 ? 'paid' : 'partially_paid';
 
-    setTuitionStatements((prev) =>
-      prev.map((s) =>
-        s.id === statementId
-          ? {
-              ...s,
-              amountPaid: newPaid,
-              remainingBalance: newRemaining,
-              status: newStatus,
-              payments: [...s.payments, newPayment],
-              auditHistory: [
-                ...s.auditHistory,
-                {
-                  action: `Recorded payment: ${paymentData.amount.toLocaleString()} ${s.currency}`,
-                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                  user: currentUser.name,
-                  details: `Ref: ${paymentData.transactionReference || 'N/A'}, Method: ${paymentData.paymentMethod}`,
-                },
-              ],
-            }
-          : s
-      )
-    );
+    await supabase
+      .from('tuition_statements')
+      .update({
+        amount_paid: newPaid,
+        remaining_balance: newRemaining,
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', statementId);
 
-    addActivity(
-      `Recorded payment of ${paymentData.amount.toLocaleString()} ${stmt.currency} for ${stmt.studentName} (${stmt.statementNumber})`,
-      'payment',
-      'tuition'
-    );
-
-    // Notify student
-    setNotifications((prev) => [
-      {
-        id: `notif-${Date.now()}`,
-        userId: stmt.studentId,
-        title: 'Payment Confirmed',
-        message: `Your payment of ${paymentData.amount.toLocaleString()} ${stmt.currency} for ${stmt.statementNumber} was confirmed.`,
-        timestamp: 'Just now',
-        read: false,
-        type: 'success',
-        linkTarget: 'tuition',
-      },
-      ...prev,
-    ]);
+    refreshData();
   };
 
   const markNotificationRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   };
 
-  const addActivity = (text: string, type: ActivityItem['type'], targetTab?: string) => {
+  const addActivity = async (text: string, type: ActivityItem['type'], targetTab?: string) => {
+    if (!currentUser) return;
+
+    try {
+      await supabase.from('activity_logs').insert({
+        user_id: currentUser.id,
+        text,
+        type,
+        target_tab: targetTab || null,
+      });
+    } catch {
+      // Ignore background activity log error
+    }
+
     const newAct: ActivityItem = {
       id: `act-${Date.now()}`,
       teacherId: currentUser.id,
@@ -1097,18 +1585,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const activeCourses = courses.filter((c) =>
-    currentUser.role === 'teacher'
+    currentUser?.role === 'teacher'
       ? c.teacherId === currentUser.id
-      : courseMembers.some((m) => m.studentId === currentUser.id && m.courseId === c.id && m.status === 'enrolled')
+      : courseMembers.some((m) => m.studentId === currentUser?.id && m.courseId === c.id && m.status === 'enrolled')
   );
 
   return (
     <AppContext.Provider
       value={{
         currentUser,
-        switchUser,
-        users,
-        registerUser,
+        loadingAuth,
+        logout,
+        updateProfile,
         courses,
         activeCourses,
         createCourse,
@@ -1159,9 +1647,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedStatementId,
         selectedReportId,
         setSelectedReportId,
+        refreshData,
       }}
     >
-      {children}
+      <I18nProvider userLanguage={currentUser ? (localStorage.getItem('ielts_language') as any || 'vi') : undefined}>
+        {children}
+      </I18nProvider>
     </AppContext.Provider>
   );
 };
