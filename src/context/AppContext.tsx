@@ -113,6 +113,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const currentUserRef = useRef<User | null>(null);
+  const inFlightProfilePromiseRef = useRef<Map<string, Promise<User | null>>>(new Map());
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
   const [loadingData, setLoadingData] = useState<boolean>(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -777,94 +778,117 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadUserProfile = async (supabaseUser: any): Promise<User | null> => {
     if (!supabaseUser?.id) return null;
 
-    try {
-      // 1. Attempt to fetch authoritative profile from public.profiles with retry
-      let profile: any = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', supabaseUser.id)
-          .maybeSingle();
+    // Deduplicate in-flight profile fetch promises for the same user ID
+    if (inFlightProfilePromiseRef.current.has(supabaseUser.id)) {
+      return inFlightProfilePromiseRef.current.get(supabaseUser.id)!;
+    }
 
-        if (data) {
-          profile = data;
-          break;
-        }
-
-        if (error) {
-          console.warn(`Profile fetch attempt ${attempt + 1} notice:`, error.message);
-        }
-
-        if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
-        }
-      }
-
-      // 2. If profile found, return mapped User
-      if (profile) {
-        return {
-          id: profile.id,
-          name: profile.name || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
-          email: profile.email || supabaseUser.email || '',
-          role: profile.role === 'teacher' ? 'teacher' : 'student',
-          avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
-          bio: profile.bio || '',
-          targetBand: profile.target_band,
-        };
-      }
-
-      // 3. If profile not found in public.profiles (e.g. trigger delay or new account):
-      // Self-heal: attempt to insert the initial profile record into public.profiles
-      const metadataRole = supabaseUser.user_metadata?.role;
-      const initialRole: UserRole = metadataRole === 'teacher' ? 'teacher' : 'student';
-      const initialName = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User';
-
+    const fetchPromise = (async (): Promise<User | null> => {
       try {
-        const { data: inserted, error: insertErr } = await supabase
-          .from('profiles')
-          .upsert({
-            id: supabaseUser.id,
-            name: initialName,
-            email: supabaseUser.email || '',
-            role: initialRole,
-            language_preference: supabaseUser.user_metadata?.language_preference || 'vi',
-          })
-          .select()
-          .maybeSingle();
+        // 1. Attempt to fetch authoritative profile from public.profiles with retry & backoff
+        let profile: any = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', supabaseUser.id)
+            .maybeSingle();
 
-        if (inserted) {
+          if (data) {
+            profile = data;
+            break;
+          }
+
+          if (error) {
+            console.warn(`Profile fetch attempt ${attempt + 1} notice:`, error.message);
+          }
+
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+          }
+        }
+
+        // 2. If profile found, return mapped User
+        if (profile) {
+          if (profile.language_preference) {
+            try {
+              localStorage.setItem('ielts_language', profile.language_preference);
+            } catch {
+              // Ignore localStorage restrictions if any
+            }
+          }
+
           return {
-            id: inserted.id,
-            name: inserted.name,
-            email: inserted.email,
-            role: inserted.role === 'teacher' ? 'teacher' : 'student',
-            avatar: inserted.avatar_url || `https://images.unsplash.com/photo-${inserted.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
-            bio: inserted.bio || '',
-            targetBand: inserted.target_band,
+            id: profile.id,
+            name: profile.name || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+            email: profile.email || supabaseUser.email || '',
+            role: profile.role === 'teacher' ? 'teacher' : 'student',
+            avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+            bio: profile.bio || '',
+            targetBand: profile.target_band,
           };
         }
-        if (insertErr) {
-          console.warn('Profile self-heal insert notice:', insertErr.message);
-        }
-      } catch (insertCatch) {
-        console.warn('Profile self-heal exception:', insertCatch);
-      }
 
-      // 4. Safe verified fallback constructed directly from authenticated session JWT
-      return {
-        id: supabaseUser.id,
-        name: initialName,
-        email: supabaseUser.email || '',
-        role: initialRole,
-        avatar: `https://images.unsplash.com/photo-${initialRole === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
-        bio: '',
-        targetBand: supabaseUser.user_metadata?.target_band,
-      };
-    } catch (err) {
-      console.error('Fatal loadUserProfile error:', err);
-      return null;
-    }
+        // 3. If profile not found in public.profiles (e.g. trigger delay or new account):
+        // Self-heal: attempt to insert the initial profile record into public.profiles
+        const metadataRole = supabaseUser.user_metadata?.role;
+        const initialRole: UserRole = metadataRole === 'teacher' ? 'teacher' : 'student';
+        const initialName = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User';
+
+        try {
+          const { data: inserted, error: insertErr } = await supabase
+            .from('profiles')
+            .upsert(
+              {
+                id: supabaseUser.id,
+                name: initialName,
+                email: supabaseUser.email || '',
+                role: initialRole,
+                language_preference: supabaseUser.user_metadata?.language_preference || 'vi',
+              },
+              { onConflict: 'id' }
+            )
+            .select()
+            .maybeSingle();
+
+          if (inserted) {
+            return {
+              id: inserted.id,
+              name: inserted.name,
+              email: inserted.email,
+              role: inserted.role === 'teacher' ? 'teacher' : 'student',
+              avatar: inserted.avatar_url || `https://images.unsplash.com/photo-${inserted.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+              bio: inserted.bio || '',
+              targetBand: inserted.target_band,
+            };
+          }
+          if (insertErr) {
+            console.warn('Profile self-heal insert notice:', insertErr.message);
+          }
+        } catch (insertCatch) {
+          console.warn('Profile self-heal exception:', insertCatch);
+        }
+
+        // 4. Safe verified fallback constructed directly from authenticated session JWT
+        return {
+          id: supabaseUser.id,
+          name: initialName,
+          email: supabaseUser.email || '',
+          role: initialRole,
+          avatar: `https://images.unsplash.com/photo-${initialRole === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
+          bio: '',
+          targetBand: supabaseUser.user_metadata?.target_band,
+        };
+      } catch (err) {
+        console.error('Fatal loadUserProfile error:', err);
+        return null;
+      } finally {
+        inFlightProfilePromiseRef.current.delete(supabaseUser.id);
+      }
+    })();
+
+    inFlightProfilePromiseRef.current.set(supabaseUser.id, fetchPromise);
+    return fetchPromise;
   };
 
   // DIRECT AUTHENTICATION HANDLERS
@@ -941,39 +965,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     let mounted = true;
 
-    async function checkSession() {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error || !session?.user) {
-          if (mounted) {
-            currentUserRef.current = null;
-            setCurrentUser(null);
-          }
-          return;
-        }
-
-        const user = await loadUserProfile(session.user);
-        if (user && mounted) {
-          currentUserRef.current = user;
-          setCurrentUser(user);
-        } else if (mounted) {
-          currentUserRef.current = null;
-          setCurrentUser(null);
-        }
-      } catch (err) {
-        console.error('Session check failed:', err);
-        if (mounted) {
-          currentUserRef.current = null;
-          setCurrentUser(null);
-        }
-      } finally {
-        if (mounted) setLoadingAuth(false);
-      }
-    }
-
-    checkSession();
-
+    // Use onAuthStateChange as the single authoritative source of truth for auth lifecycle
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+
       if (event === 'SIGNED_OUT' || !session?.user) {
         currentUserRef.current = null;
         setCurrentUser(null);
@@ -990,7 +985,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
 
-      // Avoid duplicate profile resolution if signIn() already loaded this user
+      // If user profile is already established for this session, avoid redundant re-fetch
       if (currentUserRef.current?.id === session.user.id) {
         setLoadingAuth(false);
         return;
@@ -1003,9 +998,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setCurrentUser(user);
         }
       } catch (err) {
-        console.error('Auth state change error:', err);
+        console.error('Auth state resolution error:', err);
       } finally {
-        if (mounted) setLoadingAuth(false);
+        if (mounted) {
+          setLoadingAuth(false);
+        }
       }
     });
 
