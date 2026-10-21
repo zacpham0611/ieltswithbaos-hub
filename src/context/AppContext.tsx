@@ -16,6 +16,8 @@ import {
   PaymentRecord,
   InlineAnnotation,
   UserRole,
+  TuitionModel,
+  ReadingQuestion,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
@@ -59,6 +61,8 @@ interface AppContextType {
   // Assignments & Submissions
   assignments: Assignment[];
   createAssignment: (assignment: Omit<Assignment, 'id'>) => Promise<void>;
+  updateAssignment: (id: string, updates: Partial<Assignment>) => Promise<void>;
+  deleteAssignment: (id: string, forceHardDelete?: boolean) => Promise<{ success: boolean; hasSubmissions?: boolean }>;
   submissions: Submission[];
   submitAssignment: (assignmentId: string, data: Partial<Submission>) => Promise<void>;
   gradeSubmission: (submissionId: string, updates: Partial<Submission>) => Promise<void>;
@@ -75,6 +79,7 @@ interface AppContextType {
   // Tuition
   feeConfigurations: FeeConfiguration[];
   createFeeConfiguration: (config: Omit<FeeConfiguration, 'id' | 'teacherId'>) => Promise<void>;
+  updateFeeConfiguration: (courseId: string, updates: Partial<FeeConfiguration>) => Promise<void>;
   tuitionStatements: TuitionStatement[];
   generateTuitionStatement: (data: {
     courseId: string;
@@ -189,6 +194,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setDataError(coursesError.message);
         }
 
+        let currentCourses: Course[] = [];
         if (coursesData) {
           const mappedCourses: Course[] = coursesData.map((c: any) => ({
             id: c.id,
@@ -207,6 +213,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             currency: c.currency,
             createdAt: c.created_at?.split('T')[0] || '',
           }));
+          currentCourses = mappedCourses;
           setCourses(mappedCourses);
 
           const courseIds = mappedCourses.map((c) => c.id);
@@ -270,23 +277,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
             if (assignmentsData) {
               setAssignments(
-                assignmentsData.map((a: any) => ({
-                  id: a.id,
-                  courseId: a.course_id,
-                  title: a.title,
-                  instructions: a.instructions,
-                  skill: a.skill,
-                  objectives: a.objectives,
-                  dueDate: a.due_date,
-                  status: a.status,
-                  readingPassage: a.reading_passage,
-                  readingQuestions: a.reading_questions,
-                  writingTaskType: a.writing_task_type,
-                  writingPrompt: a.writing_prompt,
-                  writingMinWords: a.writing_min_words,
-                  speakingPart: a.speaking_part,
-                  speakingCueCard: a.speaking_cue_card,
-                }))
+                assignmentsData.map((a: any) => {
+                  let metadata: any = {};
+                  const cleanQuestions = (a.reading_questions || []).filter((q: any) => {
+                    if (q && q._metadata) {
+                      metadata = q;
+                      return false;
+                    }
+                    return true;
+                  });
+
+                  return {
+                    id: a.id,
+                    courseId: a.course_id,
+                    title: a.title,
+                    instructions: a.instructions,
+                    skill: a.skill,
+                    objectives: a.objectives,
+                    dueDate: a.due_date,
+                    status: a.status,
+                    readingPassage: a.reading_passage,
+                    readingQuestions: cleanQuestions,
+                    readingTestType: a.reading_test_type || metadata.readingTestType || 'academic',
+                    writingTaskType: a.writing_task_type,
+                    writingTaskCategory: a.writing_task_category || metadata.writingTaskCategory || (a.writing_task_type === 'task1' ? 'task1_academic' : 'task2'),
+                    writingPrompt: a.writing_prompt,
+                    writingMinWords: a.writing_min_words,
+                    task1ImageUrl: a.task1_image_url || metadata.task1ImageUrl,
+                    modelAnswer: a.model_answer || metadata.modelAnswer,
+                    modelAnswerReleaseCondition: a.model_answer_release_policy || a.model_answer_release_condition || metadata.modelAnswerReleaseCondition || 'after_graded',
+                    speakingPart: a.speaking_part,
+                    speakingCueCard: a.speaking_cue_card,
+                  };
+                })
               );
             }
 
@@ -418,6 +441,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               auditHistory: s.audit_history || [],
             }))
           );
+        }
+
+        // Tuition Settings / Fee Configurations
+        if (currentCourses.length > 0) {
+          const allCourseIds = currentCourses.map((c) => c.id);
+          const { data: tuitionSettingsData } = await supabase
+            .from('tuition_settings')
+            .select('*')
+            .in('course_id', allCourseIds);
+
+          const feeConfigs: FeeConfiguration[] = currentCourses.map((c) => {
+            const setting = (tuitionSettingsData || []).find((s: any) => s.course_id === c.id);
+            if (setting) {
+              return {
+                id: setting.id,
+                courseId: c.id,
+                courseName: c.name,
+                teacherId: setting.teacher_id,
+                model: setting.model as TuitionModel,
+                currency: setting.currency as 'VND' | 'USD',
+                amount: Number(setting.amount),
+                sessionRate: setting.session_rate ? Number(setting.session_rate) : undefined,
+                hourlyRate: setting.hourly_rate ? Number(setting.hourly_rate) : undefined,
+                effectiveDate: setting.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+                billingDay: setting.billing_day || 1,
+                dueDays: setting.due_days || 15,
+                prorationRule: setting.proration_rule || 'none',
+                earlyPaymentDiscountPercent: Number(setting.early_payment_discount_percent || 0),
+              };
+            } else {
+              return {
+                id: `cfg_${c.id}`,
+                courseId: c.id,
+                courseName: c.name,
+                teacherId: c.teacherId,
+                model: c.tuitionModel || 'fixed_monthly',
+                currency: c.currency || 'VND',
+                amount: c.tuitionAmount || 0,
+                effectiveDate: c.startDate || new Date().toISOString().split('T')[0],
+                billingDay: 1,
+                dueDays: 15,
+                prorationRule: 'none',
+                earlyPaymentDiscountPercent: 0,
+              };
+            }
+          });
+          setFeeConfigurations(feeConfigs);
+        } else {
+          setFeeConfigurations([]);
         }
 
         // Resources
@@ -581,20 +653,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               assignmentsData.map((a: any) => {
                 const studentSub = subsData?.find((s: any) => s.assignment_id === a.id);
                 const isGraded = studentSub && studentSub.status === 'graded';
-                const releasePolicy = a.answer_release_policy || a.reading_questions?.answerReleasePolicy || 'after_submission';
-                const canSeeAnswers = isGraded && releasePolicy !== 'never';
+                const hasSubmitted = !!studentSub;
 
-                const sanitizedQuestions = Array.isArray(a.reading_questions)
-                  ? a.reading_questions.map((q: any) => {
-                      if (canSeeAnswers) return q;
-                      const { correctAnswer, explanation, ...safeQ } = q;
-                      return {
-                        ...safeQ,
-                        correctAnswer: '',
-                        explanation: '',
-                      };
-                    })
-                  : a.reading_questions;
+                const rawQuestions = a.reading_questions;
+                let questionsList: ReadingQuestion[] = [];
+                let metadata: any = {};
+
+                if (Array.isArray(rawQuestions)) {
+                  questionsList = rawQuestions;
+                } else if (rawQuestions && typeof rawQuestions === 'object') {
+                  questionsList = Array.isArray(rawQuestions.questions) ? rawQuestions.questions : [];
+                  metadata = rawQuestions._metadata || rawQuestions.metadata || {};
+                }
+
+                const releaseCondition =
+                  a.model_answer_release_policy ||
+                  a.model_answer_release_condition ||
+                  metadata.modelAnswerReleaseCondition ||
+                  'after_graded';
+
+                const canSeeAnswers = isGraded && releaseCondition !== 'never';
+                const canSeeModelAnswer =
+                  releaseCondition === 'immediate' ||
+                  (releaseCondition === 'after_submission' && hasSubmitted) ||
+                  (releaseCondition === 'after_graded' && isGraded);
+
+                const sanitizedQuestions = questionsList.map((q: any) => {
+                  if (canSeeAnswers) return q;
+                  const { correctAnswer, explanation, ...safeQ } = q;
+                  return {
+                    ...safeQ,
+                    correctAnswer: '',
+                    explanation: '',
+                  };
+                });
 
                 return {
                   id: a.id,
@@ -607,9 +699,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   status: a.status,
                   readingPassage: a.reading_passage,
                   readingQuestions: sanitizedQuestions,
+                  readingTestType: a.reading_test_type || metadata.readingTestType || 'academic',
                   writingTaskType: a.writing_task_type,
+                  writingTaskCategory:
+                    a.writing_task_category ||
+                    metadata.writingTaskCategory ||
+                    (a.writing_task_type === 'task1' ? 'task1_academic' : 'task2'),
                   writingPrompt: a.writing_prompt,
                   writingMinWords: a.writing_min_words,
+                  task1ImageUrl: a.task1_image_url || metadata.task1ImageUrl,
+                  modelAnswer: canSeeModelAnswer ? (a.model_answer || metadata.modelAnswer) : undefined,
+                  modelAnswerReleaseCondition: releaseCondition,
                   speakingPart: a.speaking_part,
                   speakingCueCard: a.speaking_cue_card,
                 };
@@ -1393,6 +1493,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // ASSIGNMENTS OPERATIONS
   const createAssignment = async (assignmentData: Omit<Assignment, 'id'>) => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const packedQuestions = {
+      questions: assignmentData.readingQuestions || [],
+      _metadata: {
+        readingTestType: assignmentData.readingTestType || 'academic',
+        writingTaskCategory: assignmentData.writingTaskCategory,
+        task1ImageUrl: assignmentData.task1ImageUrl,
+        modelAnswer: assignmentData.modelAnswer,
+        modelAnswerReleaseCondition: assignmentData.modelAnswerReleaseCondition || 'after_graded',
+      },
+    };
+
     const { data: newAssign, error } = await supabase
       .from('assignments')
       .insert({
@@ -1404,17 +1517,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         due_date: assignmentData.dueDate,
         status: assignmentData.status,
         reading_passage: assignmentData.readingPassage || null,
-        reading_questions: assignmentData.readingQuestions || [],
+        reading_questions: packedQuestions,
         writing_task_type: assignmentData.writingTaskType || null,
         writing_prompt: assignmentData.writingPrompt || null,
-        writing_min_words: assignmentData.writingMinWords || 250,
+        writing_min_words: assignmentData.writingMinWords || (assignmentData.writingTaskCategory === 'task2' ? 250 : 150),
         speaking_part: assignmentData.speakingPart || null,
         speaking_cue_card: assignmentData.speakingCueCard || null,
       })
       .select()
       .single();
 
-    if (!error && assignmentData.status === 'published') {
+    if (error) {
+      console.error('Create assignment error:', error);
+      throw error;
+    }
+
+    if (assignmentData.status === 'published') {
       try {
         const { data: enrolledStudents } = await supabase
           .from('enrollments')
@@ -1441,6 +1559,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshData();
   };
 
+  const updateAssignment = async (id: string, updates: Partial<Assignment>) => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const existing = assignments.find((a) => a.id === id);
+    if (!existing) throw new Error('Assignment not found');
+
+    const mergedQuestions = updates.readingQuestions !== undefined ? updates.readingQuestions : existing.readingQuestions;
+    const packedQuestions = {
+      questions: mergedQuestions || [],
+      _metadata: {
+        readingTestType: updates.readingTestType || existing.readingTestType || 'academic',
+        writingTaskCategory: updates.writingTaskCategory || existing.writingTaskCategory,
+        task1ImageUrl: updates.task1ImageUrl !== undefined ? updates.task1ImageUrl : existing.task1ImageUrl,
+        modelAnswer: updates.modelAnswer !== undefined ? updates.modelAnswer : existing.modelAnswer,
+        modelAnswerReleaseCondition: updates.modelAnswerReleaseCondition || existing.modelAnswerReleaseCondition || 'after_graded',
+      },
+    };
+
+    const rowUpdates: any = {
+      updated_at: new Date().toISOString(),
+    };
+    if (updates.courseId !== undefined) rowUpdates.course_id = updates.courseId;
+    if (updates.title !== undefined) rowUpdates.title = updates.title;
+    if (updates.instructions !== undefined) rowUpdates.instructions = updates.instructions;
+    if (updates.skill !== undefined) rowUpdates.skill = updates.skill;
+    if (updates.objectives !== undefined) rowUpdates.objectives = updates.objectives;
+    if (updates.dueDate !== undefined) rowUpdates.due_date = updates.dueDate;
+    if (updates.status !== undefined) rowUpdates.status = updates.status;
+    if (updates.readingPassage !== undefined) rowUpdates.reading_passage = updates.readingPassage;
+    rowUpdates.reading_questions = packedQuestions;
+    if (updates.writingTaskType !== undefined) rowUpdates.writing_task_type = updates.writingTaskType;
+    if (updates.writingPrompt !== undefined) rowUpdates.writing_prompt = updates.writingPrompt;
+    if (updates.writingMinWords !== undefined) rowUpdates.writing_min_words = updates.writingMinWords;
+    if (updates.speakingPart !== undefined) rowUpdates.speaking_part = updates.speakingPart;
+    if (updates.speakingCueCard !== undefined) rowUpdates.speaking_cue_card = updates.speakingCueCard;
+
+    const { error } = await supabase
+      .from('assignments')
+      .update(rowUpdates)
+      .eq('id', id);
+
+    if (error) {
+      console.error('Update assignment error:', error);
+      throw error;
+    }
+
+    refreshData();
+  };
+
+  const deleteAssignment = async (id: string): Promise<{ success: boolean; message?: string }> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const assign = assignments.find((a) => a.id === id);
+    if (!assign) throw new Error('Assignment not found');
+
+    const { error } = await supabase
+      .from('assignments')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Delete assignment error:', error);
+      throw error;
+    }
+
+    setAssignments((prev) => prev.filter((a) => a.id !== id));
+    addActivity(`Deleted assignment: ${assign.title}`, 'submission', 'assignments');
+    return { success: true };
+  };
+
   // SUBMISSIONS OPERATIONS
   const submitAssignment = async (assignmentId: string, data: Partial<Submission>) => {
     if (!currentUser) return;
@@ -1462,12 +1650,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .eq('id', assignmentId)
           .single();
 
-        if (rawAssign && Array.isArray(rawAssign.reading_questions)) {
-          const gradeSummary = gradeAssignmentSubmission(rawAssign.reading_questions, data.readingAnswers);
+        if (rawAssign) {
+          const rawQ = rawAssign.reading_questions;
+          const questionsList = Array.isArray(rawQ) ? rawQ : (rawQ?.questions || []);
+          const gradeSummary = gradeAssignmentSubmission(
+            questionsList,
+            data.readingAnswers,
+            assign.readingTestType || 'academic'
+          );
           data.readingScore = {
             correct: gradeSummary.earnedScore,
             total: gradeSummary.maxScore,
             percentage: gradeSummary.percentage,
+            estimatedBand: gradeSummary.bandEstimate,
+            testType: assign.readingTestType || 'academic',
+            bandNotes: gradeSummary.bandNotes,
           };
           data.readingErrorAnalysis = gradeSummary.errorAnalysis;
           data.score = gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate;
@@ -1787,7 +1984,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       due_days: configData.dueDays,
       proration_rule: configData.prorationRule,
       early_payment_discount_percent: configData.earlyPaymentDiscountPercent,
-    });
+    }, { onConflict: 'course_id' });
+
+    // Sync courses table
+    await supabase.from('courses').update({
+      tuition_model: configData.model,
+      tuition_amount: configData.amount,
+      currency: configData.currency,
+    }).eq('id', configData.courseId).eq('teacher_id', currentUser.id);
+
+    refreshData();
+  };
+
+  const updateFeeConfiguration = async (id: string, updates: Partial<FeeConfiguration>) => {
+    if (!currentUser) return;
+    const existing = feeConfigurations.find((f) => f.id === id || f.courseId === updates.courseId);
+    const courseId = updates.courseId || existing?.courseId;
+    if (!courseId) return;
+
+    await supabase.from('tuition_settings').upsert({
+      course_id: courseId,
+      teacher_id: currentUser.id,
+      model: updates.model || existing?.model || 'fixed_monthly',
+      currency: updates.currency || existing?.currency || 'VND',
+      amount: updates.amount ?? existing?.amount ?? 0,
+      session_rate: updates.sessionRate ?? existing?.sessionRate ?? null,
+      hourly_rate: updates.hourlyRate ?? existing?.hourlyRate ?? null,
+      due_days: updates.dueDays ?? existing?.dueDays ?? 15,
+      proration_rule: updates.prorationRule ?? existing?.prorationRule ?? 'none',
+      early_payment_discount_percent: updates.earlyPaymentDiscountPercent ?? existing?.earlyPaymentDiscountPercent ?? 0,
+    }, { onConflict: 'course_id' });
+
+    // Sync courses table
+    await supabase.from('courses').update({
+      tuition_model: updates.model || existing?.model,
+      tuition_amount: updates.amount ?? existing?.amount,
+      currency: updates.currency || existing?.currency,
+    }).eq('id', courseId).eq('teacher_id', currentUser.id);
 
     refreshData();
   };
@@ -2055,6 +2288,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateLesson,
         assignments,
         createAssignment,
+        updateAssignment,
+        deleteAssignment,
         submissions,
         submitAssignment,
         gradeSubmission,
@@ -2067,6 +2302,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         voidMonthlyReport,
         feeConfigurations,
         createFeeConfiguration,
+        updateFeeConfiguration,
         tuitionStatements,
         generateTuitionStatement,
         approveTuitionStatement,

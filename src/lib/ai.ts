@@ -135,7 +135,7 @@ async function invokeAiAssistant(action: string, payload: Record<string, any>): 
 
   return {
     draft: data.draft,
-    model: data.model || 'gemini-3.8-flash',
+    model: data.model || 'gemini-1.5-flash',
     action: data.action,
     structuredData: data.structuredData,
   };

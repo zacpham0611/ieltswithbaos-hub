@@ -221,7 +221,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const geminiModel = Deno.env.get("GEMINI_MODEL") || "gemini-3.8-flash";
+    const geminiModel = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
 
     // 7. Assemble task-specific System Instructions & User Prompts
     let systemInstruction = "";

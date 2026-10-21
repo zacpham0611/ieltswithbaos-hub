@@ -27,6 +27,7 @@ import {
   X,
   TrendingUp,
   Globe,
+  Edit,
 } from 'lucide-react';
 
 export const TuitionView: React.FC = () => {
@@ -36,6 +37,7 @@ export const TuitionView: React.FC = () => {
     courseMembers,
     feeConfigurations,
     createFeeConfiguration,
+    updateFeeConfiguration,
     tuitionStatements,
     generateTuitionStatement,
     approveTuitionStatement,
@@ -114,6 +116,16 @@ export const TuitionView: React.FC = () => {
   const totalOutstanding = visibleStatements.reduce((acc, curr) => acc + curr.remainingBalance, 0);
   const pendingCount = visibleStatements.filter((s) => s.status === 'pending_approval').length;
 
+  const openEditCourseFee = (cfg: FeeConfiguration) => {
+    setCfgCourseId(cfg.courseId);
+    setCfgModel(cfg.model);
+    setCfgCurrency(cfg.currency);
+    setCfgAmount(cfg.amount);
+    setCfgDueDays(cfg.dueDays || 15);
+    setCfgDiscountPercent(cfg.earlyPaymentDiscountPercent || 0);
+    setShowConfigModal(true);
+  };
+
   const handleCreateFeeConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cfgCourseId) return;
@@ -121,7 +133,7 @@ export const TuitionView: React.FC = () => {
     setIsSubmittingConfig(true);
     try {
       const course = courses.find((c) => c.id === cfgCourseId);
-      await createFeeConfiguration({
+      await updateFeeConfiguration(cfgCourseId, {
         courseId: cfgCourseId,
         courseName: course?.name || 'Course',
         model: cfgModel,
@@ -832,6 +844,96 @@ export const TuitionView: React.FC = () => {
           <span className="text-[11px] text-blue-600 font-semibold">{t('tuition.awaitingSignOff')}</span>
         </div>
       </div>
+
+      {/* Course Tuition Configurations (Teachers) */}
+      {isTeacher && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                <CreditCard className="w-4 h-4 text-blue-600" />
+                <span>Course Tuition Policies & Settings</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Configured fee schedules, rates, and due policies synchronized across courses
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (courses.length > 0) setCfgCourseId(courses[0].id);
+                setShowConfigModal(true);
+              }}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Configure Course</span>
+            </button>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {courses.filter((c) => c.teacherId === currentUser.id).length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-400">
+                No courses created yet. Create a course first to set up tuition policies.
+              </div>
+            ) : (
+              courses
+                .filter((c) => c.teacherId === currentUser.id)
+                .map((course) => {
+                  const cfg = feeConfigurations.find((f) => f.courseId === course.id) || {
+                    id: `cfg_${course.id}`,
+                    courseId: course.id,
+                    courseName: course.name,
+                    teacherId: course.teacherId,
+                    model: course.tuitionModel || 'fixed_monthly',
+                    currency: course.currency || 'VND',
+                    amount: course.tuitionAmount || 0,
+                    effectiveDate: new Date().toISOString().split('T')[0],
+                    billingDay: 1,
+                    dueDays: 15,
+                    prorationRule: 'none' as const,
+                    earlyPaymentDiscountPercent: 0,
+                  };
+
+                  return (
+                    <div
+                      key={course.id}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-sm text-slate-900">{course.name}</span>
+                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                            {cfg.model.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <span>
+                            Rate: <strong className="text-slate-800">{cfg.currency} {cfg.amount.toLocaleString()}</strong>
+                            {cfg.model === 'per_session' ? ' / session' : cfg.model === 'hourly' ? ' / hour' : cfg.model === 'fixed_monthly' ? ' / month' : ' (package)'}
+                          </span>
+                          <span>Due window: <strong>{cfg.dueDays || 15} days</strong></span>
+                          {cfg.earlyPaymentDiscountPercent ? (
+                            <span className="text-emerald-600 font-semibold">
+                              Early discount: {cfg.earlyPaymentDiscountPercent}%
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => openEditCourseFee(cfg as FeeConfiguration)}
+                        className="self-start sm:self-center px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors flex items-center space-x-1.5"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        <span>Edit Policy</span>
+                      </button>
+                    </div>
+                  );
+                })
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Filters & Search */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">

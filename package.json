@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types tests/ieltsScoring.test.ts && node --experimental-strip-types tests/assignmentGrader.test.ts && node --experimental-strip-types tests/documentExtractor.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

@@ -71,6 +71,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [editedRawText, setEditedRawText] = useState('');
   const [editedPassage, setEditedPassage] = useState('');
   const [previewTab, setPreviewTab] = useState<'structured' | 'raw'>('structured');
+  const [selectedCandidateTestId, setSelectedCandidateTestId] = useState<string | 'combined'>('combined');
 
   // Word Configuration State
   const [wordTemplateStyle, setWordTemplateStyle] = useState<'academic' | 'clean'>('academic');
@@ -156,10 +157,74 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
   const selectActiveDocument = (doc: ExtractedDocument) => {
     setActiveFileId(doc.id);
-    setEditedTitle(doc.detectedStructure?.title || doc.name.replace(/\.[^/.]+$/, ''));
+    const candidateTests = doc.detectedStructure?.candidateTests || [];
+    if (candidateTests.length > 1) {
+      setSelectedCandidateTestId(candidateTests[0].id);
+      setEditedTitle(candidateTests[0].title || doc.name.replace(/\.[^/.]+$/, ''));
+      setEditedPassage(candidateTests[0].passageText);
+      setAssignInstructions(candidateTests[0].instructions || 'Read the text carefully and answer all questions.');
+    } else {
+      setSelectedCandidateTestId('combined');
+      setEditedTitle(doc.detectedStructure?.title || doc.name.replace(/\.[^/.]+$/, ''));
+      setEditedPassage(doc.detectedStructure?.passageText || doc.rawText);
+      setAssignInstructions(doc.detectedStructure?.instructions || 'Read the text carefully and answer all questions.');
+    }
     setEditedRawText(doc.rawText);
-    setEditedPassage(doc.detectedStructure?.passageText || doc.rawText);
     setAssignSkill(doc.detectedStructure?.detectedSkill || 'reading');
+  };
+
+  const handleSelectCandidateTest = (candidateId: string | 'combined') => {
+    setSelectedCandidateTestId(candidateId);
+    if (!activeDoc?.detectedStructure) return;
+    const tests = activeDoc.detectedStructure.candidateTests || [];
+    if (candidateId === 'combined') {
+      setEditedTitle(activeDoc.detectedStructure.title || activeDoc.name.replace(/\.[^/.]+$/, ''));
+      setEditedPassage(activeDoc.detectedStructure.passageText || activeDoc.rawText);
+      setAssignInstructions(activeDoc.detectedStructure.instructions || 'Read the text carefully and answer all questions.');
+    } else {
+      const match = tests.find((t) => t.id === candidateId);
+      if (match) {
+        setEditedTitle(match.title);
+        setEditedPassage(match.passageText);
+        setAssignInstructions(match.instructions || 'Read the text carefully and answer all questions.');
+      }
+    }
+  };
+
+  const handleSaveAllCandidateTestsAsSeparate = async (status: 'draft' | 'published') => {
+    if (!activeDoc?.detectedStructure?.candidateTests?.length || !assignCourseId) {
+      alert('Please select a course.');
+      return;
+    }
+
+    setIsPublishingAssignment(true);
+    try {
+      const tests = activeDoc.detectedStructure.candidateTests;
+      for (const t of tests) {
+        await createAssignment({
+          courseId: assignCourseId,
+          title: t.title || `${editedTitle} - Passage ${t.testIndex}`,
+          instructions: t.instructions || assignInstructions,
+          skill: assignSkill,
+          objectives: `Master Band ${assignTargetBand} through interactive ${assignSkill} practice.`,
+          dueDate: assignDueDate,
+          status,
+          readingPassage: t.passageText,
+          readingQuestions: t.questions,
+          readingTestType: 'academic',
+          answerReleasePolicy: assignReleasePolicy,
+          sourceDocumentName: activeDoc.name,
+        });
+      }
+
+      alert(`Successfully saved ${tests.length} separate assignments!`);
+      onAssignmentCreated?.();
+      onClose();
+    } catch (err: any) {
+      alert(`Failed to save separate assignments: ${err.message}`);
+    } finally {
+      setIsPublishingAssignment(false);
+    }
   };
 
   // ==========================================
@@ -284,10 +349,13 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             needsReview: q.answerKeyConfidence === 'needs_teacher_review' || !q.correctAnswer,
           }));
         }
-      } else if (activeDoc.detectedStructure?.questions.length) {
-        // Fallback to local heuristic questions if Gemini returned unstructured draft
+      } else {
+        // Fallback to local heuristic questions
         setIsAiGeneratedResult(false);
-        questions = activeDoc.detectedStructure.questions;
+        const match = selectedCandidateTestId !== 'combined'
+          ? activeDoc.detectedStructure?.candidateTests?.find((t) => t.id === selectedCandidateTestId)
+          : null;
+        questions = match ? match.questions : (activeDoc.detectedStructure?.questions || []);
       }
 
       setReviewedTitle(title);
@@ -300,14 +368,15 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       console.error('AI conversion error:', err);
       setIsAiGeneratedResult(false);
       setAiError(err.message || 'Gemini conversion failed. You can review locally extracted questions.');
-      // Still allow review with locally extracted questions
-      if (activeDoc.detectedStructure?.questions) {
-        setReviewedTitle(editedTitle);
-        setReviewedPassage(editedPassage);
-        setReviewedInstructions(assignInstructions);
-        setReviewedQuestions(activeDoc.detectedStructure.questions);
-        setCurrentStep('review_assignment');
-      }
+      const match = selectedCandidateTestId !== 'combined'
+        ? activeDoc.detectedStructure?.candidateTests?.find((t) => t.id === selectedCandidateTestId)
+        : null;
+      const fallbackQuestions = match ? match.questions : (activeDoc.detectedStructure?.questions || []);
+      setReviewedTitle(editedTitle);
+      setReviewedPassage(editedPassage);
+      setReviewedInstructions(assignInstructions);
+      setReviewedQuestions(fallbackQuestions);
+      setCurrentStep('review_assignment');
     } finally {
       setIsAiProcessing(false);
       setAiProcessingStage('');
@@ -695,6 +764,60 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
               {previewTab === 'structured' ? (
                 <div className="space-y-4">
+                  {/* Candidate Tests Selector Bar for Multi-Test documents */}
+                  {activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 && (
+                    <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5">
+                          <Layers className="w-4 h-4 text-blue-600" />
+                          <span>Multiple Candidate Tests Detected ({activeDoc.detectedStructure.candidateTests.length} sections)</span>
+                        </span>
+                        <span className="text-[11px] text-blue-700 font-medium">Select a section to preview/edit independently:</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {activeDoc.detectedStructure.candidateTests.map((ct) => (
+                          <button
+                            key={ct.id}
+                            type="button"
+                            onClick={() => handleSelectCandidateTest(ct.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1.5 ${
+                              selectedCandidateTestId === ct.id
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span>{ct.title}</span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                                selectedCandidateTestId === ct.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {ct.questionCount} Qs
+                            </span>
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => handleSelectCandidateTest('combined')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1.5 ${
+                            selectedCandidateTestId === 'combined'
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span>All Passages Combined</span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                              selectedCandidateTestId === 'combined' ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {activeDoc.detectedStructure.questions.length} Qs
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Passage Preview */}
                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">
                     <div className="flex items-center justify-between">
@@ -1540,7 +1663,19 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                   ← Back to Output Options
                 </button>
 
-                <div className="flex items-center space-x-3 w-full sm:w-auto">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  {activeDoc?.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleSaveAllCandidateTestsAsSeparate('published')}
+                      disabled={isPublishingAssignment}
+                      className="w-full sm:w-auto px-4 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold transition-colors flex items-center justify-center space-x-1.5"
+                    >
+                      <Layers className="w-4 h-4" />
+                      <span>Publish All {activeDoc.detectedStructure.candidateTests.length} Tests Separately</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => handleSaveAssignment('draft')}
                     disabled={isPublishingAssignment}

@@ -96,9 +96,18 @@ export type QuestionType =
   | 'true_false_not_given'
   | 'yes_no_not_given'
   | 'matching'
+  | 'matching_headings'
+  | 'matching_information'
+  | 'matching_features'
+  | 'matching_sentence_endings'
   | 'sentence_completion'
-  | 'fill_in_the_blank'
+  | 'summary_completion'
+  | 'note_completion'
+  | 'table_completion'
+  | 'flowchart_completion'
   | 'short_answer'
+  | 'diagram_completion'
+  | 'fill_in_the_blank'
   | 'essay';
 
 export interface ReadingQuestion {
@@ -107,6 +116,11 @@ export interface ReadingQuestion {
   prompt: string;
   options?: string[];
   matchingPairs?: { left: string; right: string }[];
+  headingsList?: string[];
+  featuresList?: string[];
+  diagramUrl?: string;
+  wordLimit?: string;
+  maxWords?: number;
   correctAnswer: string;
   explanation: string;
   points?: number;
@@ -114,6 +128,13 @@ export interface ReadingQuestion {
   answerKeyConfidence?: 'high' | 'medium' | 'needs_teacher_review';
   needsReview?: boolean;
 }
+
+export type WritingTaskCategory =
+  | 'task1_academic'
+  | 'task1_general'
+  | 'task2';
+
+export type ReadingTestType = 'academic' | 'general';
 
 export interface Assignment {
   id: string;
@@ -125,11 +146,19 @@ export interface Assignment {
   dueDate: string;
   status: 'draft' | 'published';
   resources?: string[];
+  // Reading Specific
   readingPassage?: string;
   readingQuestions?: ReadingQuestion[];
+  readingTestType?: ReadingTestType;
+  // Writing Specific
   writingTaskType?: 'task1' | 'task2';
+  writingTaskCategory?: WritingTaskCategory;
   writingPrompt?: string;
   writingMinWords?: number;
+  task1ImageUrl?: string;
+  modelAnswer?: string;
+  modelAnswerReleaseCondition?: 'immediate' | 'after_submission' | 'after_graded' | 'never';
+  // Speaking Specific
   speakingPart?: 'part1' | 'part2' | 'part3' | 'full';
   speakingCueCard?: {
     topic: string;
@@ -163,7 +192,14 @@ export interface Submission {
   updatedAt: string;
   // Reading
   readingAnswers?: Record<string, string>;
-  readingScore?: { correct: number; total: number; percentage: number };
+  readingScore?: {
+    correct: number;
+    total: number;
+    percentage: number;
+    estimatedBand?: number;
+    testType?: 'academic' | 'general';
+    bandNotes?: string;
+  };
   readingErrorAnalysis?: { questionId: string; userAnswer: string; correctAnswer: string; isCorrect: boolean; explanation: string }[];
   // Writing
   writingText?: string;

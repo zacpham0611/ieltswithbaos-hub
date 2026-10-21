@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import {
@@ -8,8 +8,16 @@ import {
   SubmissionStatus,
   ReadingQuestion,
   InlineAnnotation,
+  WritingTaskCategory,
+  ReadingTestType,
+  QuestionType,
 } from '../types';
-import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
+import { gradeAssignmentSubmission, parseMaxWordsFromLimit } from '../lib/assignmentGrader';
+import {
+  calculateIeltsOverallBand,
+  roundIeltsComponentScore,
+  calculateReadingBand,
+} from '../lib/ieltsScoring';
 import {
   FileCheck2,
   Clock,
@@ -26,6 +34,7 @@ import {
   Edit3,
   Award,
   ChevronRight,
+  ChevronLeft,
   Plus,
   Eye,
   FileText,
@@ -36,6 +45,16 @@ import {
   Trash2,
   Save,
   MessageSquare,
+  Timer,
+  Flag,
+  Image as ImageIcon,
+  ZoomIn,
+  Check,
+  AlertTriangle,
+  Layers,
+  Edit,
+  HelpCircle,
+  BarChart3,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -45,6 +64,8 @@ export const AssignmentsView: React.FC = () => {
     courseMembers,
     assignments,
     createAssignment,
+    updateAssignment,
+    deleteAssignment,
     submissions,
     submitAssignment,
     gradeSubmission,
@@ -59,29 +80,53 @@ export const AssignmentsView: React.FC = () => {
   const [selectedSkillFilter, setSelectedSkillFilter] = useState<string>('all');
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Assignment Creation Form State
-  const [newCourseId, setNewCourseId] = useState('');
-  const [newTitle, setNewTitle] = useState('');
-  const [newSkill, setNewSkill] = useState<AssignmentSkill>('writing');
-  const [newInstructions, setNewInstructions] = useState('');
-  const [newObjectives, setNewObjectives] = useState('');
-  const [newDueDate, setNewDueDate] = useState('');
-  const [newWritingPrompt, setNewWritingPrompt] = useState('');
-  const [newWritingMinWords, setNewWritingMinWords] = useState(250);
-  const [newSpeakingTopic, setNewSpeakingTopic] = useState('');
-  const [newSpeakingPoints, setNewSpeakingPoints] = useState('');
-  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  // Modal states
+  const [showCreateEditModal, setShowCreateEditModal] = useState(false);
+  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
+  const [deletingAssignment, setDeletingAssignment] = useState<Assignment | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnComments, setReturnComments] = useState('');
+  const [showUnansweredModal, setShowUnansweredModal] = useState(false);
+  const [showZoomImageModal, setShowZoomImageModal] = useState(false);
+
+  // Assignment Create / Edit Form State
+  const [formCourseId, setFormCourseId] = useState('');
+  const [formTitle, setFormTitle] = useState('');
+  const [formSkill, setFormSkill] = useState<AssignmentSkill>('writing');
+  const [formInstructions, setFormInstructions] = useState('');
+  const [formObjectives, setFormObjectives] = useState('');
+  const [formDueDate, setFormDueDate] = useState('');
+  const [formWritingTaskCategory, setFormWritingTaskCategory] = useState<WritingTaskCategory>('task2');
+  const [formWritingPrompt, setFormWritingPrompt] = useState('');
+  const [formWritingMinWords, setFormWritingMinWords] = useState(250);
+  const [formTask1ImageUrl, setFormTask1ImageUrl] = useState('');
+  const [formModelAnswer, setFormModelAnswer] = useState('');
+  const [formModelAnswerReleaseCondition, setFormModelAnswerReleaseCondition] = useState<
+    'immediate' | 'after_submission' | 'after_graded' | 'never'
+  >('after_graded');
+  const [formReadingTestType, setFormReadingTestType] = useState<ReadingTestType>('academic');
+  const [formReadingPassage, setFormReadingPassage] = useState('');
+  const [formSpeakingTopic, setFormSpeakingTopic] = useState('');
+  const [formSpeakingPoints, setFormSpeakingPoints] = useState('');
+  const [isSubmittingForm, setIsSubmittingForm] = useState(false);
 
   // Student active taking state
   const [readingAnswers, setReadingAnswers] = useState<Record<string, string>>({});
+  const [flaggedQuestions, setFlaggedQuestions] = useState<Record<string, boolean>>({});
   const [writingDraft, setWritingDraft] = useState<string>('');
   const [isRecording, setIsRecording] = useState(false);
   const [audioRecorded, setAudioRecorded] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
-  // Standard IELTS Rubrics
+  // Reading Timer state
+  const [timerSeconds, setTimerSeconds] = useState<number>(60 * 60); // 60 minutes default
+  const [timerRunning, setTimerRunning] = useState<boolean>(true);
+  const [passageFontSize, setPassageFontSize] = useState<'normal' | 'large'>('normal');
+
+  // Standard IELTS Rubrics for Teacher Grading
   const defaultWritingRubrics = [
     { criterion: 'Task Achievement / Response', score: 7.0, descriptor: 'Addresses all parts of the prompt well.' },
     { criterion: 'Coherence & Cohesion', score: 7.0, descriptor: 'Sequences information and ideas logically.' },
@@ -118,27 +163,7 @@ export const AssignmentsView: React.FC = () => {
   const [draftSaveNotice, setDraftSaveNotice] = useState(false);
   const [activeInspectedAnnotation, setActiveInspectedAnnotation] = useState<InlineAnnotation | null>(null);
 
-  // Revision return prompt
-  const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnComments, setReturnComments] = useState('');
-
-  // Scoped assignments
-  const visibleAssignments = isTeacher
-    ? assignments.filter((a) => {
-        const course = courses.find((c) => c.id === a.courseId);
-        return course?.teacherId === currentUser.id;
-      })
-    : assignments.filter((a) => {
-        const isEnrolled = courseMembers.some(
-          (m) => m.courseId === a.courseId && m.studentId === currentUser.id && m.status === 'enrolled'
-        );
-        return isEnrolled && a.status === 'published';
-      });
-
-  const filteredAssignments = visibleAssignments.filter(
-    (a) => selectedSkillFilter === 'all' || a.skill === selectedSkillFilter
-  );
-
+  // Active assignment object
   const activeAssignment = selectedAssignmentId
     ? assignments.find((a) => a.id === selectedAssignmentId)
     : null;
@@ -150,49 +175,131 @@ export const AssignmentsView: React.FC = () => {
         (s) => s.assignmentId === selectedAssignmentId && s.studentId === currentUser.id
       );
 
-  // Synchronize grading form whenever currentSubmission changes
-  React.useEffect(() => {
-    if (!currentSubmission) return;
+  // Filtered assignments
+  const filteredAssignments = assignments.filter((a) => {
+    if (selectedSkillFilter === 'all') return true;
+    return a.skill === selectedSkillFilter;
+  });
 
-    if (currentSubmission.rubricScores && currentSubmission.rubricScores.length > 0) {
-      setGradingRubrics(currentSubmission.rubricScores);
-    } else if (currentSubmission.skill === 'speaking') {
-      setGradingRubrics(defaultSpeakingRubrics);
-    } else {
-      setGradingRubrics(defaultWritingRubrics);
+  // Load / Sync autosaved reading answers and writing draft from localStorage
+  useEffect(() => {
+    if (!activeAssignment || isTeacher) return;
+
+    if (activeAssignment.skill === 'reading') {
+      const storageKey = `ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`;
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object') {
+            setReadingAnswers(parsed);
+          }
+        } catch {
+          // ignore corrupted localstorage
+        }
+      } else if (currentSubmission?.readingAnswers) {
+        setReadingAnswers(currentSubmission.readingAnswers);
+      }
+    } else if (activeAssignment.skill === 'writing') {
+      const storageKey = `ielts_writing_draft_${activeAssignment.id}_${currentUser.id}`;
+      const saved = localStorage.getItem(storageKey);
+      if (saved && !currentSubmission) {
+        setWritingDraft(saved);
+      } else if (currentSubmission?.writingText) {
+        setWritingDraft(currentSubmission.writingText);
+      }
     }
+  }, [activeAssignment?.id, currentUser?.id, isTeacher]);
 
-    setTeacherStrengths(currentSubmission.strengths || '');
-    setTeacherAreasToImprove(currentSubmission.areasToImprove || '');
-    setTeacherGeneralComments(currentSubmission.teacherComments || '');
-    setTeacherNextSteps(currentSubmission.nextSteps || '');
-    setOverallScore(currentSubmission.score ?? 7.0);
-    setAnnotations(currentSubmission.annotations || []);
-    setActiveSelection(null);
-    setActiveInspectedAnnotation(null);
-  }, [currentSubmission?.id]);
+  // Persist reading answers to localStorage on change
+  const handleAnswerChange = (qId: string, val: string) => {
+    const updated = { ...readingAnswers, [qId]: val };
+    setReadingAnswers(updated);
+    if (activeAssignment) {
+      localStorage.setItem(
+        `ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`,
+        JSON.stringify(updated)
+      );
+    }
+  };
 
-  // Teacher text selection listener on student essay
+  // Persist writing draft to localStorage on change
+  const handleWritingDraftChange = (text: string) => {
+    setWritingDraft(text);
+    if (activeAssignment) {
+      localStorage.setItem(`ielts_writing_draft_${activeAssignment.id}_${currentUser.id}`, text);
+    }
+  };
+
+  // Timer countdown effect for active reading practice
+  useEffect(() => {
+    if (!activeAssignment || activeAssignment.skill !== 'reading' || !timerRunning) return;
+    if (currentSubmission?.status === 'graded') return;
+
+    const interval = setInterval(() => {
+      setTimerSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeAssignment?.id, timerRunning, currentSubmission?.status]);
+
+  const formatTimer = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Populate Teacher Grading Form when selecting a submission
+  useEffect(() => {
+    if (isTeacher && currentSubmission) {
+      if (currentSubmission.rubricScores && currentSubmission.rubricScores.length > 0) {
+        setGradingRubrics(currentSubmission.rubricScores);
+      } else if (currentSubmission.skill === 'speaking') {
+        setGradingRubrics(defaultSpeakingRubrics);
+      } else {
+        setGradingRubrics(defaultWritingRubrics);
+      }
+
+      setTeacherStrengths(currentSubmission.strengths || '');
+      setTeacherAreasToImprove(currentSubmission.areasToImprove || '');
+      setTeacherGeneralComments(currentSubmission.teacherComments || '');
+      setTeacherNextSteps(currentSubmission.nextSteps || '');
+      setOverallScore(currentSubmission.score || 7.0);
+      setAnnotations(currentSubmission.annotations || []);
+      setActiveSelection(null);
+      setActiveInspectedAnnotation(null);
+    }
+  }, [isTeacher, currentSubmission?.id]);
+
+  // Instant Overall Band recalculation when any rubric score changes
+  const handleRubricScoreChange = (idx: number, newScore: number) => {
+    const rounded = roundIeltsComponentScore(newScore);
+    const updated = [...gradingRubrics];
+    updated[idx] = { ...updated[idx], score: rounded };
+    setGradingRubrics(updated);
+
+    const newOverall = calculateIeltsOverallBand(updated.map((r) => r.score));
+    setOverallScore(newOverall);
+  };
+
+  // Teacher Annotation Selection Handlers
   const handleTextMouseUp = () => {
-    if (!isTeacher) return;
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !currentSubmission?.writingText) {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       return;
     }
 
-    const selectedStr = selection.toString().trim();
-    if (!selectedStr) return;
+    const selectedText = selection.toString().trim();
+    if (selectedText.length < 2) return;
 
-    const rawText = currentSubmission.writingText;
-    const matchIndex = rawText.indexOf(selectedStr);
-    if (matchIndex !== -1) {
+    const fullText = currentSubmission?.writingText || '';
+    const startIndex = fullText.indexOf(selectedText);
+    if (startIndex !== -1) {
       setActiveSelection({
-        text: selectedStr,
-        startIndex: matchIndex,
-        endIndex: matchIndex + selectedStr.length,
+        text: selectedText,
+        startIndex,
+        endIndex: startIndex + selectedText.length,
       });
-      setNewAnnotationComment('');
-      setNewAnnotationSuggestion('');
     }
   };
 
@@ -288,34 +395,89 @@ export const AssignmentsView: React.FC = () => {
     return parts;
   };
 
-  // Count words in writing draft
+  // Word count in writing draft
   const wordCount = writingDraft.trim().length === 0 ? 0 : writingDraft.trim().split(/\s+/).length;
+  const targetWords = activeAssignment?.writingMinWords || (activeAssignment?.writingTaskCategory === 'task2' ? 250 : 150);
+  const targetProgress = Math.min(100, Math.round((wordCount / targetWords) * 100));
 
-  // Teacher Create Assignment Handler
-  const handleCreateAssignment = async (e: React.FormEvent) => {
+  // Open Create Modal
+  const openCreateModal = () => {
+    setEditingAssignmentId(null);
+    setFormCourseId(courses[0]?.id || '');
+    setFormTitle('');
+    setFormSkill('writing');
+    setFormInstructions('');
+    setFormObjectives('');
+    setFormDueDate(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
+    setFormWritingTaskCategory('task2');
+    setFormWritingPrompt('');
+    setFormWritingMinWords(250);
+    setFormTask1ImageUrl('');
+    setFormModelAnswer('');
+    setFormModelAnswerReleaseCondition('after_graded');
+    setFormReadingTestType('academic');
+    setFormReadingPassage('');
+    setFormSpeakingTopic('');
+    setFormSpeakingPoints('');
+    setShowCreateEditModal(true);
+  };
+
+  // Open Edit Modal with Pre-populated data
+  const openEditModal = (a: Assignment) => {
+    setEditingAssignmentId(a.id);
+    setFormCourseId(a.courseId);
+    setFormTitle(a.title);
+    setFormSkill(a.skill);
+    setFormInstructions(a.instructions || '');
+    setFormObjectives(a.objectives || '');
+    setFormDueDate(a.dueDate || '');
+    setFormWritingTaskCategory(a.writingTaskCategory || (a.writingTaskType === 'task1' ? 'task1_academic' : 'task2'));
+    setFormWritingPrompt(a.writingPrompt || '');
+    setFormWritingMinWords(a.writingMinWords || (a.writingTaskCategory === 'task2' ? 250 : 150));
+    setFormTask1ImageUrl(a.task1ImageUrl || '');
+    setFormModelAnswer(a.modelAnswer || '');
+    setFormModelAnswerReleaseCondition(a.modelAnswerReleaseCondition || 'after_graded');
+    setFormReadingTestType(a.readingTestType || 'academic');
+    setFormReadingPassage(a.readingPassage || '');
+    setFormSpeakingTopic(a.speakingCueCard?.topic || '');
+    setFormSpeakingPoints(a.speakingCueCard?.points?.join('\n') || '');
+    setShowCreateEditModal(true);
+  };
+
+  // Submit Create or Update
+  const handleSaveAssignmentForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCourseId || !newTitle.trim()) return;
+    if (!formCourseId || !formTitle.trim()) return;
 
-    setIsSubmittingCreate(true);
+    setIsSubmittingForm(true);
     try {
-      const assignmentData: Omit<Assignment, 'id'> = {
-        courseId: newCourseId,
-        title: newTitle.trim(),
-        instructions: newInstructions.trim() || 'Complete the assignment following the guidelines.',
-        skill: newSkill,
-        objectives: newObjectives.trim() || 'Develop IELTS proficiency.',
-        dueDate: newDueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+      const isTask1 = formWritingTaskCategory.startsWith('task1');
+      const minWords = formSkill === 'writing' ? (formWritingMinWords || (isTask1 ? 150 : 250)) : undefined;
+
+      const payload: Partial<Assignment> = {
+        courseId: formCourseId,
+        title: formTitle.trim(),
+        instructions: formInstructions.trim() || 'Complete the assignment following IELTS exam standards.',
+        skill: formSkill,
+        objectives: formObjectives.trim() || 'Master IELTS band criteria.',
+        dueDate: formDueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
         status: 'published',
-        writingTaskType: newSkill === 'writing' ? 'task2' : undefined,
-        writingPrompt: newSkill === 'writing' ? newWritingPrompt.trim() : undefined,
-        writingMinWords: newSkill === 'writing' ? newWritingMinWords : undefined,
-        speakingPart: newSkill === 'speaking' ? 'part2' : undefined,
+        writingTaskType: formSkill === 'writing' ? (isTask1 ? 'task1' : 'task2') : undefined,
+        writingTaskCategory: formSkill === 'writing' ? formWritingTaskCategory : undefined,
+        writingPrompt: formSkill === 'writing' ? formWritingPrompt.trim() : undefined,
+        writingMinWords: minWords,
+        task1ImageUrl: formSkill === 'writing' && formWritingTaskCategory === 'task1_academic' ? formTask1ImageUrl.trim() : undefined,
+        modelAnswer: formModelAnswer.trim() || undefined,
+        modelAnswerReleaseCondition: formModelAnswerReleaseCondition,
+        readingTestType: formSkill === 'reading' ? formReadingTestType : undefined,
+        readingPassage: formSkill === 'reading' ? formReadingPassage : undefined,
+        speakingPart: formSkill === 'speaking' ? 'part2' : undefined,
         speakingCueCard:
-          newSkill === 'speaking'
+          formSkill === 'speaking'
             ? {
-                topic: newSpeakingTopic.trim() || 'Describe an experience that taught you something valuable.',
-                points: newSpeakingPoints
-                  ? newSpeakingPoints.split('\n').filter((p) => p.trim())
+                topic: formSpeakingTopic.trim() || 'Describe an experience that taught you something valuable.',
+                points: formSpeakingPoints
+                  ? formSpeakingPoints.split('\n').map((p) => p.trim()).filter(Boolean)
                   : ['What the experience was', 'When it happened', 'What you learned from it'],
                 prepTimeSeconds: 60,
                 speakTimeSeconds: 120,
@@ -323,28 +485,68 @@ export const AssignmentsView: React.FC = () => {
             : undefined,
       };
 
-      await createAssignment(assignmentData);
-      setShowCreateModal(false);
-      setNewTitle('');
-      setNewInstructions('');
-      setNewObjectives('');
-      setNewWritingPrompt('');
-      setNewSpeakingTopic('');
-      setNewSpeakingPoints('');
+      if (editingAssignmentId) {
+        await updateAssignment(editingAssignmentId, payload);
+      } else {
+        await createAssignment(payload as Omit<Assignment, 'id'>);
+      }
+
+      setShowCreateEditModal(false);
     } catch (err: any) {
-      alert(err.message || 'Error creating assignment');
+      alert(err.message || 'Error saving assignment');
     } finally {
-      setIsSubmittingCreate(false);
+      setIsSubmittingForm(false);
     }
   };
 
-  // Auto-scoring logic for reading & interactive question types
-  const handleReadingSubmit = async () => {
+  // Safe Exercise Deletion
+  const handleConfirmDeleteAssignment = async (mode: 'permanent' | 'unpublish') => {
+    if (!deletingAssignment) return;
+
+    setIsDeleting(true);
+    try {
+      if (mode === 'unpublish') {
+        await updateAssignment(deletingAssignment.id, { status: 'draft' });
+      } else {
+        await deleteAssignment(deletingAssignment.id);
+      }
+      setDeletingAssignment(null);
+      if (selectedAssignmentId === deletingAssignment.id) {
+        setSelectedAssignmentId(null);
+      }
+    } catch (err: any) {
+      alert(`Delete operation failed: ${err.message}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Check unanswered reading questions before submitting
+  const initiateReadingSubmit = () => {
     if (!activeAssignment || !activeAssignment.readingQuestions) return;
+
+    const unanswered = activeAssignment.readingQuestions
+      .map((q, idx) => ({ qNum: idx + 1, id: q.id, answered: Boolean(readingAnswers[q.id]?.trim()) }))
+      .filter((item) => !item.answered);
+
+    if (unanswered.length > 0) {
+      setShowUnansweredModal(true);
+    } else {
+      executeReadingSubmit();
+    }
+  };
+
+  // Execute reading submit
+  const executeReadingSubmit = async () => {
+    if (!activeAssignment || !activeAssignment.readingQuestions) return;
+
+    setShowUnansweredModal(false);
+    const testType = activeAssignment.readingTestType || 'academic';
 
     const gradeSummary = gradeAssignmentSubmission(
       activeAssignment.readingQuestions,
-      readingAnswers
+      readingAnswers,
+      testType
     );
 
     await submitAssignment(activeAssignment.id, {
@@ -353,11 +555,17 @@ export const AssignmentsView: React.FC = () => {
         correct: gradeSummary.earnedScore,
         total: gradeSummary.maxScore,
         percentage: gradeSummary.percentage,
+        estimatedBand: gradeSummary.bandEstimate,
+        testType,
+        bandNotes: gradeSummary.bandNotes,
       },
       readingErrorAnalysis: gradeSummary.errorAnalysis,
       score: gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate,
       status: gradeSummary.finalStatus,
     });
+
+    // Clear local storage draft
+    localStorage.removeItem(`ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`);
   };
 
   // Submit writing
@@ -369,6 +577,8 @@ export const AssignmentsView: React.FC = () => {
       writingWordCount: wordCount,
       status: 'submitted',
     });
+
+    localStorage.removeItem(`ielts_writing_draft_${activeAssignment.id}_${currentUser.id}`);
   };
 
   // Submit speaking
@@ -418,19 +628,20 @@ export const AssignmentsView: React.FC = () => {
         setTeacherAreasToImprove('Provide more concrete workplace real-world examples in paragraph 3.');
         setTeacherGeneralComments('Promising Band 7.0+ essay. Teacher please verify paragraph 3 logic before approving.');
         setTeacherNextSteps('Focus on concise topic sentences and timed 40-minute drills.');
-        setOverallScore(7.0);
+        setOverallScore(calculateIeltsOverallBand(draftRubrics.map((r) => r.score)));
       } else if (sub.skill === 'speaking') {
-        setGradingRubrics([
+        const draftRubrics = [
           { criterion: 'Fluency & Coherence', score: 7.0, descriptor: 'Speaks at length with noticeable rhythm.' },
           { criterion: 'Lexical Resource', score: 7.0, descriptor: 'Resourceful range of descriptive phrases.' },
-          { criterion: 'Grammar', score: 6.5, descriptor: 'A few minor tense inconsistencies when describing the past.' },
+          { criterion: 'Grammatical Range & Accuracy', score: 6.5, descriptor: 'A few minor tense inconsistencies when describing the past.' },
           { criterion: 'Pronunciation', score: 7.0, descriptor: 'Clear enunciation with appropriate intonation patterns.' },
-        ]);
+        ];
+        setGradingRubrics(draftRubrics);
         setTeacherStrengths('Natural speaking cadence and spontaneous delivery on the cue card.');
         setTeacherAreasToImprove('Keep past tense verb consistency when describing origins.');
         setTeacherGeneralComments('Good performance. Clear accent, intelligible throughout.');
         setTeacherNextSteps('Practice abstract Part 3 discussion points with prompt follow-ups.');
-        setOverallScore(7.0);
+        setOverallScore(calculateIeltsOverallBand(draftRubrics.map((r) => r.score)));
       }
       setIsAiDrafting(false);
     }, 600);
@@ -478,34 +689,38 @@ export const AssignmentsView: React.FC = () => {
     setSelectedSubmissionId(null);
   };
 
-  // If a submission is being inspected/graded by the teacher
+  // =========================================================================
+  // SCREEN 1: TEACHER SUBMISSION INSPECTION & GRADING
+  // =========================================================================
   if (isTeacher && currentSubmission) {
+    const parentAssignment = assignments.find((a) => a.id === currentSubmission.assignmentId);
+
     return (
-      <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="space-y-6 max-w-5xl mx-auto">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
           <div>
             <button
               onClick={() => setSelectedSubmissionId(null)}
-              className="text-xs font-semibold text-blue-600 hover:underline mb-1 block"
+              className="text-sm font-semibold text-blue-600 hover:underline mb-1 block"
             >
               &larr; {t('common.back')}
             </button>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-slate-900">
                 {t('assignments.reviewingHeader')} {currentSubmission.skill.toUpperCase()}: {currentSubmission.assignmentTitle}
               </h1>
               {currentSubmission.isDraft && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
                   {t('assignments.draftBadge')}
                 </span>
               )}
               {currentSubmission.status === 'graded' && !currentSubmission.isDraft && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                   {t('assignments.publishedBadge')}
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-sm text-slate-500 mt-1">
               {t('assessments.studentLabel')}: <span className="font-bold text-slate-700">{currentSubmission.studentName}</span> · {currentSubmission.submittedAt}
             </p>
           </div>
@@ -514,7 +729,7 @@ export const AssignmentsView: React.FC = () => {
             <button
               onClick={() => handleGenerateAiFeedback(currentSubmission)}
               disabled={isAiDrafting}
-              className="px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors"
+              className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-semibold flex items-center space-x-1.5 transition-colors"
             >
               <Sparkles className="w-4 h-4 text-indigo-600" />
               <span>{isAiDrafting ? t('assignments.analyzing') : t('assignments.aiDraftFeedback')}</span>
@@ -525,35 +740,60 @@ export const AssignmentsView: React.FC = () => {
                 setShowReturnModal(true);
                 setReturnComments('');
               }}
-              className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors"
+              className="px-3.5 py-2 bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 rounded-lg text-sm font-semibold flex items-center space-x-1.5 transition-colors"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-4 h-4" />
               <span>{t('assignments.returnRevisionBtn')}</span>
             </button>
           </div>
         </div>
 
-        {/* Student Submission Display & Inline Annotation Suite */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+        {/* Student Submission Display & Side-by-Side Diagram if Task 1 */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900">{t('assignments.studentWork')}</h2>
+            <h2 className="text-base font-bold text-slate-900">{t('assignments.studentWork')}</h2>
             {currentSubmission.skill === 'writing' && (
-              <span className="text-xs font-mono font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+              <span className="text-sm font-mono font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded">
                 {t('assignments.wordCountLabel')}: {currentSubmission.writingWordCount || 0}
               </span>
             )}
             {currentSubmission.skill === 'speaking' && (
-              <span className="text-xs font-mono font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+              <span className="text-sm font-mono font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded">
                 {t('assignments.durationLabel')}: {currentSubmission.speakingDuration}s
               </span>
             )}
           </div>
 
           {currentSubmission.skill === 'writing' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-slate-600 bg-blue-50/70 p-2.5 rounded-lg border border-blue-200">
+            <div className="space-y-4">
+              {/* If Task 1 Academic diagram exists, show image alongside text */}
+              {parentAssignment?.task1ImageUrl && (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
+                      <ImageIcon className="w-4 h-4 text-blue-600" />
+                      <span>Task 1 Chart / Graph Diagram</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowZoomImageModal(true)}
+                      className="text-xs text-blue-600 font-semibold hover:underline flex items-center space-x-1"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                      <span>Zoom Diagram</span>
+                    </button>
+                  </div>
+                  <img
+                    src={parentAssignment.task1ImageUrl}
+                    alt="Task 1 Diagram"
+                    className="max-h-64 rounded-lg border border-slate-300 object-contain mx-auto bg-white"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-sm text-slate-600 bg-blue-50/70 p-3 rounded-lg border border-blue-200">
                 <span className="flex items-center space-x-1.5 text-blue-900 font-medium">
-                  <Highlighter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <Highlighter className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>{t('assignments.selectTextPrompt')}</span>
                 </span>
                 <span className="font-semibold text-slate-600 shrink-0 ml-2">
@@ -564,7 +804,7 @@ export const AssignmentsView: React.FC = () => {
               {/* Essay Text with Highlights */}
               <div
                 onMouseUp={handleTextMouseUp}
-                className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-800 font-sans leading-relaxed whitespace-pre-wrap select-text cursor-text"
+                className="bg-slate-50 p-5 rounded-lg border border-slate-200 text-base text-slate-800 font-sans leading-relaxed whitespace-pre-wrap select-text cursor-text"
               >
                 {renderAnnotatedText(currentSubmission.writingText || '', annotations, true)}
               </div>
@@ -573,10 +813,10 @@ export const AssignmentsView: React.FC = () => {
               {activeSelection && (
                 <div className="p-4 bg-white border-2 border-blue-500 rounded-xl shadow-lg space-y-3 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                    <span className="text-sm font-bold text-slate-800 flex items-center space-x-1.5">
+                      <Edit3 className="w-4 h-4 text-blue-600" />
                       <span>{t('assignments.addAnnotationBtn')}:</span>
-                      <span className="font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                      <span className="font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs">
                         "{activeSelection.text}"
                       </span>
                     </span>
@@ -590,13 +830,13 @@ export const AssignmentsView: React.FC = () => {
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
                         {t('assignments.annotationType')}
                       </label>
                       <select
                         value={newAnnotationType}
                         onChange={(e) => setNewAnnotationType(e.target.value as any)}
-                        className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
+                        className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
                       >
                         <option value="correction">{t('assignments.typeCorrection')}</option>
                         <option value="grammar">{t('assignments.typeGrammar')}</option>
@@ -607,7 +847,7 @@ export const AssignmentsView: React.FC = () => {
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
                         {t('assignments.annotationComment')} *
                       </label>
                       <input
@@ -615,13 +855,13 @@ export const AssignmentsView: React.FC = () => {
                         value={newAnnotationComment}
                         onChange={(e) => setNewAnnotationComment(e.target.value)}
                         placeholder="e.g. Inappropriate collocation; refine to academic register."
-                        className="w-full p-2 border border-slate-300 rounded-lg text-xs"
+                        className="w-full p-2 border border-slate-300 rounded-lg text-sm"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
                       {t('assignments.annotationSuggestion')}
                     </label>
                     <input
@@ -629,7 +869,7 @@ export const AssignmentsView: React.FC = () => {
                       value={newAnnotationSuggestion}
                       onChange={(e) => setNewAnnotationSuggestion(e.target.value)}
                       placeholder="e.g. substantial growth"
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs"
+                      className="w-full p-2 border border-slate-300 rounded-lg text-sm"
                     />
                   </div>
 
@@ -654,8 +894,8 @@ export const AssignmentsView: React.FC = () => {
               {/* List of existing annotations */}
               {annotations.length > 0 && (
                 <div className="space-y-2 pt-2">
-                  <h4 className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
-                    <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
+                  <h4 className="text-sm font-bold text-slate-700 flex items-center space-x-1.5">
+                    <MessageSquare className="w-4 h-4 text-slate-500" />
                     <span>{t('assignments.inlineAnnotationsTitle')} ({annotations.length})</span>
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -663,7 +903,7 @@ export const AssignmentsView: React.FC = () => {
                       <div
                         key={annot.id}
                         onClick={() => setActiveInspectedAnnotation(annot)}
-                        className={`p-2.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                        className={`p-3 rounded-lg border text-sm transition-all cursor-pointer ${
                           activeInspectedAnnotation?.id === annot.id
                             ? 'border-blue-500 bg-blue-50/50 shadow-xs'
                             : 'border-slate-200 bg-white hover:bg-slate-50'
@@ -671,7 +911,7 @@ export const AssignmentsView: React.FC = () => {
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase ${
                               annot.type === 'correction'
                                 ? 'bg-red-100 text-red-800'
                                 : annot.type === 'grammar'
@@ -693,15 +933,15 @@ export const AssignmentsView: React.FC = () => {
                             className="text-slate-400 hover:text-red-600 p-0.5"
                             title={t('assignments.deleteAnnotation')}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
-                        <p className="font-mono text-[11px] text-slate-700 font-semibold mb-0.5">
+                        <p className="font-mono text-xs text-slate-700 font-semibold mb-0.5">
                           "{annot.selectedText}"
                         </p>
-                        <p className="text-slate-600">{annot.comment}</p>
+                        <p className="text-slate-600 text-xs">{annot.comment}</p>
                         {annot.suggestion && (
-                          <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                          <p className="text-xs text-emerald-700 font-semibold mt-1">
                             &rarr; {annot.suggestion}
                           </p>
                         )}
@@ -715,22 +955,22 @@ export const AssignmentsView: React.FC = () => {
 
           {currentSubmission.skill === 'speaking' && (
             <div className="space-y-3">
-              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg flex items-center justify-between">
+              <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-lg flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <Volume2 className="w-5 h-5 text-blue-600" />
+                  <Volume2 className="w-6 h-6 text-blue-600" />
                   <div>
-                    <p className="text-xs font-bold text-blue-900">{t('assignments.recordTitle')}</p>
-                    <p className="text-[11px] text-blue-600">{t('assignments.audioVerified')}: {currentSubmission.speakingDuration}s</p>
+                    <p className="text-sm font-bold text-blue-900">{t('assignments.recordTitle')}</p>
+                    <p className="text-xs text-blue-600">{t('assignments.audioVerified')}: {currentSubmission.speakingDuration}s</p>
                   </div>
                 </div>
-                <button className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-semibold flex items-center space-x-1">
-                  <Play className="w-3.5 h-3.5" />
+                <button className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-semibold flex items-center space-x-1.5">
+                  <Play className="w-4 h-4" />
                   <span>{t('assignments.playAudio')}</span>
                 </button>
               </div>
 
               {currentSubmission.speakingTranscript && (
-                <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 text-xs">
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
                   <span className="font-bold text-slate-700 block mb-1">{t('assignments.verifiedTranscript')}:</span>
                   <p className="text-slate-600 leading-relaxed italic">
                     "{currentSubmission.speakingTranscript}"
@@ -742,14 +982,14 @@ export const AssignmentsView: React.FC = () => {
 
           {/* Submission Revision History */}
           {currentSubmission.writingRevisions && currentSubmission.writingRevisions.length > 1 && (
-            <div className="p-3 bg-slate-100/70 rounded-lg border border-slate-200 text-xs">
+            <div className="p-3.5 bg-slate-100/70 rounded-lg border border-slate-200 text-xs">
               <span className="font-bold text-slate-700 flex items-center space-x-1 mb-2">
-                <History className="w-3.5 h-3.5" />
+                <History className="w-4 h-4" />
                 <span>{t('assignments.revisionHistory')} ({currentSubmission.writingRevisions.length} {t('assignments.draft')})</span>
               </span>
               <div className="space-y-1">
                 {currentSubmission.writingRevisions.map((rev, i) => (
-                  <div key={i} className="flex items-center justify-between text-[11px] text-slate-500">
+                  <div key={i} className="flex items-center justify-between text-xs text-slate-500">
                     <span>{t('assignments.draft')} {i + 1} ({rev.wordCount} words)</span>
                     <span>{rev.timestamp}</span>
                   </div>
@@ -760,47 +1000,39 @@ export const AssignmentsView: React.FC = () => {
         </div>
 
         {/* Teacher Feedback & Rubric Grading Form */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-5">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <h2 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <Award className="w-4 h-4 text-blue-600" />
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <Award className="w-5 h-5 text-blue-600" />
               <span>{t('assignments.assessmentRubricTitle')}</span>
             </h2>
             <div className="flex items-center space-x-2">
-              <span className="text-xs font-semibold text-slate-600">{t('assignments.overallBand')}:</span>
-              <input
-                type="number"
-                step="0.5"
-                min="1.0"
-                max="9.0"
-                value={overallScore}
-                onChange={(e) => setOverallScore(Number(e.target.value))}
-                className="w-16 p-1 border border-slate-300 rounded text-center font-bold text-sm text-blue-700"
-              />
+              <span className="text-sm font-semibold text-slate-600">{t('assignments.overallBand')}:</span>
+              <span className="text-xl font-extrabold text-blue-700 bg-blue-50 px-3 py-1 rounded-lg border border-blue-200">
+                Band {overallScore.toFixed(1)}
+              </span>
             </div>
           </div>
 
           {/* 4 Rubric Criteria */}
           <div className="space-y-3">
             {gradingRubrics.map((r, idx) => (
-              <div key={r.criterion} className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-                <div className="flex items-center justify-between mb-1.5">
+              <div key={r.criterion} className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 text-sm">
+                <div className="flex items-center justify-between mb-2">
                   <span className="font-bold text-slate-800">{r.criterion}</span>
                   <div className="flex items-center space-x-2">
-                    <span className="text-slate-500 text-[11px]">{t('assignments.score')}:</span>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="1.0"
-                      max="9.0"
+                    <span className="text-slate-500 text-xs">{t('assignments.score')}:</span>
+                    <select
                       value={r.score}
-                      onChange={(e) => {
-                        const newRubrics = [...gradingRubrics];
-                        newRubrics[idx].score = Number(e.target.value);
-                        setGradingRubrics(newRubrics);
-                      }}
-                      className="w-14 p-1 border border-slate-300 rounded text-center font-semibold text-slate-800 bg-white"
-                    />
+                      onChange={(e) => handleRubricScoreChange(idx, Number(e.target.value))}
+                      className="p-1.5 border border-slate-300 rounded text-center font-bold text-sm text-slate-900 bg-white"
+                    >
+                      {[4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0].map((s) => (
+                        <option key={s} value={s}>
+                          {s.toFixed(1)}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <input
@@ -811,14 +1043,14 @@ export const AssignmentsView: React.FC = () => {
                     newRubrics[idx].descriptor = e.target.value;
                     setGradingRubrics(newRubrics);
                   }}
-                  className="w-full p-1.5 border border-slate-300 rounded text-[11px] bg-white outline-hidden"
+                  className="w-full p-2 border border-slate-300 rounded text-xs bg-white outline-hidden"
                 />
               </div>
             ))}
           </div>
 
           {/* Feedback Sections: Strengths, Areas to improve, Next Steps */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
               <label className="block font-semibold text-emerald-800 mb-1">{t('assignments.keyStrengths')}</label>
               <textarea
@@ -826,7 +1058,7 @@ export const AssignmentsView: React.FC = () => {
                 value={teacherStrengths}
                 onChange={(e) => setTeacherStrengths(e.target.value)}
                 placeholder="What did the student do particularly well?"
-                className="w-full p-2.5 border border-emerald-300 rounded-lg outline-hidden bg-emerald-50/20"
+                className="w-full p-2.5 border border-emerald-300 rounded-lg outline-hidden bg-emerald-50/20 text-sm"
               />
             </div>
 
@@ -837,38 +1069,38 @@ export const AssignmentsView: React.FC = () => {
                 value={teacherAreasToImprove}
                 onChange={(e) => setTeacherAreasToImprove(e.target.value)}
                 placeholder="Specific linguistic or structural gaps..."
-                className="w-full p-2.5 border border-amber-300 rounded-lg outline-hidden bg-amber-50/20"
+                className="w-full p-2.5 border border-amber-300 rounded-lg outline-hidden bg-amber-50/20 text-sm"
               />
             </div>
           </div>
 
-          <div className="text-xs">
+          <div className="text-sm">
             <label className="block font-semibold text-slate-700 mb-1">{t('assignments.teacherProfComments')}</label>
             <textarea
               rows={2}
               value={teacherGeneralComments}
               onChange={(e) => setTeacherGeneralComments(e.target.value)}
               placeholder="Final encouraging and constructive feedback..."
-              className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+              className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm"
             />
           </div>
 
-          <div className="text-xs">
+          <div className="text-sm">
             <label className="block font-semibold text-slate-700 mb-1">{t('assignments.recommendedNextSteps')}</label>
             <input
               type="text"
               value={teacherNextSteps}
               onChange={(e) => setTeacherNextSteps(e.target.value)}
               placeholder="e.g. Redo paragraph 3 with counter-argument concession; practice 10-minute speed outline."
-              className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+              className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm"
             />
           </div>
 
-          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               {draftSaveNotice && (
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 animate-in fade-in">
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 animate-in fade-in">
+                  <CheckCircle className="w-4 h-4 text-emerald-600" />
                   <span>{t('assignments.draftSaved')}</span>
                 </span>
               )}
@@ -876,20 +1108,20 @@ export const AssignmentsView: React.FC = () => {
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => setSelectedSubmissionId(null)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-semibold"
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-semibold"
               >
                 {t('common.cancel')}
               </button>
               <button
                 onClick={handleSaveDraft}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-sm font-bold transition-colors flex items-center space-x-1.5"
               >
                 <Save className="w-4 h-4 text-slate-500" />
                 <span>{t('assignments.saveDraftBtn')}</span>
               </button>
               <button
                 onClick={handleFinalizeGrading}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-xs transition-colors flex items-center space-x-1.5"
               >
                 <CheckCircle className="w-4 h-4" />
                 <span>{t('assignments.finalizeAndSend')}</span>
@@ -902,10 +1134,8 @@ export const AssignmentsView: React.FC = () => {
         {showReturnModal && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-900 mb-2">{t('assignments.returnModalTitle')}</h3>
-              <p className="text-xs text-slate-500 mb-3">
-                {t('assignments.returnModalDesc')}
-              </p>
+              <h3 className="text-base font-bold text-slate-900 mb-2">{t('assignments.returnModalTitle')}</h3>
+              <p className="text-xs text-slate-500 mb-3">{t('assignments.returnModalDesc')}</p>
               <textarea
                 rows={3}
                 value={returnComments}
@@ -930,445 +1160,585 @@ export const AssignmentsView: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Zoom Image Modal */}
+        {showZoomImageModal && parentAssignment?.task1ImageUrl && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-4 max-w-4xl w-full max-h-[90vh] flex flex-col space-y-3">
+              <div className="flex justify-between items-center pb-2 border-b">
+                <span className="font-bold text-sm text-slate-800">Task 1 Diagram (Full Resolution)</span>
+                <button onClick={() => setShowZoomImageModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="overflow-auto flex-1 flex items-center justify-center">
+                <img src={parentAssignment.task1ImageUrl} alt="Full Zoom Diagram" className="max-w-full max-h-[75vh] object-contain" />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  // Active Assignment View for Student or Teacher preview
+  // =========================================================================
+  // SCREEN 2: ACTIVE ASSIGNMENT (STUDENT PRACTICE / TEACHER PREVIEW)
+  // =========================================================================
   if (activeAssignment) {
     const mySub = submissions.find(
       (s) => s.assignmentId === activeAssignment.id && s.studentId === currentUser.id
     );
 
+    const isReading = activeAssignment.skill === 'reading';
+    const isWriting = activeAssignment.skill === 'writing';
+    const isSpeaking = activeAssignment.skill === 'speaking';
+    const questions = activeAssignment.readingQuestions || [];
+
+    // Count answered reading questions
+    const answeredCount = questions.filter((q) => Boolean(readingAnswers[q.id]?.trim())).length;
+
     return (
-      <div className="space-y-6 max-w-4xl mx-auto">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+      <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
+        {/* Navigation & Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
           <div>
             <button
               onClick={() => setSelectedAssignmentId(null)}
-              className="text-xs font-semibold text-blue-600 hover:underline mb-1 block"
+              className="text-sm font-semibold text-blue-600 hover:underline mb-1 block"
             >
               &larr; {t('common.back')}
             </button>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span
-                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                  activeAssignment.skill === 'reading'
+                className={`text-xs uppercase font-bold px-2.5 py-0.5 rounded-full ${
+                  isReading
                     ? 'bg-emerald-100 text-emerald-800'
-                    : activeAssignment.skill === 'writing'
+                    : isWriting
                     ? 'bg-amber-100 text-amber-800'
                     : 'bg-purple-100 text-purple-800'
                 }`}
               >
                 {activeAssignment.skill}
+                {isReading && ` (${activeAssignment.readingTestType === 'general' ? 'General Training' : 'Academic'})`}
+                {isWriting && ` (${activeAssignment.writingTaskCategory?.replace('_', ' ').toUpperCase() || 'TASK 2'})`}
               </span>
-              <h1 className="text-xl font-bold text-slate-900">{activeAssignment.title}</h1>
+              <h1 className="text-2xl font-bold text-slate-900">{activeAssignment.title}</h1>
             </div>
-            <p className="text-xs text-slate-500 mt-1">Due date: {activeAssignment.dueDate}</p>
+            <p className="text-sm text-slate-500 mt-1">Due date: {activeAssignment.dueDate || 'No deadline'}</p>
           </div>
 
-          {/* Submission status tag for student */}
-          {!isTeacher && mySub && (
-            <span
-              className={`text-xs font-bold uppercase px-3 py-1 rounded-full ${
-                mySub.status === 'graded'
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : mySub.status === 'returned'
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-blue-100 text-blue-800'
-              }`}
-            >
-              {t('common.status')}: {mySub.status}
-            </span>
-          )}
+          <div className="flex items-center space-x-3">
+            {/* Reading Timer */}
+            {isReading && mySub?.status !== 'graded' && (
+              <div className="flex items-center space-x-2 bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-lg text-sm font-mono font-bold text-slate-800">
+                <Timer className={`w-4 h-4 ${timerSeconds < 300 ? 'text-red-500 animate-pulse' : 'text-blue-600'}`} />
+                <span>{formatTimer(timerSeconds)}</span>
+                <button
+                  type="button"
+                  onClick={() => setTimerRunning(!timerRunning)}
+                  className="text-xs text-slate-500 hover:text-slate-800 ml-1 underline"
+                >
+                  {timerRunning ? 'Pause' : 'Resume'}
+                </button>
+              </div>
+            )}
+
+            {/* Submission status tag for student */}
+            {!isTeacher && mySub && (
+              <span
+                className={`text-xs font-bold uppercase px-3 py-1 rounded-full ${
+                  mySub.status === 'graded'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : mySub.status === 'returned'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-blue-100 text-blue-800'
+                }`}
+              >
+                {t('common.status')}: {mySub.status}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Instructions */}
+        {/* Instructions Banner */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
           <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
             {t('assignments.instructionsTitle')}
           </h3>
-          <p className="text-xs text-slate-600 leading-relaxed">{activeAssignment.instructions}</p>
+          <p className="text-sm text-slate-700 leading-relaxed">{activeAssignment.instructions}</p>
           {activeAssignment.objectives && (
             <p className="text-xs text-slate-400 mt-1 italic">{activeAssignment.objectives}</p>
           )}
         </div>
 
-        {/* 1. READING WORKFLOW */}
-        {activeAssignment.skill === 'reading' && (
+        {/* =========================================================================
+            1. READING SPLIT-SCREEN WORKFLOW
+        ========================================================================= */}
+        {isReading && (
           <div className="space-y-6">
-            {/* Reading Passage */}
-            {activeAssignment.readingPassage && (
-              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">
-                  {t('assignments.readingPassageTitle')}
-                </h3>
-                <div className="text-xs text-slate-800 leading-relaxed font-serif whitespace-pre-wrap bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  {activeAssignment.readingPassage}
+            {/* If Graded, Show Full Performance & Question-by-Question Breakdown Card */}
+            {mySub?.status === 'graded' && mySub.readingScore && (
+              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-200/60 pb-4">
+                  <div>
+                    <span className="text-xs font-extrabold text-emerald-800 uppercase tracking-wider block">
+                      Official IELTS Reading Assessment Report
+                    </span>
+                    <h3 className="text-xl font-bold text-slate-900 mt-1">
+                      Final Score: {mySub.readingScore.correct} / {mySub.readingScore.total} Correct ({mySub.readingScore.percentage}%)
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Scale applied: {mySub.readingScore.testType === 'general' ? 'General Training 40-Item Scale' : 'Academic 40-Item Official Cambridge Scale'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <div className="text-right">
+                      <span className="text-xs text-slate-500 font-semibold block">Official Estimated Band</span>
+                      <span className="text-3xl font-extrabold text-emerald-700">
+                        Band {mySub.readingScore.estimatedBand?.toFixed(1) || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
+                {mySub.readingScore.bandNotes && (
+                  <p className="text-xs text-emerald-900 font-medium bg-white/70 p-3 rounded-lg border border-emerald-200/50">
+                    {mySub.readingScore.bandNotes}
+                  </p>
+                )}
               </div>
             )}
 
-            {/* Reading Questions */}
-            {activeAssignment.readingQuestions && activeAssignment.readingQuestions.length > 0 && (
-              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-6">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  {t('assignments.comprehensionQuestions')}
-                </h3>
-
-                {activeAssignment.readingQuestions.map((q, idx) => {
-                  const answer = readingAnswers[q.id] || '';
-                  const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
-
-                  return (
-                    <div
-                      key={q.id}
-                      className={`p-4 rounded-xl border text-xs space-y-3 ${
-                        result
-                          ? result.isCorrect
-                            ? 'border-emerald-300 bg-emerald-50/20'
-                            : 'border-red-300 bg-red-50/20'
-                          : 'border-slate-200 bg-slate-50/50'
-                      }`}
+            {/* Split Screen Container */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Column: Reading Passage */}
+              <div className="lg:col-span-6 bg-white rounded-xl border border-slate-200 p-6 shadow-xs max-h-[calc(100vh-220px)] overflow-y-auto space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <BookOpen className="w-5 h-5 text-blue-600" />
+                    <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                      {t('assignments.readingPassageTitle')}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
+                      className="text-xs text-slate-600 font-semibold px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900">
-                          {t('assignments.question')} {idx + 1} ({q.type.replace(/_/g, ' ')})
-                        </span>
-                        {result && (
-                          <span
-                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
-                              result.isCorrect
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-red-100 text-red-800'
+                      Font: {passageFontSize === 'normal' ? '18px' : '20px'}
+                    </button>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {activeAssignment.readingPassage ? activeAssignment.readingPassage.split(/\s+/).filter(Boolean).length : 0} words
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  className={`leading-relaxed font-serif whitespace-pre-wrap text-slate-800 ${
+                    passageFontSize === 'normal' ? 'text-[18px]' : 'text-[20px]'
+                  }`}
+                >
+                  {activeAssignment.readingPassage || 'No reading passage text provided.'}
+                </div>
+              </div>
+
+              {/* Right Column: Question Navigator & Interactive Questions */}
+              <div className="lg:col-span-6 bg-white rounded-xl border border-slate-200 p-6 shadow-xs max-h-[calc(100vh-220px)] overflow-y-auto space-y-6 flex flex-col justify-between">
+                <div>
+                  {/* Sticky Question Navigator Bar */}
+                  <div className="sticky top-0 bg-white/95 backdrop-blur-xs pb-3 border-b border-slate-100 z-10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        Question Navigator ({answeredCount} / {questions.length} Answered)
+                      </span>
+                      <span className="text-xs text-slate-500 font-mono">
+                        {Math.round((answeredCount / (questions.length || 1)) * 100)}%
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {questions.map((q, idx) => {
+                        const isAns = Boolean(readingAnswers[q.id]?.trim());
+                        const isFlag = Boolean(flaggedQuestions[q.id]);
+                        return (
+                          <a
+                            key={q.id}
+                            href={`#q_${q.id}`}
+                            className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
+                              isFlag
+                                ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
+                                : isAns
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                           >
-                            {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="font-semibold text-slate-800">{q.prompt}</p>
-
-                      {/* Question Input by Type */}
-                      {q.type === 'true_false_not_given' || q.type === 'yes_no_not_given' ? (
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {(q.type === 'true_false_not_given'
-                            ? ['TRUE', 'FALSE', 'NOT GIVEN']
-                            : ['YES', 'NO', 'NOT GIVEN']
-                          ).map((choice) => (
-                            <button
-                              key={choice}
-                              type="button"
-                              disabled={mySub?.status === 'graded'}
-                              onClick={() => setReadingAnswers({ ...readingAnswers, [q.id]: choice })}
-                              className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                                answer === choice
-                                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                              }`}
-                            >
-                              {choice}
-                            </button>
-                          ))}
-                        </div>
-                      ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {q.options.map((opt) => {
-                            const selectedList = answer ? answer.split(',').map((s) => s.trim()) : [];
-                            const isChecked = selectedList.includes(opt);
-                            return (
-                              <label
-                                key={opt}
-                                className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
-                                  isChecked ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold' : 'hover:bg-slate-100'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  disabled={mySub?.status === 'graded'}
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    let updated = [...selectedList];
-                                    if (e.target.checked) {
-                                      updated.push(opt);
-                                    } else {
-                                      updated = updated.filter((item) => item !== opt);
-                                    }
-                                    setReadingAnswers({ ...readingAnswers, [q.id]: updated.join(', ') });
-                                  }}
-                                  className="text-blue-600 rounded"
-                                />
-                                <span>{opt}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ) : q.options && q.options.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {q.options.map((opt) => (
-                            <label
-                              key={opt}
-                              className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
-                                answer === opt ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold' : 'hover:bg-slate-100'
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={`q_${q.id}`}
-                                disabled={mySub?.status === 'graded'}
-                                checked={answer === opt}
-                                onChange={() => setReadingAnswers({ ...readingAnswers, [q.id]: opt })}
-                                className="text-blue-600"
-                              />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : q.type === 'matching' && q.matchingPairs && q.matchingPairs.length > 0 ? (
-                        <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50/50">
-                          <p className="text-[11px] font-bold text-slate-700 uppercase">Match each item with the correct description:</p>
-                          {q.matchingPairs.map((pair, pIdx) => {
-                            let currentMap: Record<string, string> = {};
-                            try {
-                              currentMap = answer ? JSON.parse(answer) : {};
-                            } catch {
-                              currentMap = {};
-                            }
-                            return (
-                              <div key={pIdx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white rounded border border-slate-200 text-xs">
-                                <span className="font-semibold text-slate-800">{pair.left}</span>
-                                <select
-                                  disabled={mySub?.status === 'graded'}
-                                  value={currentMap[pair.left] || ''}
-                                  onChange={(e) => {
-                                    const updated = { ...currentMap, [pair.left]: e.target.value };
-                                    setReadingAnswers({ ...readingAnswers, [q.id]: JSON.stringify(updated) });
-                                  }}
-                                  className="p-1.5 border border-slate-300 rounded text-xs bg-white text-slate-900"
-                                >
-                                  <option value="">-- Select Match --</option>
-                                  {q.matchingPairs!.map((m) => (
-                                    <option key={m.right} value={m.right}>
-                                      {m.right}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : q.type === 'essay' ? (
-                        <div className="space-y-1.5">
-                          <textarea
-                            rows={5}
-                            disabled={mySub?.status === 'graded'}
-                            placeholder="Type your extended essay or response here..."
-                            value={answer}
-                            onChange={(e) => setReadingAnswers({ ...readingAnswers, [q.id]: e.target.value })}
-                            className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-mono leading-relaxed"
-                          />
-                          <span className="text-[10px] text-slate-400 font-semibold">
-                            Word count: {answer.trim() ? answer.trim().split(/\s+/).length : 0} words
-                          </span>
-                        </div>
-                      ) : (
-                        <div>
-                          <input
-                            type="text"
-                            disabled={mySub?.status === 'graded'}
-                            placeholder={t('assignments.typeAnswerPlaceholder')}
-                            value={answer}
-                            onChange={(e) => setReadingAnswers({ ...readingAnswers, [q.id]: e.target.value })}
-                            className="w-full sm:w-80 p-2 border border-slate-300 rounded-lg text-xs"
-                          />
-                        </div>
-                      )}
-
-                      {/* Strict Answer Key Disclosure Guard */}
-                      {(isTeacher || (mySub?.status === 'graded' && activeAssignment.answerReleasePolicy !== 'never')) && (
-                        <div className="pt-2 border-t border-slate-200/60 text-[11px] text-slate-600">
-                          <span className="font-bold text-slate-700">{t('assignments.answerKey')}: </span>
-                          <span className="font-semibold text-emerald-700">{q.correctAnswer}</span>
-                          <p className="mt-0.5 text-slate-500">
-                            <span className="font-semibold">{t('assignments.explanation')}: </span>
-                            {q.explanation}
-                          </p>
-                        </div>
-                      )}
+                            {idx + 1}
+                          </a>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </div>
 
-                {!isTeacher && (!mySub || mySub.status === 'returned') && (
-                  <div className="pt-4 flex justify-end">
+                  {/* Interactive Questions List */}
+                  <div className="space-y-6 pt-3">
+                    {questions.map((q, idx) => {
+                      const answer = readingAnswers[q.id] || '';
+                      const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
+                      const isFlag = Boolean(flaggedQuestions[q.id]);
+                      const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
+
+                      return (
+                        <div
+                          key={q.id}
+                          id={`q_${q.id}`}
+                          className={`p-4 rounded-xl border text-sm space-y-3 transition-colors ${
+                            result
+                              ? result.isCorrect
+                                ? 'border-emerald-300 bg-emerald-50/20'
+                                : 'border-red-300 bg-red-50/20'
+                              : 'border-slate-200 bg-slate-50/40'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-900 text-sm">
+                              Question {idx + 1} ({q.type.replace(/_/g, ' ')})
+                            </span>
+
+                            <div className="flex items-center space-x-2">
+                              {/* Flag button */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })
+                                }
+                                className={`p-1 rounded text-xs flex items-center space-x-1 ${
+                                  isFlag ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                                title="Flag for review"
+                              >
+                                <Flag className="w-3.5 h-3.5" />
+                                <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
+                              </button>
+
+                              {result && (
+                                <span
+                                  className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
+                                    result.isCorrect
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-red-100 text-red-800'
+                                  }`}
+                                >
+                                  {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className="font-semibold text-slate-800 text-sm">{q.prompt}</p>
+
+                          {/* Word limit note if applicable */}
+                          {maxWords && (
+                            <p className="text-xs text-amber-800 font-semibold bg-amber-50 px-2.5 py-1 rounded border border-amber-200 inline-block">
+                              Limit: NO MORE THAN {maxWords} WORD{maxWords > 1 ? 'S' : ''}
+                            </p>
+                          )}
+
+                          {/* 15 Question Type Controls */}
+                          {q.type === 'true_false_not_given' || q.type === 'yes_no_not_given' ? (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {(q.type === 'true_false_not_given'
+                                ? ['TRUE', 'FALSE', 'NOT GIVEN']
+                                : ['YES', 'NO', 'NOT GIVEN']
+                              ).map((choice) => (
+                                <button
+                                  key={choice}
+                                  type="button"
+                                  disabled={mySub?.status === 'graded'}
+                                  onClick={() => handleAnswerChange(q.id, choice)}
+                                  className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                                    answer.toUpperCase() === choice
+                                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {choice}
+                                </button>
+                              ))}
+                            </div>
+                          ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {q.options.map((opt) => {
+                                const selectedList = answer ? answer.split(',').map((s) => s.trim()) : [];
+                                const isChecked = selectedList.includes(opt);
+                                return (
+                                  <label
+                                    key={opt}
+                                    className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
+                                      isChecked
+                                        ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
+                                        : 'hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      disabled={mySub?.status === 'graded'}
+                                      checked={isChecked}
+                                      onChange={(e) => {
+                                        let updated = [...selectedList];
+                                        if (e.target.checked) {
+                                          updated.push(opt);
+                                        } else {
+                                          updated = updated.filter((item) => item !== opt);
+                                        }
+                                        handleAnswerChange(q.id, updated.join(', '));
+                                      }}
+                                      className="text-blue-600 rounded"
+                                    />
+                                    <span>{opt}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : q.options && q.options.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {q.options.map((opt) => (
+                                <label
+                                  key={opt}
+                                  className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
+                                    answer === opt
+                                      ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
+                                      : 'hover:bg-slate-100'
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`q_${q.id}`}
+                                    disabled={mySub?.status === 'graded'}
+                                    checked={answer === opt}
+                                    onChange={() => handleAnswerChange(q.id, opt)}
+                                    className="text-blue-600"
+                                  />
+                                  <span>{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : q.type === 'matching' && q.matchingPairs && q.matchingPairs.length > 0 ? (
+                            <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50/50">
+                              <p className="text-xs font-bold text-slate-700 uppercase">Match each item:</p>
+                              {q.matchingPairs.map((pair, pIdx) => {
+                                let currentMap: Record<string, string> = {};
+                                try {
+                                  currentMap = answer ? JSON.parse(answer) : {};
+                                } catch {
+                                  currentMap = {};
+                                }
+                                return (
+                                  <div
+                                    key={pIdx}
+                                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white rounded border border-slate-200 text-xs"
+                                  >
+                                    <span className="font-semibold text-slate-800">{pair.left}</span>
+                                    <select
+                                      disabled={mySub?.status === 'graded'}
+                                      value={currentMap[pair.left] || ''}
+                                      onChange={(e) => {
+                                        const updated = { ...currentMap, [pair.left]: e.target.value };
+                                        handleAnswerChange(q.id, JSON.stringify(updated));
+                                      }}
+                                      className="p-1.5 border border-slate-300 rounded text-xs bg-white text-slate-900"
+                                    >
+                                      <option value="">-- Select Match --</option>
+                                      {q.matchingPairs!.map((m) => (
+                                        <option key={m.right} value={m.right}>
+                                          {m.right}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div>
+                              <input
+                                type="text"
+                                disabled={mySub?.status === 'graded'}
+                                value={answer}
+                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                placeholder="Type answer phrase..."
+                                className="w-full sm:w-80 p-2 border border-slate-300 rounded-lg text-sm bg-white"
+                              />
+                            </div>
+                          )}
+
+                          {/* Explanation and Citation (Shown when graded) */}
+                          {mySub?.status === 'graded' && (
+                            <div className="mt-2 pt-2 border-t border-slate-200 text-xs space-y-1">
+                              <p className="text-slate-600">
+                                <strong>Answer Key:</strong> <span className="font-mono text-emerald-700">{q.correctAnswer || 'Provided in review'}</span>
+                              </p>
+                              {q.explanation && (
+                                <p className="text-slate-500 italic">
+                                  <strong>Citation:</strong> {q.explanation}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Submission footer */}
+                {!isTeacher && mySub?.status !== 'graded' && (
+                  <div className="pt-4 border-t border-slate-200 flex justify-end">
                     <button
-                      onClick={handleReadingSubmit}
-                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center space-x-2"
+                      onClick={initiateReadingSubmit}
+                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-xs flex items-center space-x-2 transition-colors"
                     >
-                      <CheckCircle className="w-4 h-4" />
-                      <span>{t('assignments.submitAutoScore')}</span>
+                      <Send className="w-4 h-4" />
+                      <span>Submit Reading Test ({answeredCount} / {questions.length})</span>
                     </button>
                   </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* 2. WRITING WORKFLOW */}
-        {activeAssignment.skill === 'writing' && (
+        {/* =========================================================================
+            2. WRITING WORKFLOW (TASK 1 & TASK 2 SEPARATION + LIVE WORD COUNTER)
+        ========================================================================= */}
+        {isWriting && (
           <div className="space-y-6">
+            {/* Writing Prompt Card */}
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  {t('assignments.essayPrompt')} ({activeAssignment.writingTaskType?.toUpperCase() || 'TASK 2'})
-                </h3>
-                <span className="text-xs text-slate-500">
-                  {t('assignments.targetWords', { words: String(activeAssignment.writingMinWords || 250) })}
+                <span className="text-xs font-bold text-amber-800 uppercase tracking-wider bg-amber-50 px-2.5 py-1 rounded border border-amber-200">
+                  {activeAssignment.writingTaskCategory === 'task1_academic'
+                    ? 'IELTS Academic Writing Task 1'
+                    : activeAssignment.writingTaskCategory === 'task1_general'
+                    ? 'IELTS General Training Task 1 (Letter)'
+                    : 'IELTS Writing Task 2 (Essay)'}
+                </span>
+                <span className="text-xs text-slate-500 font-semibold">
+                  Minimum requirement: {targetWords} words
                 </span>
               </div>
-              {activeAssignment.writingPrompt && (
-                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800 leading-relaxed">
-                  {activeAssignment.writingPrompt}
+
+              {/* Task 1 Diagram Image */}
+              {activeAssignment.task1ImageUrl && (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
+                      <ImageIcon className="w-4 h-4 text-blue-600" />
+                      <span>Task 1 Visual Diagram</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowZoomImageModal(true)}
+                      className="text-xs text-blue-600 font-semibold hover:underline flex items-center space-x-1"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                      <span>Expand Image</span>
+                    </button>
+                  </div>
+                  <img
+                    src={activeAssignment.task1ImageUrl}
+                    alt="Task 1 Diagram"
+                    className="max-h-72 rounded-lg border border-slate-300 object-contain mx-auto bg-white"
+                  />
                 </div>
               )}
 
-              {/* Text Editor with live word counter */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="font-bold text-slate-700 text-xs">{t('assignments.academicResponse')}</label>
-                  <span
-                    className={`font-mono text-xs font-bold px-2 py-0.5 rounded ${
-                      wordCount >= (activeAssignment.writingMinWords || 250)
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                  >
-                    {wordCount} / {activeAssignment.writingMinWords || 250} words
+              <div className="p-4 bg-amber-50/40 rounded-xl border border-amber-200 text-sm font-medium text-slate-900 leading-relaxed whitespace-pre-wrap">
+                {activeAssignment.writingPrompt || 'No writing prompt specified.'}
+              </div>
+            </div>
+
+            {/* Model Answer (Revealed when condition met) */}
+            {activeAssignment.modelAnswer && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center space-x-1.5">
+                    <Sparkles className="w-4 h-4 text-blue-600" />
+                    <span>Examiner Model Answer & Exemplar (Band 8.5 - 9.0)</span>
+                  </span>
+                  <span className="text-[11px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
+                    Official Reference
                   </span>
                 </div>
-                <textarea
-                  rows={14}
-                  value={writingDraft || mySub?.writingText || ''}
-                  onChange={(e) => setWritingDraft(e.target.value)}
-                  placeholder={t('assignments.typeEssayPlaceholder')}
-                  className="w-full p-4 text-xs font-sans border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden leading-relaxed"
-                />
+                <div className="text-sm font-sans text-slate-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-blue-100">
+                  {activeAssignment.modelAnswer}
+                </div>
+              </div>
+            )}
+
+            {/* Student Writing Editor & Live Word Counter */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                  Your Response
+                </h3>
+
+                <div className="flex items-center space-x-3">
+                  {/* Progress bar to target words */}
+                  <div className="flex items-center space-x-2">
+                    <div className="w-28 bg-slate-200 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          wordCount >= targetWords ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${targetProgress}%` }}
+                      />
+                    </div>
+                    <span
+                      className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                        wordCount >= targetWords
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {wordCount >= targetWords
+                        ? `Target Reached (${wordCount} words)`
+                        : `${targetWords - wordCount} words needed (${wordCount}/${targetWords})`}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {!isTeacher && (
+              <textarea
+                rows={16}
+                disabled={mySub?.status === 'graded'}
+                value={writingDraft}
+                onChange={(e) => handleWritingDraftChange(e.target.value)}
+                placeholder="Write your IELTS essay or report here under exam conditions..."
+                className="w-full p-4 text-base font-sans text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden leading-relaxed"
+              />
+
+              {!isTeacher && mySub?.status !== 'graded' && (
                 <div className="flex justify-end pt-2">
                   <button
                     onClick={handleWritingSubmit}
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center space-x-2"
+                    disabled={!writingDraft.trim()}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-xs flex items-center space-x-2 transition-colors"
                   >
                     <Send className="w-4 h-4" />
-                    <span>{mySub ? t('assignments.resubmitRevision') : t('assignments.submitWriting')}</span>
+                    <span>{mySub ? 'Resubmit Essay' : 'Submit for Teacher Grading'}</span>
                   </button>
                 </div>
               )}
             </div>
-
-            {/* Feedback Display if graded */}
-            {mySub?.status === 'graded' && !mySub?.isDraft && (
-              <div className="bg-white rounded-xl border border-emerald-200 p-6 shadow-xs space-y-5">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                  <div className="flex items-center space-x-2">
-                    <h3 className="text-sm font-bold text-slate-900">{t('assignments.finalFeedbackTitle')}</h3>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                      {t('assignments.publishedBadge')}
-                    </span>
-                  </div>
-                  <span className="text-lg font-extrabold text-blue-700">Band: {mySub.score}</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  {mySub.rubricScores?.map((r) => (
-                    <div key={r.criterion} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                      <div className="flex justify-between font-bold text-slate-800 mb-1">
-                        <span>{r.criterion}</span>
-                        <span className="text-blue-600">{r.score}</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">{r.descriptor}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Inline Annotations for Student Writing */}
-                {mySub.writingText && (
-                  <div className="space-y-3 pt-2">
-                    <h4 className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                      <Highlighter className="w-3.5 h-3.5 text-blue-600" />
-                      <span>{t('assignments.studentAnnotationsHeader')}</span>
-                    </h4>
-                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-800 font-sans leading-relaxed whitespace-pre-wrap">
-                      {renderAnnotatedText(mySub.writingText, mySub.annotations || [])}
-                    </div>
-
-                    {mySub.annotations && mySub.annotations.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                        {mySub.annotations.map((annot) => (
-                          <div
-                            key={annot.id}
-                            className="p-3 rounded-lg border border-slate-200 bg-white text-xs space-y-1"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                  annot.type === 'correction'
-                                    ? 'bg-red-100 text-red-800'
-                                    : annot.type === 'grammar'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : annot.type === 'vocabulary'
-                                    ? 'bg-purple-100 text-purple-800'
-                                    : annot.type === 'praise'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-blue-100 text-blue-800'
-                                }`}
-                              >
-                                {annot.type}
-                              </span>
-                            </div>
-                            <p className="font-mono text-[11px] text-slate-700 font-semibold">
-                              "{annot.selectedText}"
-                            </p>
-                            <p className="text-slate-600">{annot.comment}</p>
-                            {annot.suggestion && (
-                              <p className="text-[11px] text-emerald-700 font-semibold">
-                                &rarr; {annot.suggestion}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-400 italic">{t('assignments.noAnnotationsYet')}</p>
-                    )}
-                  </div>
-                )}
-
-                <div className="text-xs space-y-2 pt-2 border-t border-slate-100">
-                  {mySub.strengths && (
-                    <p className="text-emerald-800 font-semibold">{t('assignments.strengths')}: {mySub.strengths}</p>
-                  )}
-                  {mySub.areasToImprove && (
-                    <p className="text-amber-800 font-semibold">{t('assignments.improvements')}: {mySub.areasToImprove}</p>
-                  )}
-                  {mySub.teacherComments && (
-                    <p className="text-slate-700">{t('assignments.teacherRemarks')}: {mySub.teacherComments}</p>
-                  )}
-                  {mySub.nextSteps && (
-                    <p className="text-blue-700 font-bold">{t('assignments.nextSteps')}: {mySub.nextSteps}</p>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
-        {/* 3. SPEAKING WORKFLOW */}
-        {activeAssignment.skill === 'speaking' && (
+        {/* =========================================================================
+            3. SPEAKING WORKFLOW
+        ========================================================================= */}
+        {isSpeaking && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
@@ -1377,18 +1747,18 @@ export const AssignmentsView: React.FC = () => {
 
               {activeAssignment.speakingCueCard && (
                 <div className="p-5 bg-amber-50/50 rounded-xl border border-amber-200 space-y-3">
-                  <p className="text-sm font-bold text-slate-900">
+                  <p className="text-base font-bold text-slate-900">
                     {activeAssignment.speakingCueCard.topic}
                   </p>
                   <p className="text-xs font-semibold text-slate-600">{t('assignments.youShouldSay')}</p>
-                  <ul className="list-disc list-inside text-xs text-slate-700 space-y-1">
+                  <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
                     {activeAssignment.speakingCueCard.points.map((pt, i) => (
                       <li key={i}>{pt}</li>
                     ))}
                   </ul>
-                  <div className="pt-2 text-[11px] text-slate-500 flex space-x-4">
+                  <div className="pt-2 text-xs text-slate-500 flex space-x-4">
                     <span>{t('assignments.prepTime')}: {activeAssignment.speakingCueCard.prepTimeSeconds}s</span>
-                    <span>{t('assignments.speakingTime')}: 1–2 minutes</span>
+                    <span>{t('assignments.speakingTime')}: 1-2 minutes</span>
                   </div>
                 </div>
               )}
@@ -1396,132 +1766,80 @@ export const AssignmentsView: React.FC = () => {
               {/* Audio Recorder Simulation */}
               <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-4">
                 <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mx-auto text-2xl">
-                  {isRecording ? <Mic className="w-8 h-8 text-red-600 animate-pulse" /> : <Mic className="w-8 h-8" />}
+                  <Mic className="w-8 h-8" />
                 </div>
-
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    {isRecording
-                      ? `${t('assignments.recordingInProgress')} (${recordingSeconds}s)`
-                      : audioRecorded
-                      ? t('assignments.recordedSuccess')
-                      : t('assignments.recordTitle')}
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {t('assignments.recordDesc')}
-                  </p>
+                  <h4 className="text-sm font-bold text-slate-900">Simulate Audio Submission</h4>
+                  <p className="text-xs text-slate-500">Record speaking response for teacher feedback and band scoring.</p>
                 </div>
 
                 <div className="flex justify-center space-x-3">
-                  {!isRecording ? (
-                    <button
-                      onClick={() => {
-                        setIsRecording(true);
-                        setRecordingSeconds(1);
-                        const interval = setInterval(() => {
-                          setRecordingSeconds((prev) => {
-                            if (prev >= 115) {
-                              clearInterval(interval);
-                              setIsRecording(false);
-                              setAudioRecorded(true);
-                              return 115;
-                            }
-                            return prev + 1;
-                          });
-                        }, 1000);
-                      }}
-                      className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center space-x-2"
-                    >
-                      <Mic className="w-4 h-4" />
-                      <span>{t('assignments.startRecording')}</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setIsRecording(false);
-                        setAudioRecorded(true);
-                      }}
-                      className="px-5 py-2.5 bg-slate-800 hover:bg-black text-white rounded-lg text-xs font-bold shadow-xs flex items-center space-x-2"
-                    >
-                      <Square className="w-4 h-4" />
-                      <span>{t('assignments.stopRecording')} ({recordingSeconds}s)</span>
-                    </button>
-                  )}
-                </div>
-
-                {audioRecorded && !isTeacher && (
+                  <button
+                    onClick={() => {
+                      setAudioRecorded(true);
+                      setRecordingSeconds(92);
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
+                  >
+                    Simulate Complete Recording (92s)
+                  </button>
                   <button
                     onClick={handleSpeakingSubmit}
-                    className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center space-x-2 mx-auto"
+                    disabled={!audioRecorded}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
                   >
-                    <Send className="w-4 h-4" />
-                    <span>{t('assignments.submitSpeaking')}</span>
+                    Submit Audio
                   </button>
-                )}
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Teacher Submissions Overview for this Assignment */}
-        {isTeacher && (
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                <FileCheck2 className="w-4 h-4 text-blue-600" />
-                <span>Submissions for this Assignment</span>
-              </h3>
-              <span className="text-xs text-slate-500 font-semibold">
-                {submissions.filter((s) => s.assignmentId === activeAssignment.id).length} submission(s)
-              </span>
+        {/* Modal: Unanswered Questions Warning before Reading Submit */}
+        {showUnansweredModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
+              <div className="flex items-center space-x-3 text-amber-600">
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <h3 className="text-base font-bold text-slate-900">Unanswered Questions Warning</h3>
+              </div>
+              <p className="text-sm text-slate-600">
+                You have {questions.length - answeredCount} unanswered question(s). In the real IELTS exam, unanswered questions score zero points.
+              </p>
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUnansweredModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+                >
+                  Review Questions
+                </button>
+                <button
+                  type="button"
+                  onClick={executeReadingSubmit}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs"
+                >
+                  Submit Anyway
+                </button>
+              </div>
             </div>
+          </div>
+        )}
 
-            <div className="divide-y divide-slate-100">
-              {submissions.filter((s) => s.assignmentId === activeAssignment.id).length === 0 ? (
-                <p className="py-4 text-center text-xs text-slate-400">
-                  No student submissions received for this assignment yet.
-                </p>
-              ) : (
-                submissions
-                  .filter((s) => s.assignmentId === activeAssignment.id)
-                  .map((sub) => (
-                    <div
-                      key={sub.id}
-                      className="py-3 flex items-center justify-between hover:bg-slate-50 px-2 rounded-lg"
-                    >
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-bold text-slate-900">{sub.studentName}</span>
-                          {sub.status === 'graded' && !sub.isDraft && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              Graded · Band {sub.score}
-                            </span>
-                          )}
-                          {sub.isDraft && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                              {t('assignments.draftBadge')}
-                            </span>
-                          )}
-                          {(sub.status === 'submitted' || sub.status === 'resubmitted') && !sub.isDraft && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
-                              {sub.status}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          Submitted: {sub.submittedAt}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => setSelectedSubmissionId(sub.id)}
-                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
-                      >
-                        {sub.status === 'graded' && !sub.isDraft ? 'Review / Edit Feedback' : t('assignments.reviewAndGrade')} &rarr;
-                      </button>
-                    </div>
-                  ))
-              )}
+        {/* Zoom Image Modal */}
+        {showZoomImageModal && activeAssignment.task1ImageUrl && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-4 max-w-4xl w-full max-h-[90vh] flex flex-col space-y-3">
+              <div className="flex justify-between items-center pb-2 border-b">
+                <span className="font-bold text-sm text-slate-800">Task 1 Visual Diagram</span>
+                <button onClick={() => setShowZoomImageModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="overflow-auto flex-1 flex items-center justify-center">
+                <img src={activeAssignment.task1ImageUrl} alt="Full Resolution Diagram" className="max-w-full max-h-[75vh] object-contain" />
+              </div>
             </div>
           </div>
         )}
@@ -1529,7 +1847,9 @@ export const AssignmentsView: React.FC = () => {
     );
   }
 
-  // Listing View
+  // =========================================================================
+  // SCREEN 3: ASSIGNMENTS OVERVIEW & LISTING
+  // =========================================================================
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1543,13 +1863,8 @@ export const AssignmentsView: React.FC = () => {
 
         {isTeacher && (
           <button
-            onClick={() => {
-              if (courses.length > 0 && !newCourseId) {
-                setNewCourseId(courses[0].id);
-              }
-              setShowCreateModal(true);
-            }}
-            className="inline-flex items-center space-x-2 px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 shadow-xs transition-colors"
+            onClick={openCreateModal}
+            className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 shadow-xs transition-colors"
           >
             <Plus className="w-4 h-4" />
             <span>{t('assignments.createBtn')}</span>
@@ -1558,12 +1873,12 @@ export const AssignmentsView: React.FC = () => {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex space-x-2 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs w-fit">
+      <div className="flex space-x-2 bg-slate-100 p-1 rounded-lg border border-slate-200 text-sm w-fit">
         {(['all', 'reading', 'writing', 'speaking'] as const).map((skill) => (
           <button
             key={skill}
             onClick={() => setSelectedSkillFilter(skill)}
-            className={`px-3 py-1 rounded-md capitalize font-medium transition-all ${
+            className={`px-3 py-1.5 rounded-md capitalize font-medium transition-all ${
               selectedSkillFilter === skill
                 ? 'bg-white text-slate-900 font-bold shadow-xs'
                 : 'text-slate-500 hover:text-slate-800'
@@ -1578,7 +1893,7 @@ export const AssignmentsView: React.FC = () => {
       {isTeacher && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-            <h2 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+            <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
               <Clock className="w-4 h-4 text-amber-500" />
               <span>{t('assignments.pendingReviewTitle')}</span>
             </h2>
@@ -1589,7 +1904,7 @@ export const AssignmentsView: React.FC = () => {
 
           <div className="divide-y divide-slate-100">
             {submissions.filter((s) => s.status !== 'graded' || s.isDraft).length === 0 ? (
-              <p className="py-6 text-center text-xs text-slate-400">{t('assignments.allGradedMsg')}</p>
+              <p className="py-6 text-center text-sm text-slate-400">{t('assignments.allGradedMsg')}</p>
             ) : (
               submissions
                 .filter((s) => s.status !== 'graded' || s.isDraft)
@@ -1601,7 +1916,7 @@ export const AssignmentsView: React.FC = () => {
                     <div>
                       <div className="flex items-center space-x-2">
                         <span
-                          className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                          className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${
                             sub.skill === 'reading'
                               ? 'bg-emerald-100 text-emerald-800'
                               : sub.skill === 'writing'
@@ -1611,22 +1926,20 @@ export const AssignmentsView: React.FC = () => {
                         >
                           {sub.skill}
                         </span>
-                        <span className="text-xs font-bold text-slate-900">{sub.assignmentTitle}</span>
+                        <span className="text-sm font-bold text-slate-900">{sub.assignmentTitle}</span>
                         {sub.isDraft && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
                             {t('assignments.draftBadge')}
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-500 mt-0.5">
                         By {sub.studentName} ({sub.courseName}) · {sub.submittedAt}
                       </p>
                     </div>
 
                     <button
-                      onClick={() => {
-                        setSelectedSubmissionId(sub.id);
-                      }}
+                      onClick={() => setSelectedSubmissionId(sub.id)}
                       className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
                     >
                       {t('assignments.reviewAndGrade')} &rarr;
@@ -1642,8 +1955,8 @@ export const AssignmentsView: React.FC = () => {
       {filteredAssignments.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center space-y-3">
           <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
-          <h3 className="text-sm font-bold text-slate-700">{t('common.empty')}</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+          <h3 className="text-base font-bold text-slate-700">{t('common.empty')}</h3>
+          <p className="text-sm text-slate-500 max-w-sm mx-auto">
             {isTeacher
               ? 'No assignments created yet. Click "Create Assignment" above to assign coursework.'
               : 'No assignments assigned yet in your enrolled courses.'}
@@ -1665,7 +1978,7 @@ export const AssignmentsView: React.FC = () => {
                 <div>
                   <div className="flex items-center justify-between text-xs mb-2">
                     <span
-                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                      className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${
                         a.skill === 'reading'
                           ? 'bg-emerald-100 text-emerald-800'
                           : a.skill === 'writing'
@@ -1674,17 +1987,18 @@ export const AssignmentsView: React.FC = () => {
                       }`}
                     >
                       {a.skill}
+                      {a.writingTaskCategory && ` (${a.writingTaskCategory.replace('_', ' ').toUpperCase()})`}
                     </span>
-                    <span className="text-[11px] text-slate-400 flex items-center space-x-1">
+                    <span className="text-xs text-slate-400 flex items-center space-x-1">
                       <Clock className="w-3.5 h-3.5" />
-                      <span>Due: {a.dueDate}</span>
+                      <span>Due: {a.dueDate || 'Open'}</span>
                     </span>
                   </div>
 
-                  <h3 className="font-bold text-slate-900 text-sm group-hover:text-blue-600 transition-colors line-clamp-1">
+                  <h3 className="font-bold text-slate-900 text-base group-hover:text-blue-600 transition-colors line-clamp-1">
                     {a.title}
                   </h3>
-                  <p className="text-xs text-slate-500 line-clamp-2 mt-1 leading-relaxed">
+                  <p className="text-sm text-slate-500 line-clamp-2 mt-1 leading-relaxed">
                     {a.instructions}
                   </p>
                 </div>
@@ -1692,7 +2006,7 @@ export const AssignmentsView: React.FC = () => {
                 <div className="pt-4 border-t border-slate-100 mt-4 flex items-center justify-between text-xs">
                   {!isTeacher && studentSub ? (
                     <span
-                      className={`font-semibold capitalize text-[11px] ${
+                      className={`font-semibold capitalize text-xs ${
                         studentSub.status === 'graded'
                           ? 'text-emerald-600'
                           : studentSub.status === 'returned'
@@ -1703,11 +2017,39 @@ export const AssignmentsView: React.FC = () => {
                       {studentSub.status === 'graded' ? `Graded: Band ${studentSub.score}` : studentSub.status}
                     </span>
                   ) : (
-                    <span className="text-slate-400 text-[11px]">
-                      {isTeacher ? t('common.manage') : t('status.notSubmitted')}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      {isTeacher ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditModal(a);
+                            }}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold flex items-center space-x-1"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeletingAssignment(a);
+                            }}
+                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded font-semibold flex items-center space-x-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-slate-400 text-xs">{t('status.notSubmitted')}</span>
+                      )}
+                    </div>
                   )}
-                  <span className="font-semibold text-blue-600 group-hover:translate-x-1 transition-transform flex items-center">
+
+                  <span className="font-semibold text-blue-600 group-hover:translate-x-1 transition-transform flex items-center text-xs">
                     <span>{t('common.enter')}</span>
                     <ChevronRight className="w-3.5 h-3.5" />
                   </span>
@@ -1718,28 +2060,32 @@ export const AssignmentsView: React.FC = () => {
         </div>
       )}
 
-      {/* Teacher: Create Assignment Modal */}
-      {showCreateModal && (
+      {/* =========================================================================
+          MODAL: CREATE / EDIT ASSIGNMENT
+      ========================================================================= */}
+      {showCreateEditModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 my-8">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 my-8 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="text-base font-bold text-slate-900">{t('assignments.createBtn')}</h3>
+              <h3 className="text-lg font-bold text-slate-900">
+                {editingAssignmentId ? 'Edit Assignment / Exercise' : t('assignments.createBtn')}
+              </h3>
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => setShowCreateEditModal(false)}
                 className="text-slate-400 hover:text-slate-600 p-1"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateAssignment} className="space-y-4 text-xs">
+            <form onSubmit={handleSaveAssignmentForm} className="space-y-4 text-sm">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')}</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')} *</label>
                 <select
                   required
-                  value={newCourseId}
-                  onChange={(e) => setNewCourseId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                  value={formCourseId}
+                  onChange={(e) => setFormCourseId(e.target.value)}
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white text-sm"
                 >
                   <option value="">{t('resources.chooseCourse')}</option>
                   {courses
@@ -1754,39 +2100,39 @@ export const AssignmentsView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')}</label>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')} *</label>
                   <select
-                    value={newSkill}
-                    onChange={(e) => setNewSkill(e.target.value as AssignmentSkill)}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    value={formSkill}
+                    onChange={(e) => setFormSkill(e.target.value as AssignmentSkill)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white text-sm"
                   >
                     <option value="writing">{t('skills.writing')}</option>
-                    <option value="speaking">{t('skills.speaking')}</option>
                     <option value="reading">{t('skills.reading')}</option>
+                    <option value="speaking">{t('skills.speaking')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('courses.endDate')}</label>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('courses.endDate')} *</label>
                   <input
                     type="date"
                     required
-                    value={newDueDate}
-                    onChange={(e) => setNewDueDate(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+                    value={formDueDate}
+                    onChange={(e) => setFormDueDate(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceTitle')}</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceTitle')} *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Cambridge 18 Test 2 Writing Task 2"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm"
                 />
               </div>
 
@@ -1795,52 +2141,177 @@ export const AssignmentsView: React.FC = () => {
                 <textarea
                   rows={2}
                   placeholder="e.g. Complete under timed conditions. Write at least 250 words."
-                  value={newInstructions}
-                  onChange={(e) => setNewInstructions(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+                  value={formInstructions}
+                  onChange={(e) => setFormInstructions(e.target.value)}
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm"
                 />
               </div>
 
-              {/* Skill specific prompts */}
-              {newSkill === 'writing' && (
-                <div className="p-3 bg-amber-50/50 rounded-lg border border-amber-200 space-y-2">
-                  <label className="block font-bold text-amber-900">{t('assignments.essayPrompt')}</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Type the full IELTS Writing prompt here..."
-                    value={newWritingPrompt}
-                    onChange={(e) => setNewWritingPrompt(e.target.value)}
-                    className="w-full p-2 border border-amber-300 rounded-lg text-xs bg-white outline-hidden"
-                  />
+              {/* WRITING SPECIFIC CONFIGURATION */}
+              {formSkill === 'writing' && (
+                <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-200 space-y-3">
+                  <div>
+                    <label className="block font-bold text-amber-900 mb-1">Writing Task Type *</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'task1_academic', label: 'Academic Task 1 (Graph / Chart)', min: 150 },
+                        { id: 'task1_general', label: 'General Task 1 (Letter)', min: 150 },
+                        { id: 'task2', label: 'Task 2 Essay', min: 250 },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setFormWritingTaskCategory(item.id as WritingTaskCategory);
+                            setFormWritingMinWords(item.min);
+                          }}
+                          className={`p-2.5 rounded-lg border text-xs font-bold transition-all ${
+                            formWritingTaskCategory === item.id
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Task 1 Academic Chart / Diagram Image Uploader */}
+                  {formWritingTaskCategory === 'task1_academic' && (
+                    <div className="space-y-2">
+                      <label className="block font-bold text-amber-900">Task 1 Chart / Graph Diagram Image</label>
+                      <input
+                        type="text"
+                        placeholder="Paste image URL (e.g. https://... or data:image/...)"
+                        value={formTask1ImageUrl}
+                        onChange={(e) => setFormTask1ImageUrl(e.target.value)}
+                        className="w-full p-2 border border-amber-300 rounded-lg text-xs bg-white outline-hidden"
+                      />
+                      {formTask1ImageUrl && (
+                        <img
+                          src={formTask1ImageUrl}
+                          alt="Preview"
+                          className="max-h-40 rounded-lg border border-amber-300 object-contain mx-auto bg-white"
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block font-bold text-amber-900 mb-1">{t('assignments.essayPrompt')} *</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Type the full IELTS Writing task prompt here..."
+                      value={formWritingPrompt}
+                      onChange={(e) => setFormWritingPrompt(e.target.value)}
+                      className="w-full p-2.5 border border-amber-300 rounded-lg text-sm bg-white outline-hidden"
+                    />
+                  </div>
+
                   <div className="flex items-center space-x-2">
-                    <span className="text-slate-600">Min words:</span>
+                    <span className="text-slate-700 font-semibold text-xs">Minimum Words:</span>
                     <input
                       type="number"
-                      value={newWritingMinWords}
-                      onChange={(e) => setNewWritingMinWords(Number(e.target.value))}
-                      className="w-20 p-1 border border-amber-300 rounded text-center bg-white"
+                      value={formWritingMinWords}
+                      onChange={(e) => setFormWritingMinWords(Number(e.target.value))}
+                      className="w-24 p-1.5 border border-amber-300 rounded text-center bg-white font-bold text-sm"
                     />
                   </div>
                 </div>
               )}
 
-              {newSkill === 'speaking' && (
-                <div className="p-3 bg-purple-50/50 rounded-lg border border-purple-200 space-y-2">
+              {/* READING SPECIFIC CONFIGURATION */}
+              {formSkill === 'reading' && (
+                <div className="p-4 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-3">
+                  <div>
+                    <label className="block font-bold text-emerald-900 mb-1">Reading Test Scale *</label>
+                    <div className="flex space-x-3">
+                      {[
+                        { id: 'academic', label: 'Academic Reading (Official 40-item scale)' },
+                        { id: 'general', label: 'General Training Reading (GT scale)' },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setFormReadingTestType(item.id as ReadingTestType)}
+                          className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+                            formReadingTestType === item.id
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-emerald-900 mb-1">Reading Passage Text</label>
+                    <textarea
+                      rows={6}
+                      placeholder="Paste IELTS Reading Passage text here..."
+                      value={formReadingPassage}
+                      onChange={(e) => setFormReadingPassage(e.target.value)}
+                      className="w-full p-2.5 border border-emerald-300 rounded-lg text-sm bg-white outline-hidden font-serif"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* MODEL ANSWER & RELEASE POLICY */}
+              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-900 uppercase">
+                    Teacher's Model Answer & Release Policy
+                  </span>
+                  <span className="text-[11px] text-blue-600">Band 9 Exemplar</span>
+                </div>
+
+                <textarea
+                  rows={3}
+                  placeholder="Paste exemplar model answer or Band 9 essay for student reference..."
+                  value={formModelAnswer}
+                  onChange={(e) => setFormModelAnswer(e.target.value)}
+                  className="w-full p-2.5 border border-blue-200 rounded-lg text-sm bg-white outline-hidden"
+                />
+
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Model Answer Release Condition</label>
+                    <select
+                      value={formModelAnswerReleaseCondition}
+                      onChange={(e) => setFormModelAnswerReleaseCondition(e.target.value as any)}
+                      className="w-full p-2 border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="after_graded">Released After Graded (Recommended)</option>
+                      <option value="after_submission">Released Immediately Upon Submission</option>
+                      <option value="immediate">Available Immediately During Practice</option>
+                      <option value="never">Never (Teacher Eyes Only)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* SPEAKING SPECIFIC CONFIGURATION */}
+              {formSkill === 'speaking' && (
+                <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-200 space-y-3">
                   <label className="block font-bold text-purple-900">{t('assignments.cueCardTitle')} - Topic</label>
                   <input
                     type="text"
                     placeholder="e.g. Describe an ambition that you have had for a long time."
-                    value={newSpeakingTopic}
-                    onChange={(e) => setNewSpeakingTopic(e.target.value)}
-                    className="w-full p-2 border border-purple-300 rounded-lg text-xs bg-white outline-hidden"
+                    value={formSpeakingTopic}
+                    onChange={(e) => setFormSpeakingTopic(e.target.value)}
+                    className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
                   />
                   <label className="block font-bold text-purple-900">Cue Card Bullet Points (One per line)</label>
                   <textarea
                     rows={3}
                     placeholder="What it is&#10;What you need to do to achieve it&#10;Why this ambition is important"
-                    value={newSpeakingPoints}
-                    onChange={(e) => setNewSpeakingPoints(e.target.value)}
-                    className="w-full p-2 border border-purple-300 rounded-lg text-xs bg-white outline-hidden"
+                    value={formSpeakingPoints}
+                    onChange={(e) => setFormSpeakingPoints(e.target.value)}
+                    className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
                   />
                 </div>
               )}
@@ -1848,20 +2319,83 @@ export const AssignmentsView: React.FC = () => {
               <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
+                  onClick={() => setShowCreateEditModal(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium text-sm"
                 >
                   {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingCreate}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs transition-colors"
+                  disabled={isSubmittingForm}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs transition-colors text-sm"
                 >
-                  {isSubmittingCreate ? t('common.loading') : t('common.create')}
+                  {isSubmittingForm ? t('common.loading') : editingAssignmentId ? 'Save Changes' : t('common.create')}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: SAFE EXERCISE DELETION WARNING
+      ========================================================================= */}
+      {deletingAssignment && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
+            <div className="flex items-center space-x-3 text-red-600">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="text-base font-bold text-slate-900">Delete Exercise Confirmation</h3>
+            </div>
+
+            <p className="text-sm text-slate-700">
+              Are you sure you want to delete <strong>"{deletingAssignment.title}"</strong>?
+            </p>
+
+            {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length > 0 ? (
+              <div className="p-3.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 space-y-1">
+                <p className="font-bold">
+                  Warning: There are {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length} student submission(s) for this exercise.
+                </p>
+                <p>
+                  Permanently deleting will delete all associated student grades and feedback. You can choose to unpublish it to Draft to safely preserve student work.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">
+                No student submissions have been submitted for this exercise yet. It can be safely deleted.
+              </p>
+            )}
+
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeletingAssignment(null)}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
+              >
+                Cancel
+              </button>
+
+              {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length > 0 && (
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => handleConfirmDeleteAssignment('unpublish')}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-xs"
+                >
+                  Unpublish to Draft (Preserve Work)
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => handleConfirmDeleteAssignment('permanent')}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs"
+              >
+                {isDeleting ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

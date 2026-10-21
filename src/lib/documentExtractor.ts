@@ -1,4 +1,29 @@
-import { ReadingQuestion, QuestionType, AssignmentSkill } from '../types';
+import type { ReadingQuestion, QuestionType, AssignmentSkill } from '../types/index.ts';
+
+export interface CandidateTest {
+  id: string;
+  testIndex: number;
+  title: string;
+  passageText: string;
+  instructions: string;
+  questions: ReadingQuestion[];
+  detectedAnswerKey: Record<string, string>;
+  hasAnswerKeys: boolean;
+  questionCount: number;
+  recognizedTypes: QuestionType[];
+  warnings: string[];
+}
+
+export interface DocumentStructure {
+  title: string;
+  detectedSkill: AssignmentSkill;
+  passageText: string;
+  instructions: string;
+  questions: ReadingQuestion[];
+  detectedAnswerKey: Record<string, string>;
+  hasExistingQuestions: boolean;
+  candidateTests: CandidateTest[];
+}
 
 export interface ExtractedDocument {
   id: string;
@@ -14,25 +39,15 @@ export interface ExtractedDocument {
   detectedStructure?: DocumentStructure;
 }
 
-export interface DocumentStructure {
-  title: string;
-  detectedSkill: AssignmentSkill;
-  passageText: string;
-  instructions: string;
-  questions: ReadingQuestion[];
-  detectedAnswerKey: Record<string, string>;
-  hasExistingQuestions: boolean;
-}
-
 /**
  * Validates whether the file is an accepted document format
  */
 export function validateDocumentFile(file: File): { valid: boolean; error?: string; type: ExtractedDocument['type'] } {
   const extension = file.name.split('.').pop()?.toLowerCase();
-  const maxSizeBytes = 20 * 1024 * 1024; // 20 MB
+  const maxSizeBytes = 25 * 1024 * 1024; // 25 MB
 
   if (file.size > maxSizeBytes) {
-    return { valid: false, error: 'File size exceeds 20MB limit.', type: 'unknown' };
+    return { valid: false, error: 'File size exceeds 25MB limit.', type: 'unknown' };
   }
 
   if (extension === 'pdf' || file.type === 'application/pdf') {
@@ -87,7 +102,6 @@ export async function extractPdfText(file: File): Promise<{ text: string; pageCo
       fullText += `\n[--- Page ${pageNum} ---]\n${pageText}\n`;
     }
 
-    // A multi-page document with virtually zero extracted characters is a scanned image
     const isScanned = pageCount > 0 && totalChars < 40;
 
     return {
@@ -213,32 +227,124 @@ export async function processDocumentFile(file: File): Promise<ExtractedDocument
 }
 
 /**
- * Heuristic parser that analyzes the document structure, identifying
- * reading passages, instructions, numbered questions, answer choices, and answer keys.
+ * Extracts word limit constraint from text
+ */
+function extractWordLimitInfo(text: string): { limitStr?: string; maxWords?: number } {
+  const match = text.match(
+    /(?:choose|write|use)?\s*(NO\s+MORE\s+THAN\s+(?:ONE|TWO|THREE|FOUR|\d+)\s+WORDS?(?:\s+AND\/OR\s+A\s+NUMBER)?|ONLY\s+ONE\s+WORD)/i
+  );
+  if (match) {
+    const limitStr = match[1].toUpperCase().trim();
+    let maxWords = 1;
+    if (limitStr.includes('TWO')) maxWords = 2;
+    else if (limitStr.includes('THREE')) maxWords = 3;
+    else if (limitStr.includes('FOUR')) maxWords = 4;
+    else {
+      const digitMatch = limitStr.match(/(\d+)/);
+      if (digitMatch) maxWords = parseInt(digitMatch[1], 10);
+    }
+    return { limitStr, maxWords };
+  }
+  return {};
+}
+
+/**
+ * Detects the specific question type from instruction and prompt context
+ */
+function detectQuestionType(
+  prompt: string,
+  instructionContext: string,
+  options?: string[]
+): QuestionType {
+  const combined = `${instructionContext} ${prompt}`.toLowerCase();
+
+  // True / False / Not Given vs Yes / No / Not Given
+  if (combined.includes('true') && combined.includes('false')) {
+    return 'true_false_not_given';
+  }
+  if (combined.includes('yes') && combined.includes('no')) {
+    return 'yes_no_not_given';
+  }
+
+  // Matching variations
+  if (combined.includes('list of headings') || combined.includes('correct heading')) {
+    return 'matching_headings';
+  }
+  if (combined.includes('which paragraph contains') || combined.includes('information to paragraph')) {
+    return 'matching_information';
+  }
+  if (combined.includes('match each statement with the correct person') || combined.includes('list of researchers') || combined.includes('matching features')) {
+    return 'matching_features';
+  }
+  if (combined.includes('sentence ending') || combined.includes('correct ending')) {
+    return 'matching_sentence_endings';
+  }
+
+  // Completion variations
+  if (combined.includes('complete the summary') || combined.includes('summary completion')) {
+    return 'summary_completion';
+  }
+  if (combined.includes('complete the notes') || combined.includes('note completion')) {
+    return 'note_completion';
+  }
+  if (combined.includes('complete the table') || combined.includes('table completion')) {
+    return 'table_completion';
+  }
+  if (combined.includes('flow-chart') || combined.includes('flowchart')) {
+    return 'flowchart_completion';
+  }
+  if (combined.includes('label the diagram') || combined.includes('diagram label')) {
+    return 'diagram_completion';
+  }
+  if (combined.includes('complete the sentence')) {
+    return 'sentence_completion';
+  }
+
+  // Multiple Select vs Multiple Choice
+  if (
+    combined.includes('choose two') ||
+    combined.includes('choose three') ||
+    combined.includes('which two') ||
+    combined.includes('which three')
+  ) {
+    return 'multiple_select';
+  }
+
+  if (options && options.length >= 2) {
+    return 'multiple_choice';
+  }
+
+  if (combined.includes('fill in the blank') || combined.includes('blank')) {
+    return 'sentence_completion';
+  }
+
+  return 'short_answer';
+}
+
+/**
+ * Parses candidate test segments from text (separates multiple passages/tests)
  */
 export function parseDocumentStructure(rawText: string, fallbackName: string): DocumentStructure {
-  const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const cleanRaw = rawText.replace(/\r\n/g, '\n');
+  const lines = cleanRaw.split('\n').map((l) => l.trim()).filter(Boolean);
 
   let title = fallbackName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
   let detectedSkill: AssignmentSkill = 'reading';
-  let instructions = 'Read the text and answer the questions that follow.';
-  let passageText = '';
-  const questions: ReadingQuestion[] = [];
-  const detectedAnswerKey: Record<string, string> = {};
 
-  // Detect skill keywords
   const lowerAll = rawText.toLowerCase();
   if (lowerAll.includes('listening section') || lowerAll.includes('audio track')) {
-    detectedSkill = 'reading'; // IELTS Hub assigns listening with reading-style questions
+    detectedSkill = 'reading';
   } else if (lowerAll.includes('writing task 1') || lowerAll.includes('writing task 2')) {
     detectedSkill = 'writing';
   } else if (lowerAll.includes('speaking part 1') || lowerAll.includes('cue card')) {
     detectedSkill = 'speaking';
   }
 
-  // Detect Answer Key section
+  // 1. Detect and parse Global Answer Key if present at the end
+  const detectedAnswerKey: Record<string, string> = {};
   let answerKeyStartIndex = -1;
-  const answerKeyRegex = /^(answer\s*key|answers|dap\s*an|đáp\s*án)[:\s]*$/i;
+  const answerKeyRegex = /^(?:answer\s*key|answers|dap\s*an|đáp\s*án)[:\s]*$/i;
+
   for (let i = 0; i < lines.length; i++) {
     if (answerKeyRegex.test(lines[i]) || lines[i].toLowerCase().startsWith('answer key:')) {
       answerKeyStartIndex = i;
@@ -258,120 +364,196 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
     }
   }
 
-  // Detect Questions vs Passage
-  const contentLines = answerKeyStartIndex !== -1 ? lines.slice(0, answerKeyStartIndex) : lines;
-  const questionNumberRegex = /^(?:Question\s+)?(\d+)[\.\:\)]\s+(.*)/i;
+  const contentText = answerKeyStartIndex !== -1
+    ? lines.slice(0, answerKeyStartIndex).join('\n')
+    : cleanRaw;
 
-  let currentQuestion: Partial<ReadingQuestion> | null = null;
-  const passageLines: string[] = [];
+  // 2. Identify Section / Test Boundaries
+  // Split on "READING PASSAGE 1", "PASSAGE 2", "SECTION 1", "PRACTICE TEST 1", etc.
+  const sectionSplitterRegex =
+    /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+|PRACTICE\s+TEST\s+\d+|TEST\s+\d+)\b)/i;
 
-  for (let i = 0; i < contentLines.length; i++) {
-    const line = contentLines[i];
+  const rawSections = contentText.split(sectionSplitterRegex).filter((s) => s.trim().length > 50);
 
-    // Check if line is the start of a question
-    const qMatch = line.match(questionNumberRegex);
-    if (qMatch) {
-      if (currentQuestion && currentQuestion.prompt) {
-        finalizeQuestion(currentQuestion, questions, detectedAnswerKey);
+  const candidateTests: CandidateTest[] = [];
+
+  const sectionsToParse = rawSections.length > 0 ? rawSections : [contentText];
+
+  sectionsToParse.forEach((secText, idx) => {
+    const secLines = secText.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (secLines.length === 0) return;
+
+    // Detect Section Title
+    let secTitle = `Passage ${idx + 1}`;
+    const headerMatch = secLines[0].match(
+      /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+|TEST\s+\d+)(?:\s*[\:\-\–]\s*(.*))?$/i
+    );
+    if (headerMatch) {
+      if (headerMatch[1] && headerMatch[1].trim()) {
+        secTitle = headerMatch[1].trim();
+      } else if (secLines.length > 1 && secLines[1].length < 100 && !/^(questions?|\d+[\.\:\)])/i.test(secLines[1])) {
+        secTitle = `${secLines[0]}: ${secLines[1]}`;
+      } else {
+        secTitle = secLines[0];
       }
-
-      const qNum = qMatch[1];
-      const qText = qMatch[2];
-
-      currentQuestion = {
-        id: `q_${qNum}`,
-        prompt: qText,
-        options: [],
-        type: 'multiple_choice',
-        correctAnswer: detectedAnswerKey[qNum] || '',
-        explanation: 'Extracted from source document.',
-        source: 'extracted_from_doc',
-        answerKeyConfidence: detectedAnswerKey[qNum] ? 'high' : 'needs_teacher_review',
-        points: 1,
-      };
-      continue;
+    } else if (secLines[0].length < 100) {
+      secTitle = secLines[0];
     }
 
-    // If inside a question, check for options (A, B, C, D)
-    if (currentQuestion) {
-      const optMatch = line.match(/^([A-D])[\.\:\)]\s+(.*)/i);
-      if (optMatch) {
-        currentQuestion.options = currentQuestion.options || [];
-        currentQuestion.options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2]}`);
+    // Parse passage text, instructions, and questions for this section
+    const secPassageLines: string[] = [];
+    const secQuestions: ReadingQuestion[] = [];
+    const questionNumberRegex = /^(?:Question\s+)?(\d+)[\.\:\)]\s+(.*)/i;
+
+    let currentInstruction = 'Read the text and answer the questions below.';
+    let activeWordLimitInfo: { limitStr?: string; maxWords?: number } = {};
+    let currentQ: Partial<ReadingQuestion> | null = null;
+
+    for (let i = 0; i < secLines.length; i++) {
+      const line = secLines[i];
+
+      // Check if line contains question instructions or word limits
+      const lineWl = extractWordLimitInfo(line);
+      if (lineWl.limitStr) {
+        activeWordLimitInfo = lineWl;
+        currentInstruction = line;
         continue;
       }
 
-      // True / False / Not Given detection
-      if (/^(TRUE|FALSE|NOT GIVEN|YES|NO)$/i.test(line)) {
-        if (line.toUpperCase() === 'YES' || line.toUpperCase() === 'NO') {
-          currentQuestion.type = 'yes_no_not_given';
-        } else {
-          currentQuestion.type = 'true_false_not_given';
+      if (/^questions?\s+\d+/i.test(line) || /choose\s+the\s+correct/i.test(line) || /do\s+the\s+following\s+statements/i.test(line)) {
+        currentInstruction = line;
+        continue;
+      }
+
+      const qMatch = line.match(questionNumberRegex);
+      if (qMatch) {
+        if (currentQ && currentQ.prompt) {
+          finalizeParsedQuestion(currentQ, secQuestions, detectedAnswerKey, currentInstruction, activeWordLimitInfo);
         }
+
+        const qNum = qMatch[1];
+        const qPrompt = qMatch[2];
+
+        // Check line for inline word limit
+        const inlineWl = extractWordLimitInfo(qPrompt);
+        const effectiveWl = inlineWl.limitStr ? inlineWl : activeWordLimitInfo;
+
+        currentQ = {
+          id: `q_${qNum}`,
+          prompt: qPrompt,
+          options: [],
+          wordLimit: effectiveWl.limitStr,
+          maxWords: effectiveWl.maxWords,
+          correctAnswer: detectedAnswerKey[qNum] || '',
+          points: 1,
+          source: 'extracted_from_doc',
+          answerKeyConfidence: detectedAnswerKey[qNum] ? 'high' : 'needs_teacher_review',
+        };
         continue;
       }
 
-      // Append additional prompt text
-      currentQuestion.prompt += ' ' + line;
-    } else {
-      // Accumulate passage text before the first question
-      passageLines.push(line);
+      // If inside a question, check for options A-D
+      if (currentQ) {
+        const optMatch = line.match(/^([A-E])[\.\:\)]\s+(.*)/i);
+        if (optMatch) {
+          currentQ.options = currentQ.options || [];
+          currentQ.options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2]}`);
+          continue;
+        }
+
+        // True / False / Not Given tokens
+        if (/^(TRUE|FALSE|NOT GIVEN)$/i.test(line)) {
+          currentQ.type = 'true_false_not_given';
+          continue;
+        }
+        if (/^(YES|NO)$/i.test(line)) {
+          currentQ.type = 'yes_no_not_given';
+          continue;
+        }
+
+        // Additional prompt continuation line
+        currentQ.prompt += ' ' + line;
+      } else {
+        secPassageLines.push(line);
+      }
     }
-  }
 
-  if (currentQuestion && currentQuestion.prompt) {
-    finalizeQuestion(currentQuestion, questions, detectedAnswerKey);
-  }
+    if (currentQ && currentQ.prompt) {
+      finalizeParsedQuestion(currentQ, secQuestions, detectedAnswerKey, currentInstruction, activeWordLimitInfo);
+    }
 
-  passageText = passageLines.join('\n\n');
+    const passageText = secPassageLines.join('\n\n');
 
-  // If title was in the first line, refine
-  if (passageLines.length > 0 && passageLines[0].length < 100) {
-    title = passageLines[0];
-  }
+    // Calculate candidate warnings
+    const warnings: string[] = [];
+    const missingKeys = secQuestions.filter((q) => !q.correctAnswer).map((q) => q.id.replace('q_', ''));
+    if (missingKeys.length > 0) {
+      warnings.push(`Missing answer keys for questions: ${missingKeys.slice(0, 5).join(', ')}${missingKeys.length > 5 ? '...' : ''}`);
+    }
+    const uncertainTypes = secQuestions.filter((q) => q.needsReview).length;
+    if (uncertainTypes > 0) {
+      warnings.push(`${uncertainTypes} questions flagged for teacher verification.`);
+    }
+
+    const recognizedTypes = Array.from(new Set(secQuestions.map((q) => q.type)));
+
+    candidateTests.push({
+      id: `candidate_${idx + 1}`,
+      testIndex: idx + 1,
+      title: secTitle,
+      passageText,
+      instructions: currentInstruction,
+      questions: secQuestions,
+      detectedAnswerKey,
+      hasAnswerKeys: secQuestions.some((q) => Boolean(q.correctAnswer)),
+      questionCount: secQuestions.length,
+      recognizedTypes,
+      warnings,
+    });
+  });
+
+  // Consolidated primary structure
+  const primaryPassage = candidateTests.map((c) => c.passageText).filter(Boolean).join('\n\n---\n\n');
+  const allQuestions = candidateTests.flatMap((c) => c.questions);
 
   return {
-    title,
+    title: candidateTests[0]?.title || title,
     detectedSkill,
-    passageText,
-    instructions,
-    questions,
+    passageText: primaryPassage,
+    instructions: candidateTests[0]?.instructions || 'Read the text and answer the questions that follow.',
+    questions: allQuestions,
     detectedAnswerKey,
-    hasExistingQuestions: questions.length > 0,
+    hasExistingQuestions: allQuestions.length > 0,
+    candidateTests,
   };
 }
 
-function finalizeQuestion(
+function finalizeParsedQuestion(
   q: Partial<ReadingQuestion>,
   questions: ReadingQuestion[],
-  detectedAnswerKey: Record<string, string>
+  detectedAnswerKey: Record<string, string>,
+  instructionContext: string,
+  wordLimitInfo: { limitStr?: string; maxWords?: number }
 ) {
   const qNum = q.id?.replace('q_', '') || `${questions.length + 1}`;
-  let qType: QuestionType = q.type || 'multiple_choice';
+  const options = q.options && q.options.length > 0 ? q.options : undefined;
+  const qType = q.type || detectQuestionType(q.prompt || '', instructionContext, options);
 
-  if (!q.options || q.options.length === 0) {
-    const promptLower = (q.prompt || '').toLowerCase();
-    if (promptLower.includes('true') || promptLower.includes('false')) {
-      qType = 'true_false_not_given';
-    } else if (promptLower.includes('yes') || promptLower.includes('no')) {
-      qType = 'yes_no_not_given';
-    } else if (promptLower.includes('complete the sentence') || promptLower.includes('fill')) {
-      qType = 'sentence_completion';
-    } else {
-      qType = 'short_answer';
-    }
-  }
+  const key = q.correctAnswer || detectedAnswerKey[qNum] || '';
+  const confidence = key ? 'high' : 'needs_teacher_review';
 
   questions.push({
     id: q.id || `q_${questions.length + 1}`,
     type: qType,
     prompt: (q.prompt || '').trim(),
-    options: q.options && q.options.length > 0 ? q.options : undefined,
-    correctAnswer: q.correctAnswer || detectedAnswerKey[qNum] || '',
+    options,
+    wordLimit: q.wordLimit || wordLimitInfo.limitStr,
+    maxWords: q.maxWords || wordLimitInfo.maxWords,
+    correctAnswer: key,
     explanation: q.explanation || 'Extracted from source document.',
     points: q.points || 1,
     source: 'extracted_from_doc',
-    answerKeyConfidence: detectedAnswerKey[qNum] ? 'high' : 'needs_teacher_review',
-    needsReview: !detectedAnswerKey[qNum],
+    answerKeyConfidence: confidence,
+    needsReview: !key || qType === 'short_answer',
   });
 }
