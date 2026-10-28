@@ -209,3 +209,43 @@ export async function generateAiAssistantDraft(params: GenerateDraftParams): Pro
 export async function convertDocumentToAssignment(params: DocumentConversionParams): Promise<GenerateDraftResult> {
   return invokeAiAssistant('convert_document_to_assignment', params);
 }
+
+export interface GenerateReadingTestParams {
+  sourceType: 'url' | 'file' | 'text';
+  sourceUrl?: string;
+  sourceText?: string;
+  sourceDocumentName?: string;
+  topic?: string;
+  passageCount: number;
+  questionTypes: string[];
+  questionCount: number;
+  difficultyLevel: number;
+  timeLimitMinutes?: number;
+  wordLimitConstraint?: string;
+}
+
+export interface RegenerateQuestionGroupParams {
+  passageText: string;
+  questionType: string;
+  questionCount: number;
+  difficultyLevel: number;
+}
+
+/**
+ * Generate a complete, authentic IELTS Reading test with AI
+ */
+export async function generateReadingTestWithAi(params: GenerateReadingTestParams): Promise<GenerateDraftResult> {
+  return invokeAiAssistant('generate_reading_test', params);
+}
+
+/**
+ * Regenerate an individual question group with AI without altering the rest of the test
+ */
+export async function regenerateQuestionGroupWithAi(params: RegenerateQuestionGroupParams): Promise<GenerateDraftResult> {
+  return invokeAiAssistant('regenerate_question_group', {
+    sourceText: params.passageText,
+    questionTypes: [params.questionType],
+    questionCount: params.questionCount,
+    difficultyLevel: params.difficultyLevel,
+  });
+}

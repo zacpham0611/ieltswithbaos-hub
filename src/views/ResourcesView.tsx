@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
-import { Resource, Lesson, CourseSkill, ResourceType } from '../types';
+import { Resource, Lesson, CourseSkill, ResourceType, GeneratedReadingTest } from '../types';
 import {
   FolderArchive,
   FileText,
@@ -20,9 +20,14 @@ import {
   Calendar,
   FileUp,
   ArrowRight,
+  Download,
+  Edit,
 } from 'lucide-react';
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
+);
+const AiReadingTestGeneratorModal = React.lazy(() =>
+  import('../components/AiReadingTestGeneratorModal').then((m) => ({ default: m.AiReadingTestGeneratorModal }))
 );
 
 export const ResourcesView: React.FC = () => {
@@ -51,6 +56,8 @@ export const ResourcesView: React.FC = () => {
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
   const [showAiLessonModal, setShowAiLessonModal] = useState(false);
   const [showSmartImportModal, setShowSmartImportModal] = useState(false);
+  const [showAiTestGenModal, setShowAiTestGenModal] = useState(false);
+  const [selectedEditTest, setSelectedEditTest] = useState<GeneratedReadingTest | null>(null);
 
   // New Resource Form
   const [resTitle, setResTitle] = useState('');
@@ -180,6 +187,35 @@ Submit full completed assignment with self-editing checklist.`;
     setShowAddLessonModal(true);
   };
 
+  const handleExportAiTestDocx = async (res: Resource) => {
+    if (!res.content) return;
+    try {
+      const testData: GeneratedReadingTest = JSON.parse(res.content);
+      const primaryPassage = testData.passages[0];
+      const allQuestions = testData.passages.flatMap((p) => p.questions || []);
+
+      const { generateDocxBlob } = await import('../lib/docxGenerator');
+      const blob = await generateDocxBlob({
+        title: testData.title,
+        courseTitle: 'IELTS Academic Reading Practice',
+        targetBand: `Difficulty Level ${testData.difficultyLevel}/10`,
+        passage: primaryPassage?.content || '',
+        questions: allQuestions,
+        includeAnswerKey: true,
+        templateStyle: 'academic',
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${testData.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`Could not export DOCX: ${err.message}`);
+    }
+  };
+
   const getIconForType = (type: ResourceType) => {
     switch (type) {
       case 'pdf':
@@ -209,6 +245,16 @@ Submit full completed assignment with self-editing checklist.`;
 
         {isTeacher && (
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                setSelectedEditTest(null);
+                setShowAiTestGenModal(true);
+              }}
+              className="px-3.5 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5"
+            >
+              <Sparkles className="w-4 h-4 text-white animate-pulse" />
+              <span>Generate Reading Test with AI</span>
+            </button>
             <button
               onClick={() => setShowSmartImportModal(true)}
               className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5"
@@ -240,6 +286,44 @@ Submit full completed assignment with self-editing checklist.`;
           </div>
         )}
       </div>
+
+      {/* AI Reading Test Generator Banner for Teachers */}
+      {isTeacher && (
+        <div className="bg-gradient-to-r from-purple-50 via-indigo-50/50 to-blue-50 border border-purple-200/80 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start space-x-3.5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+                  Generate Reading Test with AI
+                </h3>
+                <span className="text-[10px] bg-purple-600 text-white font-bold px-2 py-0.2 rounded-full">
+                  AI STUDIO
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
+                Transform any article URL, uploaded document, or topic prompt into a complete IELTS Reading Practice Test. Calibrated across <strong>1–10 difficulty levels</strong> with authentic question formats, verified paragraph citations, and one-click assignment.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={() => {
+                setSelectedEditTest(null);
+                setShowAiTestGenModal(true);
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-white" />
+              <span>Generate Test Now</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Smart Document Import Feature Banner for Teachers */}
       {isTeacher && (
@@ -365,85 +449,132 @@ Submit full completed assignment with self-editing checklist.`;
                     </td>
                   </tr>
                 ) : (
-                  filteredResources.map((res) => (
-                    <tr key={res.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center space-x-2.5">
-                          <span className="p-1.5 bg-slate-100 rounded-lg shrink-0">
-                            {getIconForType(res.type)}
-                          </span>
-                          <div>
-                            <span className="font-bold text-slate-900 block">{res.title}</span>
-                            <span className="text-[10px] uppercase font-bold text-slate-400">
-                              {res.type}
+                  filteredResources.map((res) => {
+                    const isAiReadingTest =
+                      res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+
+                    return (
+                      <tr key={res.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center space-x-2.5">
+                            <span className="p-1.5 bg-slate-100 rounded-lg shrink-0">
+                              {isAiReadingTest ? (
+                                <Sparkles className="w-4 h-4 text-purple-600" />
+                              ) : (
+                                getIconForType(res.type)
+                              )}
                             </span>
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <span className="font-bold text-slate-900 block">{res.title}</span>
+                                {isAiReadingTest && (
+                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                    AI Test
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] uppercase font-bold text-slate-400">
+                                {res.type}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-4">
-                        <span className="text-slate-700 block font-medium">
-                          {res.folder ? `📁 ${res.folder}` : '—'}
-                        </span>
-                        {res.skill && (
-                          <span className="text-[10px] text-blue-600 font-semibold capitalize">
-                            {res.skill}
+                        <td className="py-3 px-4">
+                          <span className="text-slate-700 block font-medium">
+                            {res.folder ? `📁 ${res.folder}` : '—'}
                           </span>
-                        )}
-                      </td>
-
-                      <td className="py-3 px-4">
-                        <div className="flex flex-wrap gap-1">
-                          {res.tags.map((tg) => (
-                            <span
-                              key={tg}
-                              className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
-                            >
-                              #{tg}
+                          {res.skill && (
+                            <span className="text-[10px] text-blue-600 font-semibold capitalize">
+                              {res.skill}
                             </span>
-                          ))}
-                        </div>
-                      </td>
-
-                      <td className="py-3 px-4">
-                        {res.isPublished ? (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                            <Globe className="w-3 h-3" />
-                            <span>{t('resources.publishedToStudents')}</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                            <Lock className="w-3 h-3" />
-                            <span>{t('resources.privateTeacher')}</span>
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          {isTeacher && (
-                            <button
-                              onClick={() => toggleResourcePublish(res.id)}
-                              className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-                            >
-                              {res.isPublished ? t('resources.unpublish') : t('resources.publish')}
-                            </button>
                           )}
-                          {isTeacher && (
-                            <button
-                              onClick={() => {
-                                if (confirm(t('resources.deleteConfirm'))) deleteResource(res.id);
-                              }}
-                              className="text-red-500 hover:text-red-700 p-1"
-                              title={t('common.delete')}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {res.tags.map((tg) => (
+                              <span
+                                key={tg}
+                                className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
+                              >
+                                #{tg}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          {res.isPublished ? (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              <Globe className="w-3 h-3" />
+                              <span>{t('resources.publishedToStudents')}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                              <Lock className="w-3 h-3" />
+                              <span>{t('resources.privateTeacher')}</span>
+                            </span>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end space-x-2">
+                            {isAiReadingTest && res.content && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    try {
+                                      const testObj = JSON.parse(res.content || '{}');
+                                      setSelectedEditTest(testObj);
+                                      setShowAiTestGenModal(true);
+                                    } catch {
+                                      alert('Unable to parse test data.');
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded text-[11px] font-semibold border border-purple-200 flex items-center space-x-1 transition-colors"
+                                  title="Edit Test in AI Studio"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                  <span>Edit Test</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleExportAiTestDocx(res)}
+                                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-semibold border border-blue-200 flex items-center space-x-1 transition-colors"
+                                  title="Export Word (.docx)"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>DOCX</span>
+                                </button>
+                              </>
+                            )}
+
+                            {isTeacher && (
+                              <button
+                                onClick={() => toggleResourcePublish(res.id)}
+                                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                              >
+                                {res.isPublished ? t('resources.unpublish') : t('resources.publish')}
+                              </button>
+                            )}
+                            {isTeacher && (
+                              <button
+                                onClick={() => {
+                                  if (confirm(t('resources.deleteConfirm'))) deleteResource(res.id);
+                                }}
+                                className="text-red-500 hover:text-red-700 p-1"
+                                title={t('common.delete')}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -839,6 +970,20 @@ Submit full completed assignment with self-editing checklist.`;
           <SmartDocumentImportModal
             isOpen={showSmartImportModal}
             onClose={() => setShowSmartImportModal(false)}
+          />
+        </React.Suspense>
+      )}
+
+      {/* AI Reading Test Generator Modal (Lazy Loaded) */}
+      {showAiTestGenModal && (
+        <React.Suspense fallback={null}>
+          <AiReadingTestGeneratorModal
+            isOpen={showAiTestGenModal}
+            onClose={() => {
+              setShowAiTestGenModal(false);
+              setSelectedEditTest(null);
+            }}
+            initialTest={selectedEditTest}
           />
         </React.Suspense>
       )}

@@ -152,6 +152,32 @@ export interface ParsedPassage {
   questions?: ReadingQuestion[];
 }
 
+export interface AiReadingTestConfig {
+  sourceType: 'url' | 'file' | 'text';
+  sourceUrl?: string;
+  sourceText?: string;
+  sourceFileName?: string;
+  title: string;
+  topic?: string;
+  passageCount: number; // 1, 2, or 3
+  selectedQuestionTypes: QuestionType[];
+  totalQuestionCount: number;
+  difficultyLevel: number; // 1 to 10
+  timeLimitMinutes: number; // 20, 40, 60
+  wordLimitConstraint?: string;
+}
+
+export interface GeneratedReadingTest {
+  id: string;
+  title: string;
+  topic?: string;
+  difficultyLevel: number;
+  timeLimitMinutes: number;
+  passages: ParsedPassage[];
+  teacherNotes?: string;
+  createdAt: string;
+}
+
 export type WritingTaskCategory =
   | 'task1_academic'
   | 'task1_general'

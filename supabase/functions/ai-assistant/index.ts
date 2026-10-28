@@ -44,6 +44,18 @@ interface AssistantRequestBody {
   documentText?: string;
   conversionMode?: "preserve_questions" | "generate_new" | "mixed";
   sourceDocumentName?: string;
+
+  // Reading Test Generator Parameters
+  sourceType?: "url" | "file" | "text";
+  sourceUrl?: string;
+  sourceText?: string;
+  passageCount?: number;
+  questionCount?: number;
+  difficultyLevel?: number; // 1 to 10
+  timeLimitMinutes?: number;
+  wordLimitConstraint?: string;
+  regenerateGroupIndex?: number;
+  existingPassages?: any[];
 }
 
 const ALLOWED_ACTIONS = [
@@ -56,6 +68,8 @@ const ALLOWED_ACTIONS = [
   "vocabulary_grammar",
   "assignment_drafting",
   "convert_document_to_assignment",
+  "generate_reading_test",
+  "regenerate_question_group",
 ];
 
 const TEACHER_ONLY_ACTIONS = [
@@ -64,7 +78,31 @@ const TEACHER_ONLY_ACTIONS = [
   "reading_listening_materials",
   "assignment_drafting",
   "convert_document_to_assignment",
+  "generate_reading_test",
+  "regenerate_question_group",
 ];
+
+function extractReadableTextFromHtml(html: string): string {
+  let text = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ");
+  text = text.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ");
+  text = text.replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ");
+  text = text.replace(/<!--[\s\S]*?-->/g, " ");
+  text = text.replace(/<\/(p|div|h[1-6]|li|article|section|tr)>/gi, "\n");
+  text = text.replace(/<br\s*[\/]?>/gi, "\n");
+  text = text.replace(/<[^>]+>/g, " ");
+  text = text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 25)
+    .join("\n\n");
+}
 
 Deno.serve(async (req: Request) => {
   // 1. Handle CORS preflight
@@ -534,6 +572,248 @@ ${rawDoc}
         break;
       }
 
+      case "generate_reading_test": {
+        let rawContent = (body.sourceText || body.documentText || "").trim();
+
+        // 1. If sourceUrl is provided and rawContent is empty, attempt server-side fetch
+        if (body.sourceUrl && !rawContent) {
+          try {
+            const urlObj = new URL(body.sourceUrl);
+            if (!["http:", "https:"].includes(urlObj.protocol)) {
+              return new Response(
+                JSON.stringify({
+                  error: "Invalid URL protocol. Please provide a valid http:// or https:// URL.",
+                  code: "INVALID_URL",
+                }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            const urlRes = await fetch(body.sourceUrl, {
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                Accept: "text/html,application/xhtml+xml,text/plain;q=0.9",
+              },
+              signal: AbortSignal.timeout(12000),
+            });
+
+            if (!urlRes.ok) {
+              return new Response(
+                JSON.stringify({
+                  error: `Unable to access URL (HTTP ${urlRes.status} ${urlRes.statusText}). The website may restrict automated access or require authentication. Please copy and paste the article text directly.`,
+                  code: "URL_ACCESS_DENIED",
+                }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            const html = await urlRes.text();
+            rawContent = extractReadableTextFromHtml(html);
+
+            if (!rawContent || rawContent.length < 150) {
+              return new Response(
+                JSON.stringify({
+                  error:
+                    "The provided URL did not yield readable article text. The page might rely on dynamic JavaScript or paywall. Please paste the text directly.",
+                  code: "INSUFFICIENT_URL_CONTENT",
+                }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+          } catch (fetchErr: any) {
+            return new Response(
+              JSON.stringify({
+                error: `Network error reaching URL: ${fetchErr.message || "Connection failed"}. Please paste the text directly.`,
+                code: "URL_FETCH_FAILED",
+              }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+        }
+
+        if (!rawContent || rawContent.length < 50) {
+          return new Response(
+            JSON.stringify({
+              error: "Source text is missing or too short. Please provide an article, document, or topic prompt.",
+              code: "MISSING_SOURCE_CONTENT",
+            }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const passageCount = Math.max(1, Math.min(3, Number(body.passageCount) || 1));
+        const difficulty = Math.max(1, Math.min(10, Number(body.difficultyLevel) || 5));
+        const targetQCount = Math.max(
+          3,
+          Math.min(
+            40,
+            Number(body.questionCount) || (passageCount === 1 ? 13 : passageCount === 2 ? 26 : 40)
+          )
+        );
+        const qTypes =
+          Array.isArray(body.questionTypes) && body.questionTypes.length > 0
+            ? body.questionTypes
+            : ["multiple_choice", "true_false_not_given", "matching_headings", "sentence_completion"];
+        const testTitle = body.topic || body.sourceDocumentName || "IELTS Academic Reading Test";
+        const timeLimit = Number(body.timeLimitMinutes) || passageCount * 20;
+
+        // Validation: Verify if source content length is sufficient for requested passages
+        const wordCount = rawContent.split(/\s+/).filter(Boolean).length;
+        const minWordsNeeded = passageCount === 3 ? 500 : passageCount === 2 ? 300 : 80;
+        if (wordCount < minWordsNeeded) {
+          return new Response(
+            JSON.stringify({
+              error: `Source material contains only ${wordCount} words, which is insufficient to generate ${passageCount} full IELTS reading passage(s) and ${targetQCount} questions. Please provide a richer source text or reduce passage count.`,
+              code: "INSUFFICIENT_SOURCE_LENGTH",
+              actualWords: wordCount,
+              suggestedPassages: 1,
+            }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        let difficultyDirectives = "";
+        if (difficulty <= 2) {
+          difficultyDirectives = `DIFFICULTY LEVEL ${difficulty}/10 (CEFR A2-B1 / BAND 4.0 - FOUNDATIONAL/EASY):
+- Passage style: High-frequency General Service List vocabulary, short uncomplicated paragraphs.
+- Sentence syntax: Simple compound sentences ('and', 'but', 'because'), minimal passive voice, strictly no inverted sentences.
+- Question design: Verbatim keyword matching between questions and passage. Distractors in MCQs are distinct and obviously incorrect.
+- Paragraph labels: Label paragraphs as Paragraph A, Paragraph B, Paragraph C, etc.`;
+        } else if (difficulty <= 4) {
+          difficultyDirectives = `DIFFICULTY LEVEL ${difficulty}/10 (CEFR B1-B2 / BAND 5.0-5.5 - EASY-INTERMEDIATE):
+- Passage style: Accessible scientific/historical writing, clear topic sentences.
+- Sentence syntax: Straightforward complex sentences with relative clauses.
+- Question design: Clear 1-to-1 synonyms (e.g. 'discover' -> 'find'). Distractors have slight overlap but are easily ruled out.`;
+        } else if (difficulty <= 6) {
+          difficultyDirectives = `DIFFICULTY LEVEL ${difficulty}/10 (CEFR B2 / BAND 6.0-6.5 - OFFICIAL IELTS ACADEMIC BENCHMARK):
+- Passage style: Standard IELTS Academic text format, Academic Word List (AWL) vocabulary.
+- Sentence syntax: Diverse syntactic structures, passive constructions, nominalizations, varied sentence lengths.
+- Question design: Moderate paraphrasing across clauses. Plausible distractors requiring sentence-level verification.
+- True/False/Not Given: Clear distinction between contradicted facts (FALSE) and unmentioned claims (NOT GIVEN).`;
+        } else if (difficulty <= 8) {
+          difficultyDirectives = `DIFFICULTY LEVEL ${difficulty}/10 (CEFR C1 / BAND 7.0-7.5 - ADVANCED):
+- Passage style: Sophisticated academic and formal discourse, dense collocations, precise technical terminology.
+- Sentence syntax: Complex nested clauses, participial phrases, concessive clauses ('insofar as', 'notwithstanding').
+- Question design: Nuanced paraphrasing across multiple sentences. Distractors represent common student misinterpretations (half-truths, overgeneralizations).`;
+        } else {
+          difficultyDirectives = `DIFFICULTY LEVEL ${difficulty}/10 (CEFR C1-C2 / BAND 8.0-9.0 - EXPERT / MAXIMUM RIGOR):
+- Passage style: Highly erudite, formal academic discourse, low-frequency classical roots, abstract conceptual framing.
+- Sentence syntax: Highly convoluted syntactic architecture, dense information density, subtle hedging ('presumptively', 'arguably').
+- Question design: High-order synthesis across multiple paragraphs. Extremely clever trap distractors where text keywords are reused in distorted logic.`;
+        }
+
+        systemInstruction = `You are an elite IELTS Test Developer, Senior Item Writer, and Cambridge IELTS Examiner.
+Your task is to craft an authentic, high-fidelity IELTS Reading Practice Test based on the provided educational source text.
+
+${difficultyDirectives}
+
+SPECIFICATION REQUIREMENTS:
+1. Passage Count: Exactly ${passageCount} passage(s). Each passage MUST have 5 to 8 paragraphs clearly labeled with capital letters (Paragraph A, Paragraph B, Paragraph C, etc.).
+2. Total Questions: Exactly ${targetQCount} questions distributed across logical Question Groups.
+3. Allowed Question Types: Only use types from [${qTypes.map((t: string) => `"${t}"`).join(", ")}].
+4. Supported Types formatting:
+   - "matching_headings": Provide "headingsList" (Roman numerals i, ii, iii... with at least 2 extra decoy headings). Questions prompt: "Paragraph A", etc.
+   - "matching_features": Provide "featuresList" (e.g. "A Dr Smith", "B Prof Miller").
+   - "matching_sentence_endings": Questions have sentence stems, with options A, B, C, D...
+   - "true_false_not_given" / "yes_no_not_given": Answer MUST be strictly "TRUE", "FALSE", or "NOT GIVEN" (or "YES", "NO", "NOT GIVEN").
+   - "multiple_choice": 4 options prefixed with "A. ", "B. ", "C. ", "D. ".
+   - "sentence_completion" / "note_completion" / "summary_completion": Include "wordLimit" (e.g. "NO MORE THAN TWO WORDS"). Correct answer must be an exact substring from the passage.
+5. Explanations & Integrity:
+   - Every question MUST have an "explanation" that explicitly cites the paragraph letter (e.g., "[Paragraph B]: ...") and quotes the exact supporting sentence.
+   - All questions must be grounded solely in the generated passage without external assumptions.
+
+OUTPUT FORMAT:
+You MUST output ONLY a valid JSON object wrapped in a \`\`\`json ... \`\`\` block:
+{
+  "title": "${testTitle}",
+  "topic": "${body.topic || "Academic Studies"}",
+  "difficultyLevel": ${difficulty},
+  "timeLimitMinutes": ${timeLimit},
+  "passages": [
+    {
+      "passageIndex": 1,
+      "title": "Passage 1 Title",
+      "subtitle": "Brief subtitle or reading instruction",
+      "content": "Paragraph A\\nText...\\n\\nParagraph B\\nText...",
+      "questionGroups": [
+        {
+          "id": "qgroup_1_1",
+          "groupTitle": "Questions 1-5",
+          "questionType": "matching_headings",
+          "instructions": "Reading Passage 1 has paragraphs, A-E. Choose the correct heading for each paragraph from the list of headings below.",
+          "headingsList": ["i Heading one", "ii Heading two", "iii Heading three", "iv Heading four", "v Heading five", "vi Heading six"],
+          "questions": [
+            {
+              "id": "q1",
+              "type": "matching_headings",
+              "prompt": "Paragraph A",
+              "options": [],
+              "correctAnswer": "iii",
+              "explanation": "[Paragraph A]: Discusses ... matching heading iii.",
+              "points": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "teacherNotes": "Brief pedagogical notes on band calibration."
+}`;
+
+        userPromptText = `Source Material to transform into IELTS Reading Test:
+Title/Topic: ${testTitle}
+Target Difficulty: ${difficulty}/10
+Requested Passages: ${passageCount}
+Target Questions: ${targetQCount}
+Requested Types: ${qTypes.join(", ")}
+
+--- SOURCE CONTENT ---
+${rawContent.slice(0, 18000)}
+--- END SOURCE CONTENT ---`;
+        break;
+      }
+
+      case "regenerate_question_group": {
+        const passageContent = (body.sourceText || body.documentText || "").slice(0, 10000);
+        const qType = body.questionTypes?.[0] || "multiple_choice";
+        const count = Math.max(1, Math.min(10, Number(body.questionCount) || 4));
+        const diff = Math.max(1, Math.min(10, Number(body.difficultyLevel) || 5));
+
+        systemInstruction = `You are an expert Cambridge IELTS Item Writer.
+Your task is to generate ONE single Question Group of type "${qType}" with exactly ${count} questions based strictly on the provided passage.
+Difficulty Level: ${diff}/10.
+
+OUTPUT FORMAT:
+Respond with a JSON object wrapped in \`\`\`json ... \`\`\`:
+{
+  "id": "qgroup_regenerated",
+  "groupTitle": "Questions",
+  "questionType": "${qType}",
+  "instructions": "Instructions for ${qType}...",
+  "wordLimit": "NO MORE THAN TWO WORDS",
+  "headingsList": [],
+  "featuresList": [],
+  "questions": [
+    {
+      "id": "q1",
+      "type": "${qType}",
+      "prompt": "Question text...",
+      "options": ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
+      "correctAnswer": "A",
+      "explanation": "[Paragraph X]: Quotes evidence...",
+      "points": 1
+    }
+  ]
+}`;
+
+        userPromptText = `Passage Text:
+${passageContent}
+
+Generate ${count} questions for type "${qType}".`;
+        break;
+      }
+
       case "generate_assistant_draft":
       default: {
         const promptText = (body.prompt || "").trim();
@@ -736,7 +1016,11 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
     );
 
     let structuredData: any = null;
-    if (action === "convert_document_to_assignment") {
+    if (
+      action === "convert_document_to_assignment" ||
+      action === "generate_reading_test" ||
+      action === "regenerate_question_group"
+    ) {
       try {
         const jsonMatch = generatedDraft.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
         const jsonStr = jsonMatch ? jsonMatch[1].trim() : generatedDraft.trim();
