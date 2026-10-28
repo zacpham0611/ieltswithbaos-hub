@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { Portal } from '../components/Portal';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { Course, CourseSkill, CourseStatus, TuitionModel } from '../types';
@@ -47,11 +47,13 @@ export const CoursesView: React.FC = () => {
     selectedCourseId,
     setSelectedCourseId,
     setActiveTab,
+    lessons,
+    createLesson,
     loadingData,
     dataError,
     refreshData,
   } = useApp();
-  const { t, formatCurrency, formatNumber, language } = useI18n();
+  const { t, formatCurrency, formatNumber, formatDate, language } = useI18n();
 
   if (!currentUser) return null;
   const isTeacher = currentUser.role === 'teacher';
@@ -65,6 +67,18 @@ export const CoursesView: React.FC = () => {
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Lesson in Course Modal
+  const [showCourseAddLessonModal, setShowCourseAddLessonModal] = useState(false);
+  const [courseLessonTitle, setCourseLessonTitle] = useState('');
+  const [courseLessonSkill, setCourseLessonSkill] = useState<CourseSkill>('writing');
+  const [courseLessonDate, setCourseLessonDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [courseLessonObjectives, setCourseLessonObjectives] = useState('');
+  const [courseLessonActivities, setCourseLessonActivities] = useState('');
+  const [courseLessonNotes, setCourseLessonNotes] = useState('');
+  const [courseLessonHomework, setCourseLessonHomework] = useState('');
+  const [courseLessonPublished, setCourseLessonPublished] = useState(true);
+  const [isCreatingCourseLesson, setIsCreatingCourseLesson] = useState(false);
 
   const [activeCourseTab, setActiveCourseTab] = useState<
     'overview' | 'students' | 'lessons' | 'assignments' | 'assessments' | 'tuition' | 'settings'
@@ -273,6 +287,44 @@ export const CoursesView: React.FC = () => {
       setDeleteError(err.message || 'Failed to delete course');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleCreateCourseLesson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentCourse || !courseLessonTitle.trim() || isCreatingCourseLesson) return;
+
+    setIsCreatingCourseLesson(true);
+    try {
+      await createLesson({
+        courseId: currentCourse.id,
+        title: courseLessonTitle.trim(),
+        objectives: courseLessonObjectives.trim(),
+        skill: courseLessonSkill,
+        teacherNotes: courseLessonNotes.trim(),
+        resources: [],
+        activities: courseLessonActivities.trim(),
+        homework: courseLessonHomework.trim(),
+        date: courseLessonDate,
+        isPublished: courseLessonPublished,
+      });
+
+      setShowCourseAddLessonModal(false);
+      setCourseLessonTitle('');
+      setCourseLessonObjectives('');
+      setCourseLessonActivities('');
+      setCourseLessonNotes('');
+      setCourseLessonHomework('');
+      setSuccessToast(
+        language === 'vi'
+          ? `Đã thêm bài giảng "${courseLessonTitle.trim()}" vào khóa học!`
+          : `Added lesson "${courseLessonTitle.trim()}" to course!`
+      );
+    } catch (err: any) {
+      console.error('Course lesson creation error:', err);
+      alert(`Không thể tạo bài giảng: ${err.message || 'Lỗi không xác định'}`);
+    } finally {
+      setIsCreatingCourseLesson(false);
     }
   };
 
@@ -634,17 +686,173 @@ export const CoursesView: React.FC = () => {
 
         {/* Tab 3: Lessons */}
         {activeCourseTab === 'lessons' && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs text-center">
-            <h2 className="text-base font-bold text-slate-900 mb-2">{t('courses.tabs.lessons')}</h2>
-            <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
-              {t('courses.lessonsHubDesc')}
-            </p>
-            <button
-              onClick={() => setActiveTab('resources')}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors"
-            >
-              {t('courses.openResources')} &rarr;
-            </button>
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+              <div>
+                {(() => {
+                  const courseLessons = lessons.filter((l) => l.courseId === currentCourse.id);
+                  const visibleCourseLessons = isTeacher
+                    ? courseLessons
+                    : courseLessons.filter((l) => l.isPublished);
+
+                  return (
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                        <BookOpen className="w-4 h-4 text-blue-600" />
+                        <span>
+                          {t('courses.tabs.lessons')} ({visibleCourseLessons.length})
+                        </span>
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {language === 'vi'
+                          ? `Danh sách giáo án và bài giảng được gán cho khóa học "${currentCourse.name}"`
+                          : `Syllabus and lesson plans assigned to "${currentCourse.name}"`}
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {isTeacher && (
+                  <button
+                    onClick={() => {
+                      setCourseLessonSkill(currentCourse.skills?.[0] || 'writing');
+                      setShowCourseAddLessonModal(true);
+                    }}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center space-x-1.5 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{language === 'vi' ? 'Thêm bài giảng' : 'Add Lesson'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setActiveTab('resources')}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>{t('courses.openResources')}</span>
+                </button>
+              </div>
+            </div>
+
+            {(() => {
+              const courseLessons = lessons.filter((l) => l.courseId === currentCourse.id);
+              const visibleCourseLessons = isTeacher
+                ? courseLessons
+                : courseLessons.filter((l) => l.isPublished);
+
+              if (visibleCourseLessons.length === 0) {
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 p-12 text-center shadow-xs">
+                    <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <h3 className="text-sm font-bold text-slate-700 mb-1">
+                      {language === 'vi'
+                        ? 'Chưa có bài giảng nào trong khóa học này'
+                        : 'No lessons in this course yet'}
+                    </h3>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
+                      {language === 'vi'
+                        ? 'Bạn có thể thêm bài giảng mới trực tiếp cho khóa học này hoặc sử dụng Trợ lý AI trong mục Tài nguyên.'
+                        : 'You can create a new lesson directly for this course or use the AI Assistant in Resources.'}
+                    </p>
+                    {isTeacher && (
+                      <button
+                        onClick={() => {
+                          setCourseLessonSkill(currentCourse.skills?.[0] || 'writing');
+                          setShowCourseAddLessonModal(true);
+                        }}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold inline-flex items-center space-x-1.5 shadow-xs transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{language === 'vi' ? 'Thêm bài giảng ngay' : 'Add First Lesson'}</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {visibleCourseLessons.map((lesson) => (
+                    <div
+                      key={lesson.id}
+                      className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center space-x-2">
+                          <span
+                            className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                              lesson.skill === 'reading'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : lesson.skill === 'writing'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-purple-100 text-purple-800'
+                            }`}
+                          >
+                            {lesson.skill}
+                          </span>
+                          <span className="text-slate-400 flex items-center space-x-1">
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>{formatDate(lesson.date)}</span>
+                          </span>
+                        </div>
+
+                        {isTeacher && (
+                          <span
+                            className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                              lesson.isPublished
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {lesson.isPublished ? t('status.published') : t('status.draft')}
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="font-bold text-slate-900 text-sm">{lesson.title}</h3>
+
+                      {lesson.objectives && (
+                        <div>
+                          <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-0.5">
+                            {t('resources.objectives')}
+                          </h4>
+                          <p className="text-xs text-slate-600 leading-relaxed">{lesson.objectives}</p>
+                        </div>
+                      )}
+
+                      {lesson.activities && (
+                        <div>
+                          <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-0.5">
+                            {t('resources.activities')}
+                          </h4>
+                          <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">
+                            {lesson.activities}
+                          </p>
+                        </div>
+                      )}
+
+                      {isTeacher && lesson.teacherNotes && (
+                        <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs">
+                          <span className="font-bold text-amber-900 block mb-0.5">
+                            {t('resources.teacherNotesSecret')}
+                          </span>
+                          <p className="text-amber-800 leading-relaxed">{lesson.teacherNotes}</p>
+                        </div>
+                      )}
+
+                      {lesson.homework && (
+                        <div className="pt-2 border-t border-slate-100 text-xs text-slate-600">
+                          <span className="font-bold">{t('resources.homework')}: </span>
+                          <span>{lesson.homework}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -764,42 +972,176 @@ export const CoursesView: React.FC = () => {
         )}
 
         {/* Modal for Reject Reason */}
-        {rejectModalReqId && typeof document !== 'undefined' && createPortal(
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] overflow-hidden">
-            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-              <h3 className="text-sm font-bold text-slate-900 mb-2">{t('courses.rejectModalTitle')}</h3>
-              <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                {t('courses.rejectModalDesc')}
-              </p>
-              <textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Reason..."
-                rows={3}
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden"
-              />
-              <div className="flex justify-end space-x-2 mt-4">
-                <button
-                  type="button"
-                  onClick={() => setRejectModalReqId(null)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await reviewEnrollmentRequest(rejectModalReqId, 'rejected', rejectReason);
-                    setRejectModalReqId(null);
-                  }}
-                  className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-xs"
-                >
-                  {t('courses.confirmRejection')}
-                </button>
+        {rejectModalReqId && (
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] overflow-hidden">
+              <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+                <h3 className="text-sm font-bold text-slate-900 mb-2">{t('courses.rejectModalTitle')}</h3>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                  {t('courses.rejectModalDesc')}
+                </p>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Reason..."
+                  rows={3}
+                  className="w-full text-xs p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden"
+                />
+                <div className="flex justify-end space-x-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setRejectModalReqId(null)}
+                    className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await reviewEnrollmentRequest(rejectModalReqId, 'rejected', rejectReason);
+                      setRejectModalReqId(null);
+                    }}
+                    className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-xs"
+                  >
+                    {t('courses.confirmRejection')}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>,
-          document.body
+          </Portal>
+        )}
+
+        {/* Modal: Add Lesson directly from Course */}
+        {showCourseAddLessonModal && (
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+              <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+                <h3 className="text-base font-bold text-slate-900 mb-1">
+                  {language === 'vi' ? 'Thêm bài giảng vào khóa học' : 'Add Lesson to Course'}
+                </h3>
+                <p className="text-xs text-slate-500 mb-4 font-medium">
+                  Khóa học: <span className="text-blue-600 font-bold">{currentCourse.name}</span>
+                </p>
+
+                <form onSubmit={handleCreateCourseLesson} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.lessonTitle')}</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Master Writing Task 2 Cohesion & Paragraph Transitions"
+                      value={courseLessonTitle}
+                      onChange={(e) => setCourseLessonTitle(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')}</label>
+                      <select
+                        value={courseLessonSkill}
+                        onChange={(e) => setCourseLessonSkill(e.target.value as CourseSkill)}
+                        className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                      >
+                        <option value="writing">{t('skills.writing')}</option>
+                        <option value="reading">{t('skills.reading')}</option>
+                        <option value="speaking">{t('skills.speaking')}</option>
+                        <option value="listening">{t('skills.listening')}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Ngày diễn ra</label>
+                      <input
+                        type="date"
+                        required
+                        value={courseLessonDate}
+                        onChange={(e) => setCourseLessonDate(e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.objectives')}</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Mục tiêu bài học..."
+                      value={courseLessonObjectives}
+                      onChange={(e) => setCourseLessonObjectives(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.activities')}</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Các hoạt động, timed stages trong buổi học..."
+                      value={courseLessonActivities}
+                      onChange={(e) => setCourseLessonActivities(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                    <label className="block font-bold text-amber-900 mb-1">
+                      {t('resources.teacherNotesSecret')}
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Ghi chú sư phạm riêng của giáo viên..."
+                      value={courseLessonNotes}
+                      onChange={(e) => setCourseLessonNotes(e.target.value)}
+                      className="w-full p-2 border border-amber-300 rounded-lg outline-hidden bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.homework')}</label>
+                    <input
+                      type="text"
+                      placeholder="Bài tập về nhà..."
+                      value={courseLessonHomework}
+                      onChange={(e) => setCourseLessonHomework(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={courseLessonPublished}
+                        onChange={(e) => setCourseLessonPublished(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded"
+                      />
+                      <span className="font-semibold text-slate-700">{t('resources.publishImmediately')}</span>
+                    </label>
+
+                    <div className="space-x-2">
+                      <button
+                        type="button"
+                        disabled={isCreatingCourseLesson}
+                        onClick={() => setShowCourseAddLessonModal(false)}
+                        className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
+                      >
+                        {t('common.cancel')}
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isCreatingCourseLesson}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg shadow-xs inline-flex items-center space-x-1.5"
+                      >
+                        {isCreatingCourseLesson && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                        <span>{t('resources.saveLessonBtn')}</span>
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </Portal>
         )}
       </div>
     );
@@ -1182,18 +1524,19 @@ export const CoursesView: React.FC = () => {
       )}
 
       {/* Create / Edit Course Modal (Mounted via Portal to eliminate stacking-context & overflow clipping) */}
-      {showCreateModal && typeof document !== 'undefined' && createPortal(
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-hidden"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !creating) {
-              setShowCreateModal(false);
-              setEditingCourse(null);
-            }
-          }}
-        >
+      {showCreateModal && (
+        <Portal>
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-hidden"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !creating) {
+                setShowCreateModal(false);
+                setEditingCourse(null);
+              }
+            }}
+          >
           {/* Modal Container */}
           <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[88vh] z-[10000] overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
             {/* Header */}
@@ -1480,139 +1823,140 @@ export const CoursesView: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
+      </Portal>
       )}
 
       {/* Delete Course Confirmation Modal */}
-      {courseToDelete && typeof document !== 'undefined' && createPortal(
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-hidden"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !isDeleting) {
-              setCourseToDelete(null);
-              setDeleteConfirmInput('');
-              setDeleteError(null);
-            }
-          }}
-        >
-          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-red-100 flex flex-col z-[10000] overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
-            {/* Header */}
-            <div className="flex items-start justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0">
-                  <AlertTriangle className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">{t('courses.deleteModalTitle')}</h3>
-                  <p className="text-xs text-slate-500 font-mono mt-0.5">
-                    {courseToDelete.name} ({courseToDelete.code})
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => {
-                  setCourseToDelete(null);
-                  setDeleteConfirmInput('');
-                  setDeleteError(null);
-                }}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Error banner if any */}
-            {deleteError && (
-              <div className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-start space-x-2 text-xs sm:text-sm text-red-700">
-                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <span className="flex-1">{deleteError}</span>
-              </div>
-            )}
-
-            {/* Warning Description */}
-            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs sm:text-sm text-amber-800 space-y-1.5">
-              <p className="font-semibold">{t('courses.deleteModalWarning')}</p>
-              <div className="text-xs text-amber-700">
-                {(() => {
-                  const enrolled = courseMembers.filter(
-                    (m) => m.courseId === courseToDelete.id && m.status === 'enrolled'
-                  ).length;
-                  const reqs = enrollmentRequests.filter(
-                    (r) => r.courseId === courseToDelete.id
-                  ).length;
-                  return (
-                    <span>
-                      {language === 'vi'
-                        ? `Dữ liệu phụ thuộc: ${enrolled} học viên đang theo học, ${reqs} yêu cầu tham gia, cùng toàn bộ bài tập và điểm số liên quan sẽ bị xóa vĩnh viễn.`
-                        : `Dependent records: ${enrolled} enrolled students, ${reqs} join requests, and all related assignments and submissions will be permanently deleted.`}
-                    </span>
-                  );
-                })()}
-              </div>
-            </div>
-
-            {/* Strict Name Confirmation if Students Enrolled */}
-            {(() => {
-              const enrolled = courseMembers.filter(
-                (m) => m.courseId === courseToDelete.id && m.status === 'enrolled'
-              ).length;
-              if (enrolled > 0) {
-                return (
-                  <div className="space-y-1.5 pt-1">
-                    <label className="block text-xs sm:text-sm font-semibold text-slate-700">
-                      {t('courses.deleteConfirmInstruction')}
-                    </label>
-                    <input
-                      type="text"
-                      value={deleteConfirmInput}
-                      onChange={(e) => setDeleteConfirmInput(e.target.value)}
-                      placeholder={courseToDelete.name}
-                      className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-hidden text-xs sm:text-sm bg-white font-medium"
-                    />
-                  </div>
-                );
+      {courseToDelete && (
+        <Portal>
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-hidden"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !isDeleting) {
+                setCourseToDelete(null);
+                setDeleteConfirmInput('');
+                setDeleteError(null);
               }
-              return null;
-            })()}
+            }}
+          >
+            <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-red-100 flex flex-col z-[10000] overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
+              {/* Header */}
+              <div className="flex items-start justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">{t('courses.deleteModalTitle')}</h3>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">
+                      {courseToDelete.name} ({courseToDelete.code})
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => {
+                    setCourseToDelete(null);
+                    setDeleteConfirmInput('');
+                    setDeleteError(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => {
-                  setCourseToDelete(null);
-                  setDeleteConfirmInput('');
-                  setDeleteError(null);
-                }}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-semibold transition-colors disabled:opacity-50 text-xs sm:text-sm"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                disabled={
-                  isDeleting ||
-                  (courseMembers.filter((m) => m.courseId === courseToDelete.id && m.status === 'enrolled').length > 0 &&
-                    deleteConfirmInput.trim() !== courseToDelete.name.trim())
+              {/* Error banner if any */}
+              {deleteError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-start space-x-2 text-xs sm:text-sm text-red-700">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <span className="flex-1">{deleteError}</span>
+                </div>
+              )}
+
+              {/* Warning Description */}
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs sm:text-sm text-amber-800 space-y-1.5">
+                <p className="font-semibold">{t('courses.deleteModalWarning')}</p>
+                <div className="text-xs text-amber-700">
+                  {(() => {
+                    const enrolled = courseMembers.filter(
+                      (m) => m.courseId === courseToDelete.id && m.status === 'enrolled'
+                    ).length;
+                    const reqs = enrollmentRequests.filter(
+                      (r) => r.courseId === courseToDelete.id
+                    ).length;
+                    return (
+                      <span>
+                        {language === 'vi'
+                          ? `Dữ liệu phụ thuộc: ${enrolled} học viên đang theo học, ${reqs} yêu cầu tham gia, cùng toàn bộ bài tập và điểm số liên quan sẽ bị xóa vĩnh viễn.`
+                          : `Dependent records: ${enrolled} enrolled students, ${reqs} join requests, and all related assignments and submissions will be permanently deleted.`}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Strict Name Confirmation if Students Enrolled */}
+              {(() => {
+                const enrolled = courseMembers.filter(
+                  (m) => m.courseId === courseToDelete.id && m.status === 'enrolled'
+                ).length;
+                if (enrolled > 0) {
+                  return (
+                    <div className="space-y-1.5 pt-1">
+                      <label className="block text-xs sm:text-sm font-semibold text-slate-700">
+                        {t('courses.deleteConfirmInstruction')}
+                      </label>
+                      <input
+                        type="text"
+                        value={deleteConfirmInput}
+                        onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                        placeholder={courseToDelete.name}
+                        className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-hidden text-xs sm:text-sm bg-white font-medium"
+                      />
+                    </div>
+                  );
                 }
-                onClick={handleDeleteCourse}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
-              >
-                {isDeleting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{isDeleting ? t('common.loading') : t('courses.deleteConfirmBtn')}</span>
-              </button>
+                return null;
+              })()}
+
+              {/* Actions */}
+              <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => {
+                    setCourseToDelete(null);
+                    setDeleteConfirmInput('');
+                    setDeleteError(null);
+                  }}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-semibold transition-colors disabled:opacity-50 text-xs sm:text-sm"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    isDeleting ||
+                    (courseMembers.filter((m) => m.courseId === courseToDelete.id && m.status === 'enrolled').length > 0 &&
+                      deleteConfirmInput.trim() !== courseToDelete.name.trim())
+                  }
+                  onClick={handleDeleteCourse}
+                  className="inline-flex items-center space-x-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                >
+                  {isDeleting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeleting ? t('common.loading') : t('courses.deleteConfirmBtn')}</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>,
-        document.body
+        </Portal>
       )}
     </div>
   );

@@ -877,133 +877,161 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
       ],
     });
 
-    // 9. Call Gemini REST endpoint with timeout (52s bounded limit compatible with Edge Functions)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`;
+    // 9. Call Gemini REST endpoint with bounded retries and model fallbacks
+    const configuredPrimaryModel = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
+    const fallbackCandidates = ["gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-2.0-flash-exp"];
+    const modelsToTry = [
+      configuredPrimaryModel,
+      ...fallbackCandidates.filter((m) => m !== configuredPrimaryModel),
+    ];
 
-    const GEMINI_TIMEOUT_MS = 52000;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+    const isStructuredAction =
+      action === "generate_reading_test" ||
+      action === "regenerate_question_group" ||
+      action === "convert_document_to_assignment";
 
-    let geminiResponse: Response;
-    try {
-      geminiResponse = await fetch(geminiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": geminiApiKey,
-        },
-        const isStructuredAction =
-          action === "generate_reading_test" ||
-          action === "regenerate_question_group" ||
-          action === "convert_document_to_assignment";
+    const generationConfig: Record<string, any> = {
+      temperature: action === "writing_feedback" ? 0.2 : 0.4,
+      maxOutputTokens: isStructuredAction ? 8192 : 4096,
+      topP: 0.95,
+    };
 
-        const generationConfig: Record<string, any> = {
-          temperature: action === "writing_feedback" ? 0.2 : 0.4,
-          maxOutputTokens: isStructuredAction ? 8192 : 4096,
-          topP: 0.95,
-        };
-
-        if (isStructuredAction) {
-          generationConfig.responseMimeType = "application/json";
-        }
-
-        body: JSON.stringify({
-          contents: contentsPayload,
-          generationConfig,
-        }),
-        signal: controller.signal,
-      });
-    } catch (networkErr: any) {
-      clearTimeout(timeoutId);
-      if (networkErr.name === "AbortError") {
-        return new Response(
-          JSON.stringify({
-            error: "Gemini API request timed out after 52 seconds. The model may be experiencing high load or processing a complex prompt. Please retry your request.",
-            code: "TIMEOUT",
-            canRetry: true,
-          }),
-          { status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          error: "Failed to connect to Google Gemini API provider.",
-          code: "NETWORK_ERROR",
-        }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    } finally {
-      clearTimeout(timeoutId);
+    if (isStructuredAction) {
+      generationConfig.responseMimeType = "application/json";
     }
 
-    // 10. Handle upstream errors
-    if (!geminiResponse.ok) {
-      const rawErrorText = await geminiResponse.text();
-      let providerStatus = "";
-      let providerMessage = "";
+    const payloadBody = JSON.stringify({
+      contents: contentsPayload,
+      generationConfig,
+    });
 
-      try {
-        const parsed = JSON.parse(rawErrorText);
-        if (parsed?.error) {
-          providerStatus = String(parsed.error.status || "");
-          providerMessage = String(parsed.error.message || "");
-        }
-      } catch {
-        // rawErrorText is not JSON
+    const sanitize = (text: string): string => {
+      if (!text) return "";
+      let clean = text;
+      if (geminiApiKey) {
+        clean = clean.split(geminiApiKey).join("[REDACTED_API_KEY]");
       }
+      if (token) {
+        clean = clean.split(token).join("[REDACTED_TOKEN]");
+      }
+      clean = clean.replace(/AIza[0-9A-Za-z-_]{35}/g, "[REDACTED_API_KEY]");
+      clean = clean.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
+      return clean.trim();
+    };
 
-      // Sanitize function to redact any accidentally echoed API keys or auth tokens
-      const sanitize = (text: string): string => {
-        if (!text) return "";
-        let clean = text;
-        if (geminiApiKey) {
-          clean = clean.split(geminiApiKey).join("[REDACTED_API_KEY]");
+    let geminiResponse: Response | null = null;
+    let successfulModel = configuredPrimaryModel;
+    let lastErrorStatus = 0;
+    let lastErrorSanitized = "";
+    let lastErrorCode = "PROVIDER_ERROR";
+
+    // Iterate through models and retry transient errors
+    modelLoop: for (const currentModel of modelsToTry) {
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(currentModel)}:generateContent`;
+      const MAX_ATTEMPTS_PER_MODEL = 2;
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
+        const GEMINI_TIMEOUT_MS = 38000;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+
+        try {
+          const res = await fetch(geminiUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": geminiApiKey,
+            },
+            body: payloadBody,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (res.ok) {
+            geminiResponse = res;
+            successfulModel = currentModel;
+            break modelLoop;
+          }
+
+          // Inspect upstream error
+          lastErrorStatus = res.status;
+          const rawErr = await res.text();
+
+          let pStatus = "";
+          let pMsg = "";
+          try {
+            const parsed = JSON.parse(rawErr);
+            if (parsed?.error) {
+              pStatus = String(parsed.error.status || "");
+              pMsg = String(parsed.error.message || "");
+            }
+          } catch {}
+
+          lastErrorSanitized = sanitize(pMsg) || sanitize(rawErr.slice(0, 300));
+          console.warn(
+            `[ai-assistant] Model ${currentModel} attempt ${attempt} returned HTTP ${res.status}${
+              pStatus ? ` (${pStatus})` : ""
+            }: ${lastErrorSanitized}`
+          );
+
+          // Non-retryable client errors
+          if (res.status === 400 || res.status === 401 || res.status === 403) {
+            lastErrorCode = res.status === 400 ? "BAD_REQUEST" : "PERMISSION_DENIED";
+            break modelLoop;
+          }
+
+          // If 503 (UNAVAILABLE / High Demand) or 429 (Resource Exhausted)
+          if (res.status === 503 || res.status === 429) {
+            lastErrorCode = res.status === 503 ? "PROVIDER_OVERLOADED" : "RATE_LIMITED";
+            if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+              const backoffMs = Math.floor(1000 * Math.pow(1.6, attempt) + Math.random() * 400);
+              await new Promise((r) => setTimeout(r, backoffMs));
+              continue;
+            }
+            console.warn(`[ai-assistant] Failover: switching from ${currentModel} to next fallback model due to high demand...`);
+            break;
+          }
+
+          break;
+        } catch (fetchErr: any) {
+          clearTimeout(timeoutId);
+          console.warn(`[ai-assistant] Network error on model ${currentModel} (attempt ${attempt}): ${fetchErr.message}`);
+          if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+            await new Promise((r) => setTimeout(r, 1200 + Math.random() * 300));
+            continue;
+          }
+          break;
         }
-        if (token) {
-          clean = clean.split(token).join("[REDACTED_TOKEN]");
-        }
-        clean = clean.replace(/AIza[0-9A-Za-z-_]{35}/g, "[REDACTED_API_KEY]");
-        clean = clean.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
-        return clean.trim();
-      };
+      }
+    }
 
-      const sanitizedStatus = sanitize(providerStatus);
-      const sanitizedMessage =
-        sanitize(providerMessage) ||
-        sanitize(rawErrorText.slice(0, 500)) ||
-        "Unknown upstream error from Google AI Studio.";
-
-      // Safe server-side log (no secrets)
-      console.error(
-        `[ai-assistant] Gemini provider error: HTTP ${geminiResponse.status}${
-          sanitizedStatus ? ` (${sanitizedStatus})` : ""
-        } | ${sanitizedMessage}`
-      );
-
-      // Determine code
-      const errorCode =
-        geminiResponse.status === 429
-          ? "RATE_LIMITED"
-          : geminiResponse.status === 403
-          ? "PERMISSION_DENIED"
-          : geminiResponse.status === 404
-          ? "MODEL_NOT_FOUND"
-          : "PROVIDER_ERROR";
-
-      const errorLabel = sanitizedStatus
-        ? `AI provider error (HTTP ${geminiResponse.status} ${sanitizedStatus}): ${sanitizedMessage}`
-        : `AI provider error (HTTP ${geminiResponse.status}): ${sanitizedMessage}`;
+    if (!geminiResponse || !geminiResponse.ok) {
+      let vietnameseMsg = "";
+      if (lastErrorStatus === 503 || lastErrorCode === "PROVIDER_OVERLOADED") {
+        vietnameseMsg =
+          "Mô hình AI của Google hiện đang nhận lượng truy cập cao đột biến (HTTP 503 UNAVAILABLE: High Demand). Hệ thống đã giữ nguyên toàn bộ nội dung bạn vừa nhập, vui lòng bấm nút Thử lại sau ít giây.";
+      } else if (lastErrorStatus === 429 || lastErrorCode === "RATE_LIMITED") {
+        vietnameseMsg =
+          "Hạn mức yêu cầu AI trong thời điểm này đã tạm thời đầy (HTTP 429 RATE LIMITED). Vui lòng đợi khoảng 20-30 giây rồi bấm Thử lại.";
+      } else if (lastErrorStatus === 401 || lastErrorStatus === 403) {
+        vietnameseMsg =
+          "Khóa API Gemini chưa hợp lệ hoặc chưa được kích hoạt quyền truy cập trên Supabase. Vui lòng kiểm tra lại cấu hình.";
+      } else {
+        vietnameseMsg =
+          `Dịch vụ AI phản hồi lỗi (HTTP ${lastErrorStatus || 502}): ${lastErrorSanitized || "Vui lòng thử lại sau giây lát."}`;
+      }
 
       return new Response(
         JSON.stringify({
-          error: errorLabel,
-          code: errorCode,
-          providerHttp: geminiResponse.status,
-          providerStatus: sanitizedStatus || undefined,
-          providerMessage: sanitizedMessage,
+          error: vietnameseMsg,
+          code: lastErrorCode,
+          canRetry: [502, 503, 504, 429].includes(lastErrorStatus) || lastErrorCode === "PROVIDER_OVERLOADED",
+          providerHttp: lastErrorStatus,
+          providerMessage: lastErrorSanitized,
         }),
         {
-          status: geminiResponse.status >= 500 ? 502 : 400,
+          status: lastErrorStatus >= 500 ? 502 : 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
@@ -1031,7 +1059,7 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
     }
 
     console.log(
-      `[ai-assistant] action=${action} user=${user.id} role=${userRole} model=${geminiModel} out_len=${generatedDraft.length}`
+      `[ai-assistant] action=${action} user=${user.id} role=${userRole} model=${successfulModel} out_len=${generatedDraft.length}`
     );
 
     let structuredData: any = null;
@@ -1068,7 +1096,7 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
       JSON.stringify({
         draft: generatedDraft,
         structuredData,
-        model: geminiModel,
+        model: successfulModel,
         action,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

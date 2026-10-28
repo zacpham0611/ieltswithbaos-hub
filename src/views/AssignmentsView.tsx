@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Portal } from '../components/Portal';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import {
@@ -1583,50 +1584,54 @@ export const AssignmentsView: React.FC = () => {
 
         {/* Modal: Return for revision */}
         {showReturnModal && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
-              <h3 className="text-base font-bold text-slate-900 mb-2">{t('assignments.returnModalTitle')}</h3>
-              <p className="text-xs text-slate-500 mb-3">{t('assignments.returnModalDesc')}</p>
-              <textarea
-                rows={3}
-                value={returnComments}
-                onChange={(e) => setReturnComments(e.target.value)}
-                placeholder="e.g. Essay is currently 190 words. Please expand your arguments to meet the 250-word minimum."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg outline-hidden focus:ring-2 focus:ring-amber-500"
-              />
-              <div className="flex justify-end space-x-2 mt-4">
-                <button
-                  onClick={() => setShowReturnModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  onClick={handleConfirmReturn}
-                  className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg shadow-xs"
-                >
-                  {t('assignments.confirmReturn')}
-                </button>
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+                <h3 className="text-base font-bold text-slate-900 mb-2">{t('assignments.returnModalTitle')}</h3>
+                <p className="text-xs text-slate-500 mb-3">{t('assignments.returnModalDesc')}</p>
+                <textarea
+                  rows={3}
+                  value={returnComments}
+                  onChange={(e) => setReturnComments(e.target.value)}
+                  placeholder="e.g. Essay is currently 190 words. Please expand your arguments to meet the 250-word minimum."
+                  className="w-full text-xs p-3 border border-slate-300 rounded-lg outline-hidden focus:ring-2 focus:ring-amber-500"
+                />
+                <div className="flex justify-end space-x-2 mt-4">
+                  <button
+                    onClick={() => setShowReturnModal(false)}
+                    className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    onClick={handleConfirmReturn}
+                    className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg shadow-xs"
+                  >
+                    {t('assignments.confirmReturn')}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          </Portal>
         )}
 
         {/* Zoom Image Modal */}
         {showZoomImageModal && parentAssignment?.task1ImageUrl && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl p-4 max-w-4xl w-full max-h-[90vh] flex flex-col space-y-3">
-              <div className="flex justify-between items-center pb-2 border-b">
-                <span className="font-bold text-sm text-slate-800">Task 1 Diagram (Full Resolution)</span>
-                <button onClick={() => setShowZoomImageModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="overflow-auto flex-1 flex items-center justify-center">
-                <img src={parentAssignment.task1ImageUrl} alt="Full Zoom Diagram" className="max-w-full max-h-[75vh] object-contain" />
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl p-4 max-w-4xl w-full max-h-[90vh] flex flex-col space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex justify-between items-center pb-2 border-b">
+                  <span className="font-bold text-sm text-slate-800">Task 1 Diagram (Full Resolution)</span>
+                  <button onClick={() => setShowZoomImageModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="overflow-auto flex-1 flex items-center justify-center">
+                  <img src={parentAssignment.task1ImageUrl} alt="Full Zoom Diagram" className="max-w-full max-h-[75vh] object-contain" />
+                </div>
               </div>
             </div>
-          </div>
+          </Portal>
         )}
       </div>
     );
@@ -2556,50 +2561,54 @@ export const AssignmentsView: React.FC = () => {
 
         {/* Modal: Unanswered Questions Warning before Reading Submit */}
         {showUnansweredModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
-              <div className="flex items-center space-x-3 text-amber-600">
-                <AlertTriangle className="w-6 h-6 shrink-0" />
-                <h3 className="text-base font-bold text-slate-900">Unanswered Questions Warning</h3>
-              </div>
-              <p className="text-sm text-slate-600">
-                You have {questions.length - answeredCount} unanswered question(s). In the real IELTS exam, unanswered questions score zero points.
-              </p>
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowUnansweredModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
-                >
-                  Review Questions
-                </button>
-                <button
-                  type="button"
-                  onClick={executeReadingSubmit}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs"
-                >
-                  Submit Anyway
-                </button>
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center space-x-3 text-amber-600">
+                  <AlertTriangle className="w-6 h-6 shrink-0" />
+                  <h3 className="text-base font-bold text-slate-900">Unanswered Questions Warning</h3>
+                </div>
+                <p className="text-sm text-slate-600">
+                  You have {questions.length - answeredCount} unanswered question(s). In the real IELTS exam, unanswered questions score zero points.
+                </p>
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowUnansweredModal(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+                  >
+                    Review Questions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={executeReadingSubmit}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs"
+                  >
+                    Submit Anyway
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          </Portal>
         )}
 
         {/* Zoom Image Modal */}
         {showZoomImageModal && activeAssignment.task1ImageUrl && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl p-4 max-w-4xl w-full max-h-[90vh] flex flex-col space-y-3">
-              <div className="flex justify-between items-center pb-2 border-b">
-                <span className="font-bold text-sm text-slate-800">Task 1 Visual Diagram</span>
-                <button onClick={() => setShowZoomImageModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="overflow-auto flex-1 flex items-center justify-center">
-                <img src={activeAssignment.task1ImageUrl} alt="Full Resolution Diagram" className="max-w-full max-h-[75vh] object-contain" />
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl p-4 max-w-4xl w-full max-h-[90vh] flex flex-col space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex justify-between items-center pb-2 border-b">
+                  <span className="font-bold text-sm text-slate-800">Task 1 Visual Diagram</span>
+                  <button onClick={() => setShowZoomImageModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="overflow-auto flex-1 flex items-center justify-center">
+                  <img src={activeAssignment.task1ImageUrl} alt="Full Resolution Diagram" className="max-w-full max-h-[75vh] object-contain" />
+                </div>
               </div>
             </div>
-          </div>
+          </Portal>
         )}
       </div>
     );
@@ -2835,19 +2844,20 @@ export const AssignmentsView: React.FC = () => {
           MODAL: CREATE / EDIT ASSIGNMENT
       ========================================================================= */}
       {showCreateEditModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="text-lg font-bold text-slate-900">
-                {editingAssignmentId ? 'Edit Assignment / Exercise' : t('assignments.createBtn')}
-              </h3>
-              <button
-                onClick={() => setShowCreateEditModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 my-8 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h3 className="text-lg font-bold text-slate-900">
+                  {editingAssignmentId ? 'Edit Assignment / Exercise' : t('assignments.createBtn')}
+                </h3>
+                <button
+                  onClick={() => setShowCreateEditModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
             <form onSubmit={handleSaveAssignmentForm} className="space-y-4 text-sm">
               <div>
@@ -3106,174 +3116,179 @@ export const AssignmentsView: React.FC = () => {
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
       {/* =========================================================================
           MODAL: SAFE EXERCISE DELETION WARNING
       ========================================================================= */}
       {deletingAssignment && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
-            <div className="flex items-center space-x-3 text-red-600">
-              <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h3 className="text-base font-bold text-slate-900">Delete Exercise Confirmation</h3>
-            </div>
-
-            <p className="text-sm text-slate-700">
-              Are you sure you want to delete <strong>"{deletingAssignment.title}"</strong>?
-            </p>
-
-            {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length > 0 ? (
-              <div className="p-3.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 space-y-1">
-                <p className="font-bold">
-                  Warning: There are {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length} student submission(s) for this exercise.
-                </p>
-                <p>
-                  Permanently deleting will delete all associated student grades and feedback. You can choose to unpublish it to Draft to safely preserve student work.
-                </p>
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center space-x-3 text-red-600">
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <h3 className="text-base font-bold text-slate-900">Delete Exercise Confirmation</h3>
               </div>
-            ) : (
-              <p className="text-xs text-slate-500">
-                No student submissions have been submitted for this exercise yet. It can be safely deleted.
+
+              <p className="text-sm text-slate-700">
+                Are you sure you want to delete <strong>"{deletingAssignment.title}"</strong>?
               </p>
-            )}
 
-            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setDeletingAssignment(null)}
-                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
-              >
-                Cancel
-              </button>
+              {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length > 0 ? (
+                <div className="p-3.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 space-y-1">
+                  <p className="font-bold">
+                    Warning: There are {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length} student submission(s) for this exercise.
+                  </p>
+                  <p>
+                    Permanently deleting will delete all associated student grades and feedback. You can choose to unpublish it to Draft to safely preserve student work.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  No student submissions have been submitted for this exercise yet. It can be safely deleted.
+                </p>
+              )}
 
-              {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length > 0 && (
+              <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDeletingAssignment(null)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+
+                {submissions.filter((s) => s.assignmentId === deletingAssignment.id).length > 0 && (
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => handleConfirmDeleteAssignment('unpublish')}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-xs"
+                  >
+                    Unpublish to Draft (Preserve Work)
+                  </button>
+                )}
+
                 <button
                   type="button"
                   disabled={isDeleting}
-                  onClick={() => handleConfirmDeleteAssignment('unpublish')}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-xs"
+                  onClick={() => handleConfirmDeleteAssignment('permanent')}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs"
                 >
-                  Unpublish to Draft (Preserve Work)
+                  {isDeleting ? 'Deleting...' : 'Permanently Delete'}
                 </button>
-              )}
-
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => handleConfirmDeleteAssignment('permanent')}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs"
-              >
-                {isDeleting ? 'Deleting...' : 'Permanently Delete'}
-              </button>
+              </div>
             </div>
           </div>
-        </div>
+        </Portal>
       )}
 
       {/* =========================================================================
           MODAL: IMPORT FROM RESOURCE LIBRARY
       ========================================================================= */}
       {showImportLibraryModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="relative z-10 bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
-                  <BookOpen className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Import from Resource Library</h3>
-                  <p className="text-xs text-slate-500">Select a teaching material to assign to your course</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowImportLibraryModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Target Course Selector */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Target Course *</label>
-              <select
-                value={libraryCourseId}
-                onChange={(e) => setLibraryCourseId(e.target.value)}
-                className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-              >
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search library resources by title, skill, or tag..."
-                value={librarySearch}
-                onChange={(e) => setLibrarySearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-              />
-            </div>
-
-            {/* Resources List */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
-              {resources
-                .filter((r) => {
-                  if (!librarySearch) return true;
-                  const q = librarySearch.toLowerCase();
-                  return (
-                    r.title.toLowerCase().includes(q) ||
-                    (r.tags && r.tags.some((t) => t.toLowerCase().includes(q))) ||
-                    (r.skill && r.skill.toLowerCase().includes(q))
-                  );
-                })
-                .map((res) => (
-                  <div
-                    key={res.id}
-                    className="p-3.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/20 transition-all flex items-center justify-between"
-                  >
-                    <div className="space-y-0.5 max-w-[70%]">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm font-bold text-slate-900 truncate">{res.title}</span>
-                        {res.skill && (
-                          <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            {res.skill}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 truncate">
-                        {res.content ? `${res.content.slice(0, 100)}...` : res.url || 'Library study material'}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={isImportingFromLibrary}
-                      onClick={() => handleImportResourceToAssignment(res)}
-                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors shrink-0"
-                    >
-                      {isImportingFromLibrary ? 'Assigning...' : 'Assign to Course'}
-                    </button>
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="relative z-10 bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 space-y-4 max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                    <BookOpen className="w-5 h-5" />
                   </div>
-                ))}
-
-              {resources.length === 0 && (
-                <div className="text-center py-10 text-slate-400 text-xs">
-                  No materials found in your resource library yet. You can upload documents via Smart Import.
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Import from Resource Library</h3>
+                    <p className="text-xs text-slate-500">Select a teaching material to assign to your course</p>
+                  </div>
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={() => setShowImportLibraryModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Target Course Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Target Course *</label>
+                <select
+                  value={libraryCourseId}
+                  onChange={(e) => setLibraryCourseId(e.target.value)}
+                  className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                >
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Search Input */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search library resources by title, skill, or tag..."
+                  value={librarySearch}
+                  onChange={(e) => setLibrarySearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Resources List */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
+                {resources
+                  .filter((r) => {
+                    if (!librarySearch) return true;
+                    const q = librarySearch.toLowerCase();
+                    return (
+                      r.title.toLowerCase().includes(q) ||
+                      (r.tags && r.tags.some((t) => t.toLowerCase().includes(q))) ||
+                      (r.skill && r.skill.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((res) => (
+                    <div
+                      key={res.id}
+                      className="p-3.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/20 transition-all flex items-center justify-between"
+                    >
+                      <div className="space-y-0.5 max-w-[70%]">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm font-bold text-slate-900 truncate">{res.title}</span>
+                          {res.skill && (
+                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              {res.skill}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 truncate">
+                          {res.content ? `${res.content.slice(0, 100)}...` : res.url || 'Library study material'}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={isImportingFromLibrary}
+                        onClick={() => handleImportResourceToAssignment(res)}
+                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors shrink-0"
+                      >
+                        {isImportingFromLibrary ? 'Assigning...' : 'Assign to Course'}
+                      </button>
+                    </div>
+                  ))}
+
+                {resources.length === 0 && (
+                  <div className="text-center py-10 text-slate-400 text-xs">
+                    No materials found in your resource library yet. You can upload documents via Smart Import.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </Portal>
       )}
     </div>
   );

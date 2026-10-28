@@ -21,6 +21,7 @@ import {
   QuestionGroup,
   ParsedPassage,
   TeacherBankInfo,
+  CourseSkill,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
@@ -1577,17 +1578,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // LESSONS OPERATIONS
   const createLesson = async (lessonData: Omit<Lesson, 'id'>) => {
-    await supabase.from('class_sessions').insert({
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const validSkills: CourseSkill[] = ['reading', 'writing', 'speaking', 'listening'];
+    const safeSkill = validSkills.includes(lessonData.skill as any) ? lessonData.skill : 'writing';
+
+    const insertPayload: any = {
       course_id: lessonData.courseId,
       title: lessonData.title,
-      objectives: lessonData.objectives,
-      skill: lessonData.skill,
-      teacher_notes: lessonData.teacherNotes,
-      activities: lessonData.activities,
-      homework: lessonData.homework,
+      objectives: lessonData.objectives || '',
+      skill: safeSkill,
+      teacher_notes: lessonData.teacherNotes || '',
+      activities: lessonData.activities || '',
+      homework: lessonData.homework || '',
       session_date: lessonData.date || new Date().toISOString().split('T')[0],
-      is_published: lessonData.isPublished,
-    });
+      is_published: lessonData.isPublished !== false,
+      duration_minutes: lessonData.durationMinutes || 60,
+      is_billable: lessonData.isBillable !== false,
+    };
+
+    let { data: inserted, error } = await supabase
+      .from('class_sessions')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      const errMsg = String(error.message || '');
+      if (errMsg.includes('duration_minutes') || errMsg.includes('is_billable')) {
+        delete insertPayload.duration_minutes;
+        delete insertPayload.is_billable;
+        const retry = await supabase
+          .from('class_sessions')
+          .insert(insertPayload)
+          .select()
+          .single();
+        if (retry.error) {
+          console.error('Error inserting lesson:', retry.error);
+          throw retry.error;
+        }
+        inserted = retry.data;
+      } else {
+        console.error('Error inserting lesson:', error);
+        throw error;
+      }
+    }
+
+    if (inserted) {
+      const newLessonObj: Lesson = {
+        id: inserted.id,
+        courseId: inserted.course_id,
+        studentId: inserted.student_id,
+        title: inserted.title,
+        objectives: inserted.objectives || '',
+        skill: (inserted.skill as CourseSkill) || safeSkill,
+        teacherNotes: inserted.teacher_notes || '',
+        activities: inserted.activities || '',
+        homework: inserted.homework || '',
+        date: inserted.session_date,
+        status: inserted.status || 'completed',
+        durationMinutes: Number(inserted.duration_minutes) || lessonData.durationMinutes || 60,
+        isBillable: inserted.is_billable !== false,
+        resources: lessonData.resources || [],
+        isPublished: inserted.is_published,
+      };
+
+      setLessons((prev) => [newLessonObj, ...prev]);
+    }
 
     refreshData();
   };

@@ -36,11 +36,11 @@ export interface DocumentConversionParams {
 
 export interface LessonPlannerParams {
   skill: string;
-  currentBand: string;
+  currentBand?: string;
   targetBand: string;
-  duration: string;
+  duration?: string;
   topic: string;
-  objectives: string;
+  objectives?: string;
   constraints?: string;
   courseName?: string;
 }
@@ -95,50 +95,78 @@ export interface ChatParams {
   skill?: string;
 }
 
+import { isAiTransientError, formatAiErrorMessage } from './aiResilience';
+export { isAiTransientError, formatAiErrorMessage };
+
 /**
  * Universal invoker for the secure Supabase Edge Function 'ai-assistant'.
  * The Gemini API key is accessed exclusively server-side and is never exposed to the client.
  */
 async function invokeAiAssistant(action: string, payload: Record<string, any>): Promise<GenerateDraftResult> {
   if (!isSupabaseConfigured) {
-    throw new Error('Supabase is not configured. Please connect a valid Supabase project.');
+    throw new Error('Supabase chưa được cấu hình. Vui lòng kết nối dự án Supabase hợp lệ.');
   }
 
-  const { data, error } = await supabase.functions.invoke('ai-assistant', {
-    body: {
-      action,
-      ...payload,
-    },
-  });
+  const MAX_CLIENT_ATTEMPTS = 2;
+  let lastError: any = null;
 
-  if (error) {
-    let message = error.message;
+  for (let attempt = 1; attempt <= MAX_CLIENT_ATTEMPTS; attempt++) {
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-assistant', {
+        body: {
+          action,
+          ...payload,
+        },
+      });
 
-    // Parse Edge Function response body if available
-    if ('context' in error && (error as any).context?.json) {
-      try {
-        const body = await (error as any).context.json();
-        if (body?.error) {
-          message = body.error;
+      if (error) {
+        let message = error.message;
+
+        // Parse Edge Function response body if available
+        if ('context' in error && (error as any).context?.json) {
+          try {
+            const body = await (error as any).context.json();
+            if (body?.error) {
+              message = body.error;
+            }
+          } catch {
+            // Fall back to error.message
+          }
         }
-      } catch {
-        // Fall back to error.message
+
+        const formattedMsg = formatAiErrorMessage(message);
+
+        // Retry once on client for transient 503/429
+        if (isAiTransientError(message) && attempt < MAX_CLIENT_ATTEMPTS) {
+          console.warn(`[invokeAiAssistant] Transient AI error on attempt ${attempt}, retrying in 2s...`);
+          await new Promise((r) => setTimeout(r, 2000 + Math.random() * 500));
+          continue;
+        }
+
+        throw new Error(formattedMsg);
       }
+
+      if (!data || !data.draft) {
+        throw new Error('Gemini AI assistant returned an empty response. Please try again.');
+      }
+
+      return {
+        draft: data.draft,
+        model: data.model || 'gemini-1.5-flash',
+        action: data.action,
+        structuredData: data.structuredData,
+      };
+    } catch (err: any) {
+      lastError = err;
+      if (isAiTransientError(err) && attempt < MAX_CLIENT_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 2000 + Math.random() * 500));
+        continue;
+      }
+      throw err;
     }
-
-    throw new Error(message || 'Failed to communicate with Gemini AI assistant.');
   }
 
-  if (!data || !data.draft) {
-    throw new Error('Gemini AI assistant returned an empty response. Please try again.');
-  }
-
-  return {
-    draft: data.draft,
-    model: data.model || 'gemini-1.5-flash',
-    action: data.action,
-    structuredData: data.structuredData,
-  };
+  throw lastError || new Error('Không thể kết nối với dịch vụ trợ lý AI.');
 }
 
 /**

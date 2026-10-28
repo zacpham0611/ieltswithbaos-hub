@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { Resource, Lesson, CourseSkill, ResourceType, GeneratedReadingTest } from '../types';
+import { Portal } from '../components/Portal';
+import { generateLessonPlan, formatAiErrorMessage } from '../lib/ai';
+import { parseAiLessonPlan } from '../lib/lessonPlanParser';
 import {
   FolderArchive,
   FileText,
@@ -22,6 +25,8 @@ import {
   ArrowRight,
   Download,
   Edit,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
@@ -78,13 +83,16 @@ export const ResourcesView: React.FC = () => {
   const [lessonTeacherNotes, setLessonTeacherNotes] = useState('');
   const [lessonActivities, setLessonActivities] = useState('');
   const [lessonHomework, setLessonHomework] = useState('');
-  const [lessonDate, setLessonDate] = useState('2026-10-22');
+  const [lessonDate, setLessonDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [lessonIsPublished, setLessonIsPublished] = useState(true);
 
   // AI Lesson Generator inputs
   const [aiSkill, setAiSkill] = useState<CourseSkill>('writing');
   const [aiTopic, setAiTopic] = useState('Writing Task 2 Problem & Solution on Environmental Pollution');
   const [aiTargetBand, setAiTargetBand] = useState('6.5 - 7.5');
+  const [aiDuration, setAiDuration] = useState('60 minutes');
+  const [isGeneratingAiLesson, setIsGeneratingAiLesson] = useState(false);
+  const [aiLessonError, setAiLessonError] = useState<string | null>(null);
   const [aiGeneratedDraft, setAiGeneratedDraft] = useState<string | null>(null);
 
   const visibleResources = isTeacher
@@ -153,36 +161,41 @@ export const ResourcesView: React.FC = () => {
     setLessonTeacherNotes('');
   };
 
-  const generateAiLesson = () => {
-    const draft = `Title: Advanced ${aiSkill.toUpperCase()} Workshop — ${aiTopic}
-Objectives:
-• Deconstruct Band 7.5+ criteria specifically for ${aiTopic}.
-• Master 5 advanced cohesive transitions and eliminate repetitive conjunctions.
-• Execute timed 20-minute drafting drill with paired peer critique.
-
-Activities:
-1. Warm-up (10m): Diagnostic error analysis of common Band 6.0 mistakes.
-2. Direct Instruction (20m): Collocation mapping and band descriptors breakdown.
-3. Guided Practice (25m): Step-by-step thesis crafting and paragraph structuring.
-4. Independent Sprint (25m): Timed task completion with teacher live feedback.
-
-Teacher Notes:
-Ensure students do not over-use memorized idiomatic phrases. Emphasize clarity and grammatical range.
-
-Homework:
-Submit full completed assignment with self-editing checklist.`;
-
-    setAiGeneratedDraft(draft);
+  const generateAiLesson = async () => {
+    if (!aiTopic.trim()) return;
+    setIsGeneratingAiLesson(true);
+    setAiLessonError(null);
+    try {
+      const res = await generateLessonPlan({
+        skill: aiSkill,
+        topic: aiTopic.trim(),
+        targetBand: aiTargetBand.trim() || '7.0',
+        currentBand: '6.0',
+        duration: aiDuration,
+        objectives: `Master Band ${aiTargetBand} objectives for ${aiTopic.trim()}`,
+      });
+      if (res && res.draft) {
+        setAiGeneratedDraft(res.draft);
+      } else {
+        throw new Error('AI không trả về nội dung giáo án.');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate AI lesson plan:', err);
+      setAiLessonError(formatAiErrorMessage(err));
+    } finally {
+      setIsGeneratingAiLesson(false);
+    }
   };
 
   const applyAiToLessonForm = () => {
     if (!aiGeneratedDraft) return;
-    setLessonTitle(`Workshop: ${aiTopic}`);
-    setLessonSkill(aiSkill);
-    setLessonObjectives(`Master Band ${aiTargetBand} criteria for ${aiTopic}.`);
-    setLessonActivities(`1. Error analysis\n2. Collocation mapping\n3. Guided paragraph drafting`);
-    setLessonTeacherNotes(`Remind students: AI output is a draft. Check coherence and natural academic tone.`);
-    setLessonHomework(`Submit full task drill via assignment portal.`);
+    const parsed = parseAiLessonPlan(aiGeneratedDraft, aiSkill, aiTopic);
+    setLessonTitle(parsed.title);
+    setLessonSkill(parsed.skill);
+    setLessonObjectives(parsed.objectives);
+    setLessonActivities(parsed.activities);
+    setLessonTeacherNotes(parsed.teacherNotes);
+    setLessonHomework(parsed.homework);
     setShowAiLessonModal(false);
     setShowAddLessonModal(true);
   };
@@ -609,6 +622,15 @@ Submit full completed assignment with self-editing checklist.`;
                       >
                         {lesson.skill}
                       </span>
+                      {(() => {
+                        const course = courses.find((c) => c.id === lesson.courseId);
+                        return course ? (
+                          <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 flex items-center space-x-1">
+                            <BookOpen className="w-3 h-3" />
+                            <span className="truncate max-w-[140px]">{course.name}</span>
+                          </span>
+                        ) : null;
+                      })()}
                       <span className="text-slate-400 flex items-center space-x-1">
                         <Calendar className="w-3.5 h-3.5" />
                         <span>{formatDate(lesson.date)}</span>
@@ -670,202 +692,94 @@ Submit full completed assignment with self-editing checklist.`;
 
       {/* Modal: Add Resource */}
       {showAddResModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
-            <h3 className="text-base font-bold text-slate-900 mb-4">{t('resources.addModalTitle')}</h3>
-            <form onSubmit={handleAddResource} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceTitle')}</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Cambridge 18 Reading Passage 2 Drill"
-                  value={resTitle}
-                  onChange={(e) => setResTitle(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              <h3 className="text-base font-bold text-slate-900 mb-4">{t('resources.addModalTitle')}</h3>
+              <form onSubmit={handleAddResource} className="space-y-3 text-xs">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceType')}</label>
-                  <select
-                    value={resType}
-                    onChange={(e) => setResType(e.target.value as ResourceType)}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                  >
-                    <option value="pdf">PDF Document</option>
-                    <option value="doc">Word / Doc</option>
-                    <option value="audio">Audio Clip</option>
-                    <option value="video">Video URL</option>
-                    <option value="link">Web Link</option>
-                    <option value="note">Text / Note</option>
-                  </select>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceTitle')}</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Cambridge 18 Reading Passage 2 Drill"
+                    value={resTitle}
+                    onChange={(e) => setResTitle(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+                  />
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceType')}</label>
+                    <select
+                      value={resType}
+                      onChange={(e) => setResType(e.target.value as ResourceType)}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    >
+                      <option value="pdf">PDF Document</option>
+                      <option value="doc">Word / Doc</option>
+                      <option value="audio">Audio Clip</option>
+                      <option value="video">Video URL</option>
+                      <option value="link">Web Link</option>
+                      <option value="note">Text / Note</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')}</label>
+                    <select
+                      value={resSkill}
+                      onChange={(e) => setResSkill(e.target.value as CourseSkill)}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    >
+                      <option value="reading">{t('skills.reading')}</option>
+                      <option value="writing">{t('skills.writing')}</option>
+                      <option value="listening">{t('skills.listening')}</option>
+                      <option value="speaking">{t('skills.speaking')}</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')}</label>
-                  <select
-                    value={resSkill}
-                    onChange={(e) => setResSkill(e.target.value as CourseSkill)}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                  >
-                    <option value="reading">{t('skills.reading')}</option>
-                    <option value="writing">{t('skills.writing')}</option>
-                    <option value="listening">{t('skills.listening')}</option>
-                    <option value="speaking">{t('skills.speaking')}</option>
-                  </select>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceFolder')}</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Reading Practice, Vocabulary Sheets"
+                    value={resFolder}
+                    onChange={(e) => setResFolder(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceFolder')}</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Reading Practice, Vocabulary Sheets"
-                  value={resFolder}
-                  onChange={(e) => setResFolder(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceTags')}</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. academic, task2, band7"
+                    value={resTags}
+                    onChange={(e) => setResTags(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceTags')}</label>
-                <input
-                  type="text"
-                  placeholder="e.g. academic, task2, band7"
-                  value={resTags}
-                  onChange={(e) => setResTags(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="pub-check"
-                  checked={resIsPublished}
-                  onChange={(e) => setResIsPublished(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded"
-                />
-                <label htmlFor="pub-check" className="text-slate-700 font-medium">
-                  {t('resources.publishImmediately')}
-                </label>
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddResModal(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-xs"
-                >
-                  {t('resources.saveResourceBtn')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Create Lesson */}
-      {showAddLessonModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-base font-bold text-slate-900 mb-3">{t('resources.createLessonTitle')}</h3>
-            <form onSubmit={handleCreateLesson} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')}</label>
-                <select
-                  required
-                  value={lessonCourseId}
-                  onChange={(e) => setLessonCourseId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                >
-                  <option value="">{t('resources.chooseCourse')}</option>
-                  {courses
-                    .filter((c) => c.teacherId === currentUser.id && c.status === 'active')
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.lessonTitle')}</label>
-                <input
-                  type="text"
-                  required
-                  value={lessonTitle}
-                  onChange={(e) => setLessonTitle(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.objectives')}</label>
-                <textarea
-                  rows={2}
-                  value={lessonObjectives}
-                  onChange={(e) => setLessonObjectives(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.activities')}</label>
-                <textarea
-                  rows={3}
-                  value={lessonActivities}
-                  onChange={(e) => setLessonActivities(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
-                <label className="block font-bold text-amber-900 mb-1">
-                  {t('resources.teacherNotesSecret')}
-                </label>
-                <textarea
-                  rows={2}
-                  value={lessonTeacherNotes}
-                  onChange={(e) => setLessonTeacherNotes(e.target.value)}
-                  className="w-full p-2 border border-amber-300 rounded-lg outline-hidden bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.homework')}</label>
-                <input
-                  type="text"
-                  value={lessonHomework}
-                  onChange={(e) => setLessonHomework(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                <label className="flex items-center space-x-2">
+                <div className="pt-2 flex items-center space-x-2">
                   <input
                     type="checkbox"
-                    checked={lessonIsPublished}
-                    onChange={(e) => setLessonIsPublished(e.target.checked)}
+                    id="pub-check"
+                    checked={resIsPublished}
+                    onChange={(e) => setResIsPublished(e.target.checked)}
                     className="w-4 h-4 text-blue-600 rounded"
                   />
-                  <span className="font-semibold text-slate-700">{t('resources.publishImmediately')}</span>
-                </label>
+                  <label htmlFor="pub-check" className="text-slate-700 font-medium">
+                    {t('resources.publishImmediately')}
+                  </label>
+                </div>
 
-                <div className="space-x-2">
+                <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setShowAddLessonModal(false)}
-                    className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                    onClick={() => setShowAddResModal(false)}
+                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
                   >
                     {t('common.cancel')}
                   </button>
@@ -873,95 +787,278 @@ Submit full completed assignment with self-editing checklist.`;
                     type="submit"
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-xs"
                   >
-                    {t('resources.saveLessonBtn')}
+                    {t('resources.saveResourceBtn')}
                   </button>
                 </div>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
+        </Portal>
+      )}
+
+      {/* Modal: Create Lesson */}
+      {showAddLessonModal && (
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+              <h3 className="text-base font-bold text-slate-900 mb-3">{t('resources.createLessonTitle')}</h3>
+              <form onSubmit={handleCreateLesson} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')}</label>
+                  <select
+                    required
+                    value={lessonCourseId}
+                    onChange={(e) => setLessonCourseId(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                  >
+                    <option value="">{t('resources.chooseCourse')}</option>
+                    {courses
+                      .filter((c) => c.teacherId === currentUser.id && c.status === 'active')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.lessonTitle')}</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Master Writing Task 2 Cohesion & Paragraph Transitions"
+                    value={lessonTitle}
+                    onChange={(e) => setLessonTitle(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')}</label>
+                    <select
+                      value={lessonSkill}
+                      onChange={(e) => setLessonSkill(e.target.value as CourseSkill)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    >
+                      <option value="writing">{t('skills.writing')}</option>
+                      <option value="reading">{t('skills.reading')}</option>
+                      <option value="speaking">{t('skills.speaking')}</option>
+                      <option value="listening">{t('skills.listening')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Ngày diễn ra</label>
+                    <input
+                      type="date"
+                      required
+                      value={lessonDate}
+                      onChange={(e) => setLessonDate(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.objectives')}</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Mục tiêu bài học..."
+                    value={lessonObjectives}
+                    onChange={(e) => setLessonObjectives(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.activities')}</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Các hoạt động, timed stages trong buổi học..."
+                    value={lessonActivities}
+                    onChange={(e) => setLessonActivities(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
+                <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                  <label className="block font-bold text-amber-900 mb-1">
+                    {t('resources.teacherNotesSecret')}
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Ghi chú sư phạm riêng của giáo viên..."
+                    value={lessonTeacherNotes}
+                    onChange={(e) => setLessonTeacherNotes(e.target.value)}
+                    className="w-full p-2 border border-amber-300 rounded-lg outline-hidden bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.homework')}</label>
+                  <input
+                    type="text"
+                    placeholder="Bài tập về nhà..."
+                    value={lessonHomework}
+                    onChange={(e) => setLessonHomework(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={lessonIsPublished}
+                      onChange={(e) => setLessonIsPublished(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <span className="font-semibold text-slate-700">{t('resources.publishImmediately')}</span>
+                  </label>
+
+                  <div className="space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddLessonModal(false)}
+                      className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                    >
+                      {t('common.cancel')}
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-xs"
+                    >
+                      {t('resources.saveLessonBtn')}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </Portal>
       )}
 
       {/* Modal: AI Lesson Assistant */}
       {showAiLessonModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center space-x-2 text-indigo-700 mb-2">
-              <Sparkles className="w-5 h-5" />
-              <h3 className="text-base font-bold text-slate-900">{t('resources.aiAssistantTitle')}</h3>
-            </div>
-            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-              {t('resources.aiAssistantDesc')}
-            </p>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')}</label>
-                <select
-                  value={aiSkill}
-                  onChange={(e) => setAiSkill(e.target.value as CourseSkill)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
-                >
-                  <option value="writing">{t('skills.writing')}</option>
-                  <option value="reading">{t('skills.reading')}</option>
-                  <option value="speaking">{t('skills.speaking')}</option>
-                  <option value="listening">{t('skills.listening')}</option>
-                </select>
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center space-x-2 text-indigo-700 mb-2">
+                <Sparkles className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-bold text-slate-900">{t('resources.aiAssistantTitle')}</h3>
               </div>
+              <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                {t('resources.aiAssistantDesc')}
+              </p>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.topicFocus')}</label>
-                <input
-                  type="text"
-                  value={aiTopic}
-                  onChange={(e) => setAiTopic(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.targetBandRange')}</label>
-                <input
-                  type="text"
-                  value={aiTargetBand}
-                  onChange={(e) => setAiTargetBand(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <button
-                onClick={generateAiLesson}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-xs flex items-center justify-center space-x-1.5"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>{t('resources.generateDraftBtn')}</span>
-              </button>
-
-              {aiGeneratedDraft && (
-                <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                  <pre className="text-xs text-slate-800 whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">
-                    {aiGeneratedDraft}
-                  </pre>
-                  <button
-                    onClick={applyAiToLessonForm}
-                    className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors"
-                  >
-                    {t('resources.transferToLesson')} &rarr;
-                  </button>
+              {aiLessonError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <span className="flex-1 leading-relaxed">{aiLessonError}</span>
                 </div>
               )}
 
-              <div className="flex justify-end pt-3 border-t border-slate-100">
+              <div className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceSkill')}</label>
+                    <select
+                      value={aiSkill}
+                      onChange={(e) => setAiSkill(e.target.value as CourseSkill)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    >
+                      <option value="writing">{t('skills.writing')}</option>
+                      <option value="reading">{t('skills.reading')}</option>
+                      <option value="speaking">{t('skills.speaking')}</option>
+                      <option value="listening">{t('skills.listening')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Thời lượng buổi học</label>
+                    <select
+                      value={aiDuration}
+                      onChange={(e) => setAiDuration(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    >
+                      <option value="45 minutes">45 phút</option>
+                      <option value="60 minutes">60 phút (Tiêu chuẩn)</option>
+                      <option value="90 minutes">90 phút</option>
+                      <option value="120 minutes">120 phút (Chuyên sâu)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.topicFocus')}</label>
+                  <input
+                    type="text"
+                    value={aiTopic}
+                    onChange={(e) => setAiTopic(e.target.value)}
+                    placeholder="e.g. Writing Task 2 Problem & Solution on Environmental Pollution"
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.targetBandRange')}</label>
+                  <input
+                    type="text"
+                    value={aiTargetBand}
+                    onChange={(e) => setAiTargetBand(e.target.value)}
+                    placeholder="e.g. 6.5 - 7.5"
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
                 <button
-                  onClick={() => setShowAiLessonModal(false)}
-                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  type="button"
+                  onClick={generateAiLesson}
+                  disabled={isGeneratingAiLesson || !aiTopic.trim()}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg shadow-xs flex items-center justify-center space-x-1.5 transition-colors"
                 >
-                  {t('common.close')}
+                  {isGeneratingAiLesson ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>Đang soạn giáo án với Gemini AI...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>{t('resources.generateDraftBtn')}</span>
+                    </>
+                  )}
                 </button>
+
+                {aiGeneratedDraft && (
+                  <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                    <pre className="text-xs text-slate-800 whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto">
+                      {aiGeneratedDraft}
+                    </pre>
+                    <button
+                      type="button"
+                      onClick={applyAiToLessonForm}
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors flex items-center justify-center space-x-1.5"
+                    >
+                      <span>{t('resources.transferToLesson')}</span>
+                      <span>&rarr;</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowAiLessonModal(false)}
+                    className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    {t('common.close')}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </Portal>
       )}
 
       {/* Smart Document Import & Conversion Modal (Lazy Loaded) */}

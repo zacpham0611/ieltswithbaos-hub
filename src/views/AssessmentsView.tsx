@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Portal } from '../components/Portal';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { MonthlyReport, AssessmentState } from '../types';
@@ -586,93 +587,95 @@ export const AssessmentsView: React.FC = () => {
 
       {/* Modal: Generate New Report */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <h3 className="text-base font-bold text-slate-900">{t('assessments.prepareModalTitle')}</h3>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-4">
-              {t('assessments.prepareModalDesc')}
-            </p>
-
-            <form onSubmit={handleCreateReport} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')}</label>
-                <select
-                  required
-                  value={newCourseId}
-                  onChange={(e) => {
-                    setNewCourseId(e.target.value);
-                  }}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                >
-                  <option value="">{t('resources.chooseCourse')}</option>
-                  {courses
-                    .filter((c) => c.teacherId === currentUser.id && c.status === 'active')
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('assessments.studentLabel')}</label>
-                <select
-                  required
-                  value={newStudentId}
-                  onChange={(e) => setNewStudentId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                >
-                  <option value="">{t('assessments.chooseStudent')}</option>
-                  {courseMembers
-                    .filter((m) => (!newCourseId || m.courseId === newCourseId) && m.status === 'enrolled')
-                    .map((m) => (
-                      <option key={m.studentId} value={m.studentId}>
-                        {m.studentName} ({m.studentEmail})
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('assessments.reportingPeriodLabel')}</label>
-                <input
-                  type="text"
-                  value={newMonth}
-                  onChange={(e) => setNewMonth(e.target.value)}
-                  placeholder="e.g. October 2026"
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                <h3 className="text-base font-bold text-slate-900">{t('assessments.prepareModalTitle')}</h3>
                 <button
-                  type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="text-slate-400 hover:text-slate-600"
                 >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingCreate}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-xs flex items-center space-x-1.5"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>{isSubmittingCreate ? t('common.loading') : t('assessments.gatherAndDraftBtn')}</span>
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+              <p className="text-xs text-slate-500 mb-4">
+                {t('assessments.prepareModalDesc')}
+              </p>
+
+              <form onSubmit={handleCreateReport} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')}</label>
+                  <select
+                    required
+                    value={newCourseId}
+                    onChange={(e) => {
+                      setNewCourseId(e.target.value);
+                    }}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                  >
+                    <option value="">{t('resources.chooseCourse')}</option>
+                    {courses
+                      .filter((c) => c.teacherId === currentUser.id && c.status === 'active')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('assessments.studentLabel')}</label>
+                  <select
+                    required
+                    value={newStudentId}
+                    onChange={(e) => setNewStudentId(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                  >
+                    <option value="">{t('assessments.chooseStudent')}</option>
+                    {courseMembers
+                      .filter((m) => (!newCourseId || m.courseId === newCourseId) && m.status === 'enrolled')
+                      .map((m) => (
+                        <option key={m.studentId} value={m.studentId}>
+                          {m.studentName} ({m.studentEmail})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('assessments.reportingPeriodLabel')}</label>
+                  <input
+                    type="text"
+                    value={newMonth}
+                    onChange={(e) => setNewMonth(e.target.value)}
+                    placeholder="e.g. October 2026"
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingCreate}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-xs flex items-center space-x-1.5"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{isSubmittingCreate ? t('common.loading') : t('assessments.gatherAndDraftBtn')}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
+        </Portal>
       )}
     </div>
   );
