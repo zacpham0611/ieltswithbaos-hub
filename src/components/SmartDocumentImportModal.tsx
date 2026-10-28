@@ -196,6 +196,15 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     }
     setEditedRawText(doc.rawText);
     setAssignSkill(doc.detectedStructure?.detectedSkill || 'reading');
+
+    // Auto-detect and populate recognized question types directly from document structure
+    const recognized = (doc.detectedStructure as any)?.recognizedTypes || [];
+    const fromQuestions = (doc.detectedStructure?.questions || []).map((q) => q.type).filter(Boolean);
+    const candidateTypes = (doc.detectedStructure?.candidateTests || []).flatMap((c) => c.recognizedTypes || []);
+    const allDetectedTypes = Array.from(new Set([...recognized, ...fromQuestions, ...candidateTypes])) as QuestionType[];
+    if (allDetectedTypes.length > 0) {
+      setEnabledQuestionTypes(allDetectedTypes);
+    }
   };
 
   const handleToggleExpandTest = (testId: string) => {
@@ -275,10 +284,19 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       if (tests.length > 0) {
         for (const t of tests) {
           for (const p of t.passages) {
+            const structuredPayload = {
+              title: `${t.title}: ${p.title}`,
+              skill: 'reading',
+              readingPassage: p.content,
+              content: p.content,
+              passages: [p],
+              questionGroups: p.questionGroups || [],
+              questions: p.questions || [],
+            };
             await addResource({
               title: `${t.title}: ${p.title}`,
               type: 'doc',
-              content: p.content,
+              content: JSON.stringify(structuredPayload),
               tags: ['smart-import', 'reading', t.title],
               skill: 'reading',
               folder: t.title,
@@ -290,10 +308,18 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       } else {
         const cTests = activeDoc.detectedStructure?.candidateTests || [];
         for (const ct of cTests) {
+          const structuredPayload = {
+            title: ct.title,
+            skill: 'reading',
+            readingPassage: ct.passageText,
+            content: ct.passageText,
+            questionGroups: ct.questionGroups || [],
+            questions: ct.questions || [],
+          };
           await addResource({
             title: ct.title,
             type: 'doc',
-            content: ct.passageText,
+            content: JSON.stringify(structuredPayload),
             tags: ['smart-import', 'reading'],
             skill: 'reading',
             folder: 'Imported Tests',
@@ -302,7 +328,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           });
         }
       }
-      alert('All tests saved to Resource Library!');
+      alert('All tests saved to Resource Library with full structured questions!');
       onResourceCreated?.();
     } catch (err: any) {
       alert(`Failed to save to library: ${err.message}`);
@@ -1248,7 +1274,15 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
                 {/* Option B: Interactive Assignment */}
                 <div
-                  onClick={() => setCurrentStep('config_assignment')}
+                  onClick={() => {
+                    setReviewedTitle(editedTitle || activeDoc?.detectedStructure?.title || activeDoc?.name || '');
+                    setReviewedInstructions(assignInstructions || 'Read the text carefully and answer all questions.');
+                    setReviewedPassage(editedPassage || activeDoc?.detectedStructure?.passageText || activeDoc?.rawText || '');
+                    if (editableQuestions.length > 0) {
+                      setReviewedQuestions(editableQuestions);
+                    }
+                    setCurrentStep('config_assignment');
+                  }}
                   className="p-5 rounded-2xl border-2 border-indigo-200 hover:border-indigo-500 hover:bg-indigo-50/20 bg-white cursor-pointer transition-all flex flex-col justify-between space-y-4 shadow-xs group ring-1 ring-indigo-500/20"
                 >
                   <div className="space-y-3">
@@ -1640,14 +1674,34 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                 </div>
               </div>
 
-              <div className="pt-2 flex justify-end">
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                {editableQuestions.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReviewedTitle(editedTitle || activeDoc?.detectedStructure?.title || activeDoc?.name || 'IELTS Reading Assignment');
+                      setReviewedInstructions(assignInstructions || 'Read the text carefully and answer all questions.');
+                      setReviewedPassage(editedPassage || activeDoc?.detectedStructure?.passageText || activeDoc?.rawText || '');
+                      setReviewedQuestions(editableQuestions);
+                      setCurrentStep('review_assignment');
+                    }}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center space-x-2"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Proceed Directly to Review & Assign ({editableQuestions.length} Questions Ready)</span>
+                  </button>
+                ) : (
+                  <div />
+                )}
+
                 <button
+                  type="button"
                   onClick={handleStartAiConversion}
                   disabled={isAiProcessing}
-                  className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-2"
+                  className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center space-x-2"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{isAiProcessing ? 'Converting with Gemini...' : 'Analyze & Generate Interactive Assignment'}</span>
+                  <span>{isAiProcessing ? 'Converting with Gemini...' : editableQuestions.length > 0 ? 'Re-analyze with Gemini AI' : 'Analyze & Generate Interactive Assignment'}</span>
                 </button>
               </div>
 

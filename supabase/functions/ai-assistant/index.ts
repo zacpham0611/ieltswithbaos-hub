@@ -225,7 +225,14 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const action = body.action || "chat";
+    let action = (body.action || "chat").trim().toLowerCase();
+    if (action === "reading_test_generator" || action === "generatereadingtest" || action === "generate_reading") {
+      action = "generate_reading_test";
+    }
+    if (action === "regenerate_reading_group" || action === "regenerate_group") {
+      action = "regenerate_question_group";
+    }
+
     if (!ALLOWED_ACTIONS.includes(action)) {
       return new Response(
         JSON.stringify({

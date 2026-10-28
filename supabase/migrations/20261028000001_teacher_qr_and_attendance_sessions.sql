@@ -72,3 +72,6 @@ USING (
   (storage.foldername(name))[1] = 'teachers' AND
   (storage.foldername(name))[2] = auth.uid()::text
 );
+
+-- 5. Force PostgREST to reload its schema cache immediately so duration_minutes and is_billable are visible
+NOTIFY pgrst, 'reload schema';

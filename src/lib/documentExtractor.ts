@@ -384,7 +384,23 @@ export function detectQuestionType(
   if (combined.includes('list of headings') || combined.includes('correct heading') || combined.includes('heading for each paragraph')) {
     return 'matching_headings';
   }
-  if (combined.includes('which paragraph contains') || combined.includes('information to paragraph') || combined.includes('paragraphs a-')) {
+  if (
+    combined.includes('which paragraph contains') ||
+    combined.includes('which paragraph mentions') ||
+    combined.includes('which paragraph gives') ||
+    combined.includes('information to paragraph') ||
+    combined.includes('paragraphs a-') ||
+    combined.includes('paragraph a-') ||
+    combined.includes('paragraphs a–') ||
+    combined.includes('write the correct letter, a-') ||
+    combined.includes('write the correct letter a-') ||
+    combined.includes('write the correct letter, a–') ||
+    combined.includes('write the correct letter in boxes') ||
+    (combined.includes('in boxes') && combined.includes('on your answer sheet') && (combined.includes('a-') || combined.includes('a–'))) ||
+    combined.includes('nb you may use any letter more than once') ||
+    combined.includes('you may use any letter more than once') ||
+    combined.includes('matching information')
+  ) {
     return 'matching_information';
   }
   if (
@@ -621,6 +637,81 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
 /**
  * Parses a single passage chunk into title, text, question groups, and individual questions
  */
+/**
+ * Formats passage paragraphs strictly according to IELTS standard:
+ * Labeled paragraph: label on its own line, content on next line, separated from next paragraph by exactly one empty line.
+ */
+export function formatPassageParagraphs(lines: string[]): { formattedText: string; detectedParagraphLabels: string[] } {
+  if (lines.length === 0) return { formattedText: '', detectedParagraphLabels: [] };
+
+  interface ParaBlock {
+    label?: string;
+    lines: string[];
+  }
+
+  const blocks: ParaBlock[] = [];
+  let currentBlock: ParaBlock = { lines: [] };
+  const detectedLabels = new Set<string>();
+
+  const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-I])[\.\:\)]?$/i;
+  const inlineLabelRegex = /^(?:(?:paragraph|section)\s+([A-I])[\.\:\)]?|\[([A-I])\]|\(([A-I])\)|([A-I])[\.\:\)])\s+(.*)$/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i].trim();
+    if (!rawLine) continue;
+
+    // Check standalone label (e.g. "A" or "Paragraph A" on its own line)
+    const standaloneMatch = rawLine.match(standaloneLabelRegex);
+    if (standaloneMatch && rawLine.length <= 15) {
+      const letter = standaloneMatch[1].toUpperCase();
+      detectedLabels.add(letter);
+      if (currentBlock.lines.length > 0 || currentBlock.label) {
+        blocks.push(currentBlock);
+      }
+      currentBlock = { label: letter, lines: [] };
+      continue;
+    }
+
+    // Check inline label (e.g. "A. In the early 19th century...")
+    const inlineMatch = rawLine.match(inlineLabelRegex);
+    if (inlineMatch) {
+      const letter = (inlineMatch[1] || inlineMatch[2] || inlineMatch[3] || inlineMatch[4]).toUpperCase();
+      const content = inlineMatch[5]?.trim() || '';
+      detectedLabels.add(letter);
+      if (currentBlock.lines.length > 0 || currentBlock.label) {
+        blocks.push(currentBlock);
+      }
+      currentBlock = { label: letter, lines: content ? [content] : [] };
+      continue;
+    }
+
+    currentBlock.lines.push(rawLine);
+  }
+
+  if (currentBlock.lines.length > 0 || currentBlock.label) {
+    blocks.push(currentBlock);
+  }
+
+  const formattedParagraphs: string[] = [];
+  for (const block of blocks) {
+    const content = block.lines.join(' ').replace(/\s{2,}/g, ' ').trim();
+    if (block.label) {
+      if (content) {
+        formattedParagraphs.push(`${block.label}\n${content}`);
+      } else {
+        formattedParagraphs.push(block.label);
+      }
+    } else if (content) {
+      formattedParagraphs.push(content);
+    }
+  }
+
+  return {
+    formattedText: formattedParagraphs.join('\n\n'),
+    detectedParagraphLabels: Array.from(detectedLabels).sort(),
+  };
+}
+
 function parseSinglePassage(
   passageChunk: string,
   passageIndex: number,
@@ -699,7 +790,7 @@ function parseSinglePassage(
     }
   }
 
-  const passageContent = passageBodyLines.join('\n\n');
+  const { formattedText: passageContent, detectedParagraphLabels } = formatPassageParagraphs(passageBodyLines);
 
   // 3. Parse Question Groups & Questions
   const questionGroups: QuestionGroup[] = [];
@@ -907,6 +998,17 @@ function parseSinglePassage(
       });
     }
 
+    // Attach available paragraph letters to matching_information questions if options are empty
+    if (primaryType === 'matching_information') {
+      const fallbackLetters = ['A', 'B', 'C', 'D', 'E', 'F'];
+      const effectiveLetters = detectedParagraphLabels.length >= 2 ? detectedParagraphLabels : fallbackLetters;
+      groupQuestions.forEach((q) => {
+        if (!q.options || q.options.length === 0) {
+          q.options = effectiveLetters;
+        }
+      });
+    }
+
     const qGroup: QuestionGroup = {
       id: `qgroup_${passageIndex}_${gIdx + 1}`,
       groupTitle: gRange.title,
@@ -943,8 +1045,9 @@ function finalizeQuestion(
   const options = q.options && q.options.length > 0 ? q.options : undefined;
   const qType = q.type || detectQuestionType(q.prompt || '', instructionContext, options);
 
-  const key = q.correctAnswer || detectedAnswerKey[qNum] || '';
+  const key = (q.correctAnswer || detectedAnswerKey[qNum] || '').trim();
   const confidence = key ? 'high' : 'needs_teacher_review';
+  const requiresReview = !key || qType === 'short_answer' || confidence === 'needs_teacher_review';
 
   questions.push({
     id: q.id || `q_${questions.length + 1}`,
@@ -954,10 +1057,10 @@ function finalizeQuestion(
     wordLimit: q.wordLimit || wordLimitInfo.limitStr,
     maxWords: q.maxWords || wordLimitInfo.maxWords,
     correctAnswer: key,
-    explanation: q.explanation || 'Extracted from source document.',
+    explanation: q.explanation || (key ? 'Extracted from source document.' : 'Ungrounded answer key: requires teacher review.'),
     points: q.points || 1,
     source: 'extracted_from_doc',
     answerKeyConfidence: confidence,
-    needsReview: !key || qType === 'short_answer',
+    needsReview: requiresReview,
   });
 }

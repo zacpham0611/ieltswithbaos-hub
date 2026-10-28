@@ -11,7 +11,9 @@ import {
   WritingTaskCategory,
   ReadingTestType,
   QuestionType,
+  QuestionGroup,
 } from '../types';
+import { parseDocumentStructure } from '../lib/documentExtractor';
 import { gradeAssignmentSubmission, parseMaxWordsFromLimit } from '../lib/assignmentGrader';
 import {
   extractAllNormalizedQuestions,
@@ -428,22 +430,73 @@ export const AssignmentsView: React.FC = () => {
     }
     setIsImportingFromLibrary(true);
     try {
+      let readingPassage = resource.content || '';
+      let readingQuestions: ReadingQuestion[] = [];
+      let questionGroups: QuestionGroup[] = [];
+      let passages: any[] = [];
+      let instructions = 'Read the text carefully and answer all questions.';
+      let targetSkill = resource.skill || 'reading';
+      let title = resource.title || 'Imported IELTS Exercise';
+
+      // 1. Check if resource.content is JSON payload (AI generated test or structured import)
+      if (resource.content && (resource.content.trim().startsWith('{') || resource.content.trim().startsWith('['))) {
+        try {
+          const parsed = JSON.parse(resource.content);
+          if (parsed && typeof parsed === 'object') {
+            if (parsed.title) title = parsed.title;
+            if (parsed.instructions) instructions = parsed.instructions;
+            if (parsed.skill) targetSkill = parsed.skill;
+
+            // Multi-passage format
+            if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
+              passages = parsed.passages;
+              readingPassage = parsed.passages[0]?.content || '';
+              questionGroups = parsed.passages.flatMap((p: any) => p.questionGroups || []);
+              readingQuestions = parsed.passages.flatMap((p: any) => p.questions || []);
+            } else if (parsed.questions && Array.isArray(parsed.questions)) {
+              // Flat test format
+              readingQuestions = parsed.questions;
+              questionGroups = parsed.questionGroups || [];
+              readingPassage = parsed.readingPassage || parsed.passageText || parsed.content || '';
+              if (parsed.passages) passages = parsed.passages;
+            } else if (parsed.content) {
+              readingPassage = parsed.content;
+            }
+          }
+        } catch {
+          // Plain text fallback
+        }
+      }
+
+      // 2. If readingQuestions is empty and this is reading, parse document structure from text
+      if (readingQuestions.length === 0 && targetSkill === 'reading' && readingPassage) {
+        const docStruct = parseDocumentStructure(readingPassage, title);
+        if (docStruct.questions && docStruct.questions.length > 0) {
+          readingQuestions = docStruct.questions;
+          if (docStruct.candidateTests && docStruct.candidateTests.length > 0) {
+            questionGroups = docStruct.candidateTests[0]?.questionGroups || [];
+          }
+        }
+      }
+
       await createAssignment({
         courseId: libraryCourseId,
-        title: resource.title || 'Imported IELTS Exercise',
-        instructions: 'Read the text carefully and answer all questions.',
-        skill: resource.skill || 'reading',
+        title,
+        instructions,
+        skill: targetSkill,
         objectives: 'Practice IELTS skills using resource materials.',
         dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
         status: 'published',
-        readingPassage: resource.content || undefined,
-        readingQuestions: [],
+        readingPassage: readingPassage || undefined,
+        readingQuestions,
+        questionGroups: questionGroups.length > 0 ? questionGroups : undefined,
+        passages: passages.length > 0 ? passages : undefined,
         readingTestType: 'academic',
         answerReleasePolicy: 'after_submission',
         sourceDocumentName: resource.title,
       });
       setShowImportLibraryModal(false);
-      alert('Exercise imported and assigned successfully!');
+      alert('Exercise imported and assigned successfully with all questions preserved!');
     } catch (err: any) {
       alert(`Import failed: ${err.message}`);
     } finally {
@@ -912,6 +965,40 @@ export const AssignmentsView: React.FC = () => {
   // =========================================================================
   if (isTeacher && currentSubmission) {
     const parentAssignment = assignments.find((a) => a.id === currentSubmission.assignmentId);
+    const isReadingSubmission =
+      currentSubmission.skill === 'reading' ||
+      Boolean(currentSubmission.readingAnswers) ||
+      parentAssignment?.skill === 'reading';
+
+    const extractedData = isReadingSubmission && parentAssignment
+      ? extractAllNormalizedQuestions(parentAssignment)
+      : null;
+    const readingQuestionsList: ReadingQuestion[] = extractedData ? extractedData.questions : [];
+
+    const readingAnswers = currentSubmission.readingAnswers || {};
+    const totalQuestionsCount = readingQuestionsList.length || currentSubmission.readingScore?.total || 0;
+    const errorAnalysis = currentSubmission.readingErrorAnalysis || [];
+
+    let correctCount = 0;
+    if (currentSubmission.readingScore?.correct !== undefined) {
+      correctCount = currentSubmission.readingScore.correct;
+    } else if (errorAnalysis.length > 0) {
+      correctCount = errorAnalysis.filter((e) => e.isCorrect).length;
+    } else if (readingQuestionsList.length > 0) {
+      correctCount = readingQuestionsList.filter((q) => {
+        const studentAns = (readingAnswers[q.id] || '').trim().toLowerCase();
+        const correctAns = (q.correctAnswer || '').trim().toLowerCase();
+        return studentAns && correctAns && studentAns === correctAns;
+      }).length;
+    }
+
+    const readingBandRes = totalQuestionsCount > 0
+      ? calculateReadingBand(correctCount, (parentAssignment?.readingTestType as any) || 'academic', totalQuestionsCount)
+      : null;
+    const calculatedReadingBand: number =
+      typeof currentSubmission.score === 'number'
+        ? currentSubmission.score
+        : (readingBandRes?.band || 7.0);
 
     return (
       <div className="space-y-6 max-w-5xl mx-auto">
@@ -966,7 +1053,7 @@ export const AssignmentsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Student Submission Display & Side-by-Side Diagram if Task 1 */}
+        {/* Student Submission Display */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900">{t('assignments.studentWork')}</h2>
@@ -980,7 +1067,137 @@ export const AssignmentsView: React.FC = () => {
                 {t('assignments.durationLabel')}: {currentSubmission.speakingDuration}s
               </span>
             )}
+            {isReadingSubmission && (
+              <span className="text-sm font-mono font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded">
+                Reading Score: {correctCount} / {totalQuestionsCount} ({totalQuestionsCount > 0 ? Math.round((correctCount / totalQuestionsCount) * 100) : 0}%)
+              </span>
+            )}
           </div>
+
+          {/* Reading Submission Detailed Inspection */}
+          {isReadingSubmission && (
+            <div className="space-y-5">
+              {/* Score Banner */}
+              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      IELTS Reading Assessment — {parentAssignment?.readingTestType === 'general' ? 'General Training' : 'Academic'}
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Student completed {Object.keys(readingAnswers).length} of {totalQuestionsCount} questions.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <div className="text-right">
+                    <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider">Calculated Band</span>
+                    <span className="text-xl font-black text-blue-700">Band {(currentSubmission.score || calculatedReadingBand).toFixed(1)}</span>
+                  </div>
+                  <div className="h-8 w-px bg-blue-200" />
+                  <div className="text-right">
+                    <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider">Correct Answers</span>
+                    <span className="text-xl font-black text-emerald-700">{correctCount} / {totalQuestionsCount}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Question-by-Question Review */}
+              <div className="space-y-4 pt-2">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Detailed Question Breakdown & Error Analysis
+                </h4>
+
+                {readingQuestionsList.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl text-xs text-slate-500">
+                    No structured questions found on this assignment record.
+                  </div>
+                ) : (
+                  readingQuestionsList.map((q, idx) => {
+                    const studentAns = readingAnswers[q.id]?.trim() || '';
+                    const correctAns = (q.correctAnswer || '').trim();
+                    const analysis = errorAnalysis.find((e) => e.questionId === q.id);
+                    const isCorrect = analysis
+                      ? analysis.isCorrect
+                      : Boolean(studentAns && correctAns && studentAns.toLowerCase() === correctAns.toLowerCase());
+                    const isUnanswered = !studentAns;
+                    const prompt = resolveQuestionPrompt(q, idx + 1);
+
+                    return (
+                      <div
+                        key={q.id || idx}
+                        className={`p-4 rounded-xl border text-sm space-y-2 transition-colors ${
+                          isUnanswered
+                            ? 'bg-slate-50 border-slate-200'
+                            : isCorrect
+                            ? 'bg-emerald-50/40 border-emerald-200'
+                            : 'bg-red-50/40 border-red-200'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-bold text-slate-900 text-sm">
+                            Question {idx + 1}
+                            {q.type && (
+                              <span className="ml-2 text-[10px] font-mono px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-normal">
+                                {q.type.replace(/_/g, ' ')}
+                              </span>
+                            )}
+                          </span>
+
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center space-x-1 ${
+                              isUnanswered
+                                ? 'bg-slate-200 text-slate-700'
+                                : isCorrect
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : 'bg-red-100 text-red-800 border border-red-300'
+                            }`}
+                          >
+                            {isUnanswered ? (
+                              <span>Unanswered</span>
+                            ) : isCorrect ? (
+                              <span>✓ Correct (1 pt)</span>
+                            ) : (
+                              <span>✗ Incorrect (0 pt)</span>
+                            )}
+                          </span>
+                        </div>
+
+                        <p className="text-slate-800 text-sm font-medium">{prompt}</p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+                          <div className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-0.5">
+                            <span className="text-slate-500 font-semibold block">Student's Answer:</span>
+                            <span className={`font-mono font-bold text-sm ${studentAns ? (isCorrect ? 'text-emerald-700' : 'text-red-700') : 'text-slate-400 italic'}`}>
+                              {studentAns || '(No response submitted)'}
+                            </span>
+                          </div>
+
+                          <div className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-0.5">
+                            <span className="text-slate-500 font-semibold block">Official Answer Key:</span>
+                            <span className="font-mono font-bold text-sm text-emerald-800">
+                              {correctAns || '(Answer key not set)'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {q.explanation && (
+                          <div className="mt-2 p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-900">
+                            <span className="font-bold block mb-0.5">Explanation & Passage Citation:</span>
+                            <p className="leading-relaxed">{q.explanation}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
 
           {currentSubmission.skill === 'writing' && (
             <div className="space-y-4">
@@ -1217,55 +1434,71 @@ export const AssignmentsView: React.FC = () => {
           )}
         </div>
 
-        {/* Teacher Feedback & Rubric Grading Form */}
+        {/* Teacher Feedback & Evaluation Form */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
               <Award className="w-5 h-5 text-blue-600" />
-              <span>{t('assignments.assessmentRubricTitle')}</span>
+              <span>
+                {isReadingSubmission
+                  ? 'IELTS Reading Evaluation & Final Band'
+                  : t('assignments.assessmentRubricTitle')}
+              </span>
             </h2>
             <div className="flex items-center space-x-2">
               <span className="text-sm font-semibold text-slate-600">{t('assignments.overallBand')}:</span>
-              <span className="text-xl font-extrabold text-blue-700 bg-blue-50 px-3 py-1 rounded-lg border border-blue-200">
-                Band {overallScore.toFixed(1)}
-              </span>
+              <div className="flex items-center space-x-2">
+                <select
+                  value={overallScore}
+                  onChange={(e) => setOverallScore(Number(e.target.value))}
+                  className="p-1.5 border border-blue-300 rounded-lg text-center font-black text-base text-blue-700 bg-blue-50 focus:ring-2 focus:ring-blue-500"
+                >
+                  {[4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0].map((s) => (
+                    <option key={s} value={s}>
+                      Band {s.toFixed(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* 4 Rubric Criteria */}
-          <div className="space-y-3">
-            {gradingRubrics.map((r, idx) => (
-              <div key={r.criterion} className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 text-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-slate-800">{r.criterion}</span>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-slate-500 text-xs">{t('assignments.score')}:</span>
-                    <select
-                      value={r.score}
-                      onChange={(e) => handleRubricScoreChange(idx, Number(e.target.value))}
-                      className="p-1.5 border border-slate-300 rounded text-center font-bold text-sm text-slate-900 bg-white"
-                    >
-                      {[4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0].map((s) => (
-                        <option key={s} value={s}>
-                          {s.toFixed(1)}
-                        </option>
-                      ))}
-                    </select>
+          {/* 4 Rubric Criteria: ONLY shown for Writing / Speaking, NEVER for Reading */}
+          {!isReadingSubmission && (
+            <div className="space-y-3">
+              {gradingRubrics.map((r, idx) => (
+                <div key={r.criterion} className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 text-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-slate-800">{r.criterion}</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-slate-500 text-xs">{t('assignments.score')}:</span>
+                      <select
+                        value={r.score}
+                        onChange={(e) => handleRubricScoreChange(idx, Number(e.target.value))}
+                        className="p-1.5 border border-slate-300 rounded text-center font-bold text-sm text-slate-900 bg-white"
+                      >
+                        {[4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0].map((s) => (
+                          <option key={s} value={s}>
+                            {s.toFixed(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
+                  <input
+                    type="text"
+                    value={r.descriptor}
+                    onChange={(e) => {
+                      const newRubrics = [...gradingRubrics];
+                      newRubrics[idx].descriptor = e.target.value;
+                      setGradingRubrics(newRubrics);
+                    }}
+                    className="w-full p-2 border border-slate-300 rounded text-xs bg-white outline-hidden"
+                  />
                 </div>
-                <input
-                  type="text"
-                  value={r.descriptor}
-                  onChange={(e) => {
-                    const newRubrics = [...gradingRubrics];
-                    newRubrics[idx].descriptor = e.target.value;
-                    setGradingRubrics(newRubrics);
-                  }}
-                  className="w-full p-2 border border-slate-300 rounded text-xs bg-white outline-hidden"
-                />
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           {/* Feedback Sections: Strengths, Areas to improve, Next Steps */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -1679,11 +1912,11 @@ export const AssignmentsView: React.FC = () => {
               {/* Right Column: Question Navigator & Interactive Questions */}
               <div
                 style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${100 - splitWidth}%` : '100%' }}
-                className="bg-white p-6 max-h-[calc(100vh-220px)] overflow-y-auto space-y-6 flex flex-col justify-between shrink-0 transition-[width] duration-75 border-t lg:border-t-0 lg:border-l border-slate-200"
+                className="bg-white p-6 max-h-[calc(100vh-220px)] overflow-y-auto space-y-6 flex flex-col justify-between shrink-0 transition-[width] duration-75 border-t lg:border-t-0 lg:border-l border-slate-200 relative scroll-pt-36 lg:scroll-pt-28"
               >
                 <div>
-                  {/* Sticky Question Navigator Bar */}
-                  <div className="sticky top-0 bg-white/95 backdrop-blur-xs pb-3 border-b border-slate-100 z-10 space-y-2">
+                  {/* Sticky Question Navigator Bar — Flush to top, never covers questions */}
+                  <div className="sticky top-0 -mt-6 -mx-6 px-6 pt-4 pb-3 bg-white border-b border-slate-200 z-30 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                         Question Navigator ({answeredCount} / {questions.length} Answered)
@@ -1693,7 +1926,7 @@ export const AssignmentsView: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
                       {questions.map((q, idx) => {
                         const isAns = Boolean(readingAnswers[q.id]?.trim());
                         const isFlag = Boolean(flaggedQuestions[q.id]);
@@ -1706,7 +1939,7 @@ export const AssignmentsView: React.FC = () => {
                                 setActivePassageTab(passageMap[q.id]);
                               }
                               const el = document.getElementById(`q_${q.id}`);
-                              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             }}
                             className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
                               isFlag
@@ -1755,7 +1988,7 @@ export const AssignmentsView: React.FC = () => {
                           <div
                             key={q.id}
                             id={`q_${q.id}`}
-                            className={`p-4 rounded-xl border text-sm space-y-3 transition-colors ${
+                            className={`p-4 rounded-xl border text-sm space-y-3 transition-colors scroll-mt-36 lg:scroll-mt-28 ${
                               result
                                 ? result.isCorrect
                                   ? 'border-emerald-300 bg-emerald-50/20'

@@ -1626,14 +1626,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await supabase.from('class_sessions').delete().eq('id', existing.id);
         setLessons((prev) => prev.filter((l) => l.id !== existing.id));
       } else {
-        await supabase
+        const updatePayload: any = {
+          status: 'completed',
+          is_billable: true,
+          duration_minutes: durationMinutes,
+        };
+        const { error: updErr } = await supabase
           .from('class_sessions')
-          .update({
-            status: 'completed',
-            is_billable: true,
-            duration_minutes: durationMinutes,
-          })
+          .update(updatePayload)
           .eq('id', existing.id);
+
+        if (updErr) {
+          const errMsg = String(updErr.message || '');
+          if (errMsg.includes('duration_minutes') || errMsg.includes('is_billable')) {
+            console.warn('class_sessions missing duration_minutes/is_billable in schema cache; falling back to basic update.', updErr);
+            const { error: fallbackErr } = await supabase
+              .from('class_sessions')
+              .update({ status: 'completed' })
+              .eq('id', existing.id);
+            if (fallbackErr) throw fallbackErr;
+          } else {
+            throw updErr;
+          }
+        }
+
         setLessons((prev) =>
           prev.map((l) =>
             l.id === existing.id
@@ -1643,7 +1659,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       }
     } else {
-      const newSessionRow = {
+      const newSessionRow: any = {
         course_id: courseId,
         student_id: studentId || null,
         title: `Teaching Session - ${date}`,
@@ -1655,15 +1671,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         skill: 'all',
       };
 
-      const { data: created, error } = await supabase
+      let { data: created, error } = await supabase
         .from('class_sessions')
         .insert(newSessionRow)
         .select()
         .single();
 
       if (error) {
-        console.error('Error toggling attendance session:', error);
-        throw error;
+        const errMsg = String(error.message || '');
+        if (errMsg.includes('duration_minutes') || errMsg.includes('is_billable') || errMsg.includes('student_id')) {
+          console.warn('class_sessions missing extended columns in schema cache; falling back to standard row insert.', error);
+          const fallbackRow: any = {
+            course_id: courseId,
+            title: `Teaching Session - ${date}`,
+            session_date: date,
+            status,
+            is_published: true,
+            skill: 'all',
+          };
+          const fallbackRes = await supabase
+            .from('class_sessions')
+            .insert(fallbackRow)
+            .select()
+            .single();
+
+          if (fallbackRes.error) {
+            console.error('Error toggling attendance session fallback:', fallbackRes.error);
+            throw fallbackRes.error;
+          }
+          created = fallbackRes.data;
+        } else {
+          console.error('Error toggling attendance session:', error);
+          throw error;
+        }
       }
 
       if (created) {

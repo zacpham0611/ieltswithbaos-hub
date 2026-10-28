@@ -235,17 +235,101 @@ export interface RegenerateQuestionGroupParams {
  * Generate a complete, authentic IELTS Reading test with AI
  */
 export async function generateReadingTestWithAi(params: GenerateReadingTestParams): Promise<GenerateDraftResult> {
-  return invokeAiAssistant('generate_reading_test', params);
+  try {
+    return await invokeAiAssistant('generate_reading_test', params);
+  } catch (err: any) {
+    const errMsg = String(err?.message || '');
+    if (errMsg.includes('Unsupported action') || errMsg.includes('generate_reading_test')) {
+      console.warn('generate_reading_test not deployed on Edge Function yet, falling back to convert_document_to_assignment', err);
+      
+      const instructions = `Generate an authentic IELTS Reading practice test with ${params.passageCount} passage(s) and ${params.questionCount} questions. Difficulty Level: ${params.difficultyLevel}/10. Supported types: ${params.questionTypes.join(', ')}. Include explanations citing paragraph letters.`;
+
+      const fallbackResult = await invokeAiAssistant('convert_document_to_assignment', {
+        documentText: params.sourceText || params.sourceUrl || params.topic || 'IELTS Reading Passage',
+        sourceDocumentName: params.sourceDocumentName || 'Reading Material',
+        conversionMode: 'generate_new',
+        skill: 'reading',
+        targetBand: params.difficultyLevel >= 8 ? '8.0 - 9.0' : params.difficultyLevel >= 6 ? '6.5 - 7.5' : '5.0 - 6.0',
+        instructions,
+      });
+
+      let structured = fallbackResult.structuredData;
+      if (!structured && fallbackResult.draft) {
+        try {
+          const match = fallbackResult.draft.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          if (match) structured = JSON.parse(match[1]);
+        } catch {}
+      }
+
+      if (structured) {
+        if (structured.questions && (!structured.passages || structured.passages.length === 0)) {
+          const passageText = structured.readingPassage || params.sourceText || '';
+          const groupsMap: Record<string, any[]> = {};
+          structured.questions.forEach((q: any) => {
+            const t = q.type || 'multiple_choice';
+            if (!groupsMap[t]) groupsMap[t] = [];
+            groupsMap[t].push(q);
+          });
+
+          const questionGroups = Object.entries(groupsMap).map(([qType, qList], gIdx) => ({
+            id: `qgroup_1_${gIdx + 1}`,
+            groupTitle: `Questions ${gIdx + 1}`,
+            questionType: qType,
+            instructions: `Answer the questions based on the passage above.`,
+            questions: qList,
+          }));
+
+          structured = {
+            title: structured.title || params.topic || 'IELTS Reading Practice Test',
+            topic: params.topic || 'Academic Studies',
+            difficultyLevel: params.difficultyLevel,
+            timeLimitMinutes: params.timeLimitMinutes || 20 * params.passageCount,
+            passages: [
+              {
+                passageIndex: 1,
+                title: structured.title || 'Reading Passage 1',
+                content: passageText,
+                questionGroups,
+                questions: structured.questions,
+              },
+            ],
+          };
+        }
+      }
+
+      return {
+        draft: fallbackResult.draft,
+        model: fallbackResult.model,
+        action: 'generate_reading_test_fallback',
+        structuredData: structured,
+      };
+    }
+    throw err;
+  }
 }
 
 /**
  * Regenerate an individual question group with AI without altering the rest of the test
  */
 export async function regenerateQuestionGroupWithAi(params: RegenerateQuestionGroupParams): Promise<GenerateDraftResult> {
-  return invokeAiAssistant('regenerate_question_group', {
-    sourceText: params.passageText,
-    questionTypes: [params.questionType],
-    questionCount: params.questionCount,
-    difficultyLevel: params.difficultyLevel,
-  });
+  try {
+    return await invokeAiAssistant('regenerate_question_group', {
+      sourceText: params.passageText,
+      questionTypes: [params.questionType],
+      questionCount: params.questionCount,
+      difficultyLevel: params.difficultyLevel,
+    });
+  } catch (err: any) {
+    const errMsg = String(err?.message || '');
+    if (errMsg.includes('Unsupported action') || errMsg.includes('regenerate_question_group')) {
+      console.warn('regenerate_question_group not deployed on Edge Function yet, falling back to convert_document_to_assignment', err);
+      return invokeAiAssistant('convert_document_to_assignment', {
+        documentText: params.passageText,
+        conversionMode: 'generate_new',
+        skill: 'reading',
+        instructions: `Generate ${params.questionCount} questions of type ${params.questionType} for this passage.`,
+      });
+    }
+    throw err;
+  }
 }
