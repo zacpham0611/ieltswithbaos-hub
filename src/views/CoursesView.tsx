@@ -765,8 +765,8 @@ export const CoursesView: React.FC = () => {
 
         {/* Modal for Reject Reason */}
         {rejectModalReqId && typeof document !== 'undefined' && createPortal(
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] overflow-hidden">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] overflow-hidden">
+            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
               <h3 className="text-sm font-bold text-slate-900 mb-2">{t('courses.rejectModalTitle')}</h3>
               <p className="text-xs text-slate-500 mb-4 leading-relaxed">
                 {t('courses.rejectModalDesc')}
@@ -1186,7 +1186,7 @@ export const CoursesView: React.FC = () => {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs overflow-hidden"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-hidden"
           onClick={(e) => {
             if (e.target === e.currentTarget && !creating) {
               setShowCreateModal(false);
@@ -1489,7 +1489,7 @@ export const CoursesView: React.FC = () => {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs overflow-hidden"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-hidden"
           onClick={(e) => {
             if (e.target === e.currentTarget && !isDeleting) {
               setCourseToDelete(null);

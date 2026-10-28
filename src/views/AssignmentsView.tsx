@@ -55,6 +55,8 @@ import {
   Edit,
   HelpCircle,
   BarChart3,
+  GripVertical,
+  Search,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -63,6 +65,7 @@ export const AssignmentsView: React.FC = () => {
     courses,
     courseMembers,
     assignments,
+    resources,
     createAssignment,
     updateAssignment,
     deleteAssignment,
@@ -121,10 +124,33 @@ export const AssignmentsView: React.FC = () => {
   const [audioRecorded, setAudioRecorded] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
-  // Reading Timer state
+  // Reading Timer & Layout state
   const [timerSeconds, setTimerSeconds] = useState<number>(60 * 60); // 60 minutes default
   const [timerRunning, setTimerRunning] = useState<boolean>(true);
   const [passageFontSize, setPassageFontSize] = useState<'normal' | 'large'>('normal');
+
+  // Split-Screen Drag state
+  const [splitWidth, setSplitWidth] = useState<number>(50); // percentage for left pane
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+
+  // Passage Highlighting state
+  interface TextHighlight {
+    id: string;
+    text: string;
+    color: 'yellow' | 'green' | 'pink';
+  }
+  const [passageHighlights, setPassageHighlights] = useState<TextHighlight[]>([]);
+  const [floatingToolbarPos, setFloatingToolbarPos] = useState<{ x: number; y: number; text: string } | null>(null);
+
+  // Multi-Passage Tab state
+  const [activePassageTab, setActivePassageTab] = useState<number>(0);
+
+  // Teacher "Import from Library" state
+  const [showImportLibraryModal, setShowImportLibraryModal] = useState(false);
+  const [librarySearch, setLibrarySearch] = useState('');
+  const [libraryCourseId, setLibraryCourseId] = useState('');
+  const [isImportingFromLibrary, setIsImportingFromLibrary] = useState(false);
 
   // Standard IELTS Rubrics for Teacher Grading
   const defaultWritingRubrics = [
@@ -200,6 +226,18 @@ export const AssignmentsView: React.FC = () => {
       } else if (currentSubmission?.readingAnswers) {
         setReadingAnswers(currentSubmission.readingAnswers);
       }
+
+      // Load highlights
+      const hlKey = `ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`;
+      const savedHl = localStorage.getItem(hlKey);
+      if (savedHl) {
+        try {
+          const parsedHl = JSON.parse(savedHl);
+          if (Array.isArray(parsedHl)) setPassageHighlights(parsedHl);
+        } catch {}
+      } else {
+        setPassageHighlights([]);
+      }
     } else if (activeAssignment.skill === 'writing') {
       const storageKey = `ielts_writing_draft_${activeAssignment.id}_${currentUser.id}`;
       const saved = localStorage.getItem(storageKey);
@@ -247,6 +285,165 @@ export const AssignmentsView: React.FC = () => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Split-Screen Drag Effect
+  useEffect(() => {
+    if (!isDraggingSplit) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const newWidth = ((e.clientX - rect.left) / rect.width) * 100;
+      if (newWidth >= 25 && newWidth <= 75) {
+        setSplitWidth(Math.round(newWidth));
+      }
+    };
+    const handleMouseUp = () => {
+      setIsDraggingSplit(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingSplit]);
+
+  // Passage Highlighting Handlers
+  const handlePassageMouseUp = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setFloatingToolbarPos(null);
+      return;
+    }
+    const text = selection.toString().trim();
+    if (text.length < 2) {
+      setFloatingToolbarPos(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    setFloatingToolbarPos({
+      x: rect.left + rect.width / 2,
+      y: Math.max(10, rect.top - 42),
+      text,
+    });
+  };
+
+  const handleApplyHighlight = (color: 'yellow' | 'green' | 'pink') => {
+    if (!floatingToolbarPos || !activeAssignment) return;
+    const newHighlight: TextHighlight = {
+      id: `hl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      text: floatingToolbarPos.text,
+      color,
+    };
+    const updated = [...passageHighlights, newHighlight];
+    setPassageHighlights(updated);
+    localStorage.setItem(
+      `ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`,
+      JSON.stringify(updated)
+    );
+    setFloatingToolbarPos(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const handleRemoveHighlight = (id: string) => {
+    if (!activeAssignment) return;
+    const updated = passageHighlights.filter((h) => h.id !== id);
+    setPassageHighlights(updated);
+    localStorage.setItem(
+      `ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`,
+      JSON.stringify(updated)
+    );
+  };
+
+  const handleClearAllHighlights = () => {
+    if (!activeAssignment) return;
+    setPassageHighlights([]);
+    localStorage.removeItem(`ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`);
+  };
+
+  // Safe highlighted passage text renderer
+  const renderHighlightedPassage = (text: string) => {
+    if (!passageHighlights || passageHighlights.length === 0) {
+      return text;
+    }
+
+    const sorted = [...passageHighlights].sort((a, b) => b.text.length - a.text.length);
+    let parts: (string | React.ReactNode)[] = [text];
+
+    sorted.forEach((hl) => {
+      const nextParts: (string | React.ReactNode)[] = [];
+      parts.forEach((p) => {
+        if (typeof p !== 'string') {
+          nextParts.push(p);
+          return;
+        }
+        const idx = p.indexOf(hl.text);
+        if (idx === -1) {
+          nextParts.push(p);
+        } else {
+          const before = p.slice(0, idx);
+          const match = p.slice(idx, idx + hl.text.length);
+          const after = p.slice(idx + hl.text.length);
+          if (before) nextParts.push(before);
+          const colorClass =
+            hl.color === 'green'
+              ? 'bg-emerald-200 text-emerald-950 hover:bg-emerald-300'
+              : hl.color === 'pink'
+              ? 'bg-pink-200 text-pink-950 hover:bg-pink-300'
+              : 'bg-amber-200 text-amber-950 hover:bg-amber-300';
+          nextParts.push(
+            <mark
+              key={`${hl.id}_${idx}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRemoveHighlight(hl.id);
+              }}
+              className={`${colorClass} rounded-xs px-0.5 cursor-pointer transition-colors font-medium`}
+              title="Click to remove highlight"
+            >
+              {match}
+            </mark>
+          );
+          if (after) nextParts.push(after);
+        }
+      });
+      parts = nextParts;
+    });
+
+    return parts;
+  };
+
+  // Import Resource to Assignment Handler
+  const handleImportResourceToAssignment = async (resource: any) => {
+    if (!libraryCourseId) {
+      alert('Please select a target course first.');
+      return;
+    }
+    setIsImportingFromLibrary(true);
+    try {
+      await createAssignment({
+        courseId: libraryCourseId,
+        title: resource.title || 'Imported IELTS Exercise',
+        instructions: 'Read the text carefully and answer all questions.',
+        skill: resource.skill || 'reading',
+        objectives: 'Practice IELTS skills using resource materials.',
+        dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+        status: 'published',
+        readingPassage: resource.content || undefined,
+        readingQuestions: [],
+        readingTestType: 'academic',
+        answerReleasePolicy: 'after_submission',
+        sourceDocumentName: resource.title,
+      });
+      setShowImportLibraryModal(false);
+      alert('Exercise imported and assigned successfully!');
+    } catch (err: any) {
+      alert(`Import failed: ${err.message}`);
+    } finally {
+      setIsImportingFromLibrary(false);
+    }
   };
 
   // Populate Teacher Grading Form when selecting a submission
@@ -485,7 +682,14 @@ export const AssignmentsView: React.FC = () => {
             : undefined,
       };
 
-      if (editingAssignmentId) {
+      const existingAssign = editingAssignmentId ? assignments.find((a) => a.id === editingAssignmentId) : null;
+
+      if (editingAssignmentId && existingAssign) {
+        if (formSkill === 'reading') {
+          payload.readingQuestions = existingAssign.readingQuestions;
+          payload.questionGroups = existingAssign.questionGroups;
+          payload.passages = existingAssign.passages;
+        }
         await updateAssignment(editingAssignmentId, payload);
       } else {
         await createAssignment(payload as Omit<Assignment, 'id'>);
@@ -521,11 +725,27 @@ export const AssignmentsView: React.FC = () => {
     }
   };
 
+  // Helper to get effective reading questions
+  const getEffectiveQuestions = (assignment: Assignment): ReadingQuestion[] => {
+    if (assignment.readingQuestions && assignment.readingQuestions.length > 0) {
+      return assignment.readingQuestions;
+    }
+    if (assignment.questionGroups && assignment.questionGroups.length > 0) {
+      return assignment.questionGroups.flatMap((g) => g.questions || []);
+    }
+    if (assignment.passages && assignment.passages.length > 0) {
+      return assignment.passages.flatMap((p) => p.questions || []);
+    }
+    return [];
+  };
+
   // Check unanswered reading questions before submitting
   const initiateReadingSubmit = () => {
-    if (!activeAssignment || !activeAssignment.readingQuestions) return;
+    if (!activeAssignment) return;
+    const effQuestions = getEffectiveQuestions(activeAssignment);
+    if (effQuestions.length === 0) return;
 
-    const unanswered = activeAssignment.readingQuestions
+    const unanswered = effQuestions
       .map((q, idx) => ({ qNum: idx + 1, id: q.id, answered: Boolean(readingAnswers[q.id]?.trim()) }))
       .filter((item) => !item.answered);
 
@@ -538,13 +758,15 @@ export const AssignmentsView: React.FC = () => {
 
   // Execute reading submit
   const executeReadingSubmit = async () => {
-    if (!activeAssignment || !activeAssignment.readingQuestions) return;
+    if (!activeAssignment) return;
+    const effQuestions = getEffectiveQuestions(activeAssignment);
+    if (effQuestions.length === 0) return;
 
     setShowUnansweredModal(false);
     const testType = activeAssignment.readingTestType || 'academic';
 
     const gradeSummary = gradeAssignmentSubmission(
-      activeAssignment.readingQuestions,
+      effQuestions,
       readingAnswers,
       testType
     );
@@ -1192,7 +1414,7 @@ export const AssignmentsView: React.FC = () => {
     const isReading = activeAssignment.skill === 'reading';
     const isWriting = activeAssignment.skill === 'writing';
     const isSpeaking = activeAssignment.skill === 'speaking';
-    const questions = activeAssignment.readingQuestions || [];
+    const questions = getEffectiveQuestions(activeAssignment);
 
     // Count answered reading questions
     const answeredCount = questions.filter((q) => Boolean(readingAnswers[q.id]?.trim())).length;
@@ -1310,42 +1532,151 @@ export const AssignmentsView: React.FC = () => {
               </div>
             )}
 
-            {/* Split Screen Container */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Floating Highlight Toolbar */}
+            {floatingToolbarPos && (
+              <div
+                className="fixed z-50 bg-slate-900 text-white shadow-xl rounded-xl px-2.5 py-1.5 flex items-center space-x-2 text-xs -translate-x-1/2 -translate-y-full border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
+                style={{ left: floatingToolbarPos.x, top: floatingToolbarPos.y }}
+              >
+                <span className="text-[11px] text-slate-400 font-semibold">Highlight:</span>
+                <button
+                  type="button"
+                  onClick={() => handleApplyHighlight('yellow')}
+                  className="w-5 h-5 rounded-full bg-amber-300 hover:ring-2 hover:ring-amber-500 shadow-xs transition-transform hover:scale-110"
+                  title="Yellow highlight"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleApplyHighlight('green')}
+                  className="w-5 h-5 rounded-full bg-emerald-400 hover:ring-2 hover:ring-emerald-600 shadow-xs transition-transform hover:scale-110"
+                  title="Green highlight"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleApplyHighlight('pink')}
+                  className="w-5 h-5 rounded-full bg-pink-400 hover:ring-2 hover:ring-pink-600 shadow-xs transition-transform hover:scale-110"
+                  title="Pink highlight"
+                />
+                <button
+                  type="button"
+                  onClick={() => setFloatingToolbarPos(null)}
+                  className="p-0.5 text-slate-400 hover:text-white rounded ml-1"
+                  title="Dismiss"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Split Screen Container with Draggable Resizer */}
+            <div
+              ref={splitContainerRef}
+              className="flex flex-col lg:flex-row gap-0 items-stretch bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden shadow-xs"
+            >
               {/* Left Column: Reading Passage */}
-              <div className="lg:col-span-6 bg-white rounded-xl border border-slate-200 p-6 shadow-xs max-h-[calc(100vh-220px)] overflow-y-auto space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div
+                style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${splitWidth}%` : '100%' }}
+                className="bg-white p-6 max-h-[calc(100vh-220px)] overflow-y-auto space-y-4 shrink-0 transition-[width] duration-75"
+              >
+                {/* Passage Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
                   <div className="flex items-center space-x-2">
                     <BookOpen className="w-5 h-5 text-blue-600" />
                     <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                      {t('assignments.readingPassageTitle')}
+                      {activeAssignment.passages && activeAssignment.passages.length > 1
+                        ? activeAssignment.passages[activePassageTab]?.title || `Passage ${activePassageTab + 1}`
+                        : t('assignments.readingPassageTitle')}
                     </span>
                   </div>
+
                   <div className="flex items-center space-x-2">
+                    {passageHighlights.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleClearAllHighlights}
+                        className="text-xs text-red-600 hover:text-red-800 font-semibold px-2 py-1 bg-red-50 hover:bg-red-100 rounded"
+                      >
+                        Clear Highlights ({passageHighlights.length})
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
-                      className="text-xs text-slate-600 font-semibold px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded"
+                      className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded"
                     >
                       Font: {passageFontSize === 'normal' ? '18px' : '20px'}
                     </button>
+
                     <span className="text-xs text-slate-400 font-mono">
-                      {activeAssignment.readingPassage ? activeAssignment.readingPassage.split(/\s+/).filter(Boolean).length : 0} words
+                      {((activeAssignment.passages && activeAssignment.passages[activePassageTab]?.content) || activeAssignment.readingPassage || '')
+                        .split(/\s+/)
+                        .filter(Boolean).length}{' '}
+                      words
                     </span>
                   </div>
                 </div>
 
+                {/* Multi-Passage Tabs (If test contains multiple passages) */}
+                {activeAssignment.passages && activeAssignment.passages.length > 1 && (
+                  <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-2 overflow-x-auto">
+                    {activeAssignment.passages.map((p, pIdx) => (
+                      <button
+                        key={p.id || pIdx}
+                        type="button"
+                        onClick={() => setActivePassageTab(pIdx)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 ${
+                          activePassageTab === pIdx
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        <span>{p.title || `Passage ${pIdx + 1}`}</span>
+                        {p.questions && (
+                          <span
+                            className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                              activePassageTab === pIdx ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {p.questions.length} Qs
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Passage Text with Highlighting */}
                 <div
-                  className={`leading-relaxed font-serif whitespace-pre-wrap text-slate-800 ${
+                  onMouseUp={handlePassageMouseUp}
+                  className={`leading-relaxed font-serif whitespace-pre-wrap text-slate-800 select-text ${
                     passageFontSize === 'normal' ? 'text-[18px]' : 'text-[20px]'
                   }`}
                 >
-                  {activeAssignment.readingPassage || 'No reading passage text provided.'}
+                  {renderHighlightedPassage(
+                    (activeAssignment.passages && activeAssignment.passages[activePassageTab]?.content) ||
+                      activeAssignment.readingPassage ||
+                      'No reading passage text provided.'
+                  )}
                 </div>
               </div>
 
+              {/* Draggable Divider (Desktop Only) */}
+              <div
+                onMouseDown={() => setIsDraggingSplit(true)}
+                className={`hidden lg:flex w-2.5 bg-slate-200 hover:bg-blue-500 cursor-col-resize items-center justify-center transition-colors group relative select-none shrink-0 ${
+                  isDraggingSplit ? 'bg-blue-600 ring-2 ring-blue-300' : ''
+                }`}
+                title="Drag to resize passage and questions panels"
+              >
+                <GripVertical className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
+              </div>
+
               {/* Right Column: Question Navigator & Interactive Questions */}
-              <div className="lg:col-span-6 bg-white rounded-xl border border-slate-200 p-6 shadow-xs max-h-[calc(100vh-220px)] overflow-y-auto space-y-6 flex flex-col justify-between">
+              <div
+                style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${100 - splitWidth}%` : '100%' }}
+                className="bg-white p-6 max-h-[calc(100vh-220px)] overflow-y-auto space-y-6 flex flex-col justify-between shrink-0 transition-[width] duration-75 border-t lg:border-t-0 lg:border-l border-slate-200"
+              >
                 <div>
                   {/* Sticky Question Navigator Bar */}
                   <div className="sticky top-0 bg-white/95 backdrop-blur-xs pb-3 border-b border-slate-100 z-10 space-y-2">
@@ -1353,8 +1684,8 @@ export const AssignmentsView: React.FC = () => {
                       <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                         Question Navigator ({answeredCount} / {questions.length} Answered)
                       </span>
-                      <span className="text-xs text-slate-500 font-mono">
-                        {Math.round((answeredCount / (questions.length || 1)) * 100)}%
+                      <span className="text-xs text-slate-500 font-mono font-semibold">
+                        {Math.round((answeredCount / (questions.length || 1)) * 100)}% Complete
                       </span>
                     </div>
 
@@ -1388,6 +1719,8 @@ export const AssignmentsView: React.FC = () => {
                       const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
                       const isFlag = Boolean(flaggedQuestions[q.id]);
                       const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
+                      const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
+                      const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
 
                       return (
                         <div
@@ -1436,16 +1769,55 @@ export const AssignmentsView: React.FC = () => {
                             </div>
                           </div>
 
-                          <p className="font-semibold text-slate-800 text-sm">{q.prompt}</p>
+                          <p className="font-semibold text-slate-800 text-sm leading-relaxed">{q.prompt}</p>
+
+                          {/* Reference Box: List of Headings */}
+                          {q.headingsList && q.headingsList.length > 0 && (
+                            <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-1 text-xs">
+                              <span className="font-bold text-amber-900 uppercase text-[11px] block">
+                                List of Headings:
+                              </span>
+                              <div className="space-y-1 text-amber-950 font-medium">
+                                {q.headingsList.map((h) => (
+                                  <div key={h} className="leading-snug">
+                                    {h}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Reference Box: List of Researchers / Features */}
+                          {q.featuresList && q.featuresList.length > 0 && (
+                            <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-1 text-xs">
+                              <span className="font-bold text-indigo-900 uppercase text-[11px] block">
+                                List of Features / Researchers:
+                              </span>
+                              <div className="space-y-1 text-indigo-950 font-medium">
+                                {q.featuresList.map((f) => (
+                                  <div key={f} className="leading-snug">
+                                    {f}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
                           {/* Word limit note if applicable */}
                           {maxWords && (
-                            <p className="text-xs text-amber-800 font-semibold bg-amber-50 px-2.5 py-1 rounded border border-amber-200 inline-block">
-                              Limit: NO MORE THAN {maxWords} WORD{maxWords > 1 ? 'S' : ''}
-                            </p>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-amber-800 font-semibold bg-amber-50 px-2.5 py-1 rounded border border-amber-200 inline-block">
+                                Limit: NO MORE THAN {maxWords} WORD{maxWords > 1 ? 'S' : ''}
+                              </span>
+                              {isOverWordLimit && (
+                                <span className="text-xs text-red-600 font-bold animate-pulse">
+                                  Exceeds limit ({currentWordsCount}/{maxWords} words)
+                                </span>
+                              )}
+                            </div>
                           )}
 
-                          {/* 15 Question Type Controls */}
+                          {/* Question Type Interactive Controls */}
                           {q.type === 'true_false_not_given' || q.type === 'yes_no_not_given' ? (
                             <div className="flex flex-wrap gap-2 pt-1">
                               {(q.type === 'true_false_not_given'
@@ -1466,6 +1838,46 @@ export const AssignmentsView: React.FC = () => {
                                   {choice}
                                 </button>
                               ))}
+                            </div>
+                          ) : q.type === 'matching_headings' && q.headingsList && q.headingsList.length > 0 ? (
+                            <div className="space-y-1.5">
+                              <select
+                                disabled={mySub?.status === 'graded'}
+                                value={answer}
+                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                              >
+                                <option value="">-- Choose Heading (i, ii, iii...) --</option>
+                                {q.headingsList.map((h) => {
+                                  const romanMatch = h.match(/^([ivx\d]+)/i);
+                                  const code = romanMatch ? romanMatch[1] : h;
+                                  return (
+                                    <option key={h} value={code}>
+                                      {h}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+                          ) : q.type === 'matching_features' && q.featuresList && q.featuresList.length > 0 ? (
+                            <div className="space-y-1.5">
+                              <select
+                                disabled={mySub?.status === 'graded'}
+                                value={answer}
+                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                              >
+                                <option value="">-- Choose Feature / Person (A, B, C...) --</option>
+                                {q.featuresList.map((f) => {
+                                  const letterMatch = f.match(/^([A-G])/i);
+                                  const code = letterMatch ? letterMatch[1] : f;
+                                  return (
+                                    <option key={f} value={code}>
+                                      {f}
+                                    </option>
+                                  );
+                                })}
+                              </select>
                             </div>
                           ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
                             <div className="space-y-1.5">
@@ -1561,15 +1973,24 @@ export const AssignmentsView: React.FC = () => {
                               })}
                             </div>
                           ) : (
-                            <div>
+                            <div className="space-y-1">
                               <input
                                 type="text"
                                 disabled={mySub?.status === 'graded'}
                                 value={answer}
                                 onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                 placeholder="Type answer phrase..."
-                                className="w-full sm:w-80 p-2 border border-slate-300 rounded-lg text-sm bg-white"
+                                className={`w-full sm:w-80 p-2.5 border rounded-lg text-sm bg-white font-medium focus:ring-2 focus:outline-hidden ${
+                                  isOverWordLimit
+                                    ? 'border-red-400 focus:ring-red-400'
+                                    : 'border-slate-300 focus:ring-blue-500'
+                                }`}
                               />
+                              {maxWords && (
+                                <div className="text-[11px] text-slate-400 font-mono">
+                                  {currentWordsCount} / {maxWords} words typed
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -1577,7 +1998,8 @@ export const AssignmentsView: React.FC = () => {
                           {mySub?.status === 'graded' && (
                             <div className="mt-2 pt-2 border-t border-slate-200 text-xs space-y-1">
                               <p className="text-slate-600">
-                                <strong>Answer Key:</strong> <span className="font-mono text-emerald-700">{q.correctAnswer || 'Provided in review'}</span>
+                                <strong>Answer Key:</strong>{' '}
+                                <span className="font-mono text-emerald-700">{q.correctAnswer || 'Provided in review'}</span>
                               </p>
                               {q.explanation && (
                                 <p className="text-slate-500 italic">
@@ -1600,7 +2022,9 @@ export const AssignmentsView: React.FC = () => {
                       className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-xs flex items-center space-x-2 transition-colors"
                     >
                       <Send className="w-4 h-4" />
-                      <span>Submit Reading Test ({answeredCount} / {questions.length})</span>
+                      <span>
+                        Submit Reading Test ({answeredCount} / {questions.length})
+                      </span>
                     </button>
                   </div>
                 )}
@@ -1862,13 +2286,26 @@ export const AssignmentsView: React.FC = () => {
         </div>
 
         {isTeacher && (
-          <button
-            onClick={openCreateModal}
-            className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 shadow-xs transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{t('assignments.createBtn')}</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => {
+                setLibraryCourseId(courses[0]?.id || '');
+                setShowImportLibraryModal(true);
+              }}
+              className="inline-flex items-center space-x-2 px-3.5 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-sm font-semibold hover:bg-indigo-100 shadow-xs transition-colors"
+            >
+              <BookOpen className="w-4 h-4 text-indigo-600" />
+              <span>Import from Library</span>
+            </button>
+            <button
+              onClick={openCreateModal}
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 shadow-xs transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{t('assignments.createBtn')}</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -2395,6 +2832,111 @@ export const AssignmentsView: React.FC = () => {
               >
                 {isDeleting ? 'Deleting...' : 'Permanently Delete'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: IMPORT FROM RESOURCE LIBRARY
+      ========================================================================= */}
+      {showImportLibraryModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="relative z-10 bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Import from Resource Library</h3>
+                  <p className="text-xs text-slate-500">Select a teaching material to assign to your course</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImportLibraryModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Target Course Selector */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Target Course *</label>
+              <select
+                value={libraryCourseId}
+                onChange={(e) => setLibraryCourseId(e.target.value)}
+                className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+              >
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search library resources by title, skill, or tag..."
+                value={librarySearch}
+                onChange={(e) => setLibrarySearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+              />
+            </div>
+
+            {/* Resources List */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
+              {resources
+                .filter((r) => {
+                  if (!librarySearch) return true;
+                  const q = librarySearch.toLowerCase();
+                  return (
+                    r.title.toLowerCase().includes(q) ||
+                    (r.tags && r.tags.some((t) => t.toLowerCase().includes(q))) ||
+                    (r.skill && r.skill.toLowerCase().includes(q))
+                  );
+                })
+                .map((res) => (
+                  <div
+                    key={res.id}
+                    className="p-3.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/20 transition-all flex items-center justify-between"
+                  >
+                    <div className="space-y-0.5 max-w-[70%]">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-bold text-slate-900 truncate">{res.title}</span>
+                        {res.skill && (
+                          <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            {res.skill}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 truncate">
+                        {res.content ? `${res.content.slice(0, 100)}...` : res.url || 'Library study material'}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isImportingFromLibrary}
+                      onClick={() => handleImportResourceToAssignment(res)}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors shrink-0"
+                    >
+                      {isImportingFromLibrary ? 'Assigning...' : 'Assign to Course'}
+                    </button>
+                  </div>
+                ))}
+
+              {resources.length === 0 && (
+                <div className="text-center py-10 text-slate-400 text-xs">
+                  No materials found in your resource library yet. You can upload documents via Smart Import.
+                </div>
+              )}
             </div>
           </div>
         </div>

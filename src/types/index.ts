@@ -129,6 +129,29 @@ export interface ReadingQuestion {
   needsReview?: boolean;
 }
 
+export interface QuestionGroup {
+  id: string;
+  groupTitle?: string;
+  instructions: string;
+  questionType: QuestionType;
+  wordLimit?: string;
+  maxWords?: number;
+  headingsList?: string[];
+  featuresList?: string[];
+  optionsBox?: string[];
+  questions: ReadingQuestion[];
+}
+
+export interface ParsedPassage {
+  id: string;
+  passageIndex: number;
+  title: string;
+  subtitle?: string;
+  content: string;
+  questionGroups?: QuestionGroup[];
+  questions?: ReadingQuestion[];
+}
+
 export type WritingTaskCategory =
   | 'task1_academic'
   | 'task1_general'
@@ -149,6 +172,8 @@ export interface Assignment {
   // Reading Specific
   readingPassage?: string;
   readingQuestions?: ReadingQuestion[];
+  questionGroups?: QuestionGroup[];
+  passages?: ParsedPassage[];
   readingTestType?: ReadingTestType;
   // Writing Specific
   writingTaskType?: 'task1' | 'task2';

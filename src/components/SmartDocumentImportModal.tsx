@@ -33,6 +33,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Clock,
   Layers,
   GraduationCap,
@@ -72,6 +73,12 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [editedPassage, setEditedPassage] = useState('');
   const [previewTab, setPreviewTab] = useState<'structured' | 'raw'>('structured');
   const [selectedCandidateTestId, setSelectedCandidateTestId] = useState<string | 'combined'>('combined');
+
+  // Hierarchical Tree View State
+  const [selectedTestId, setSelectedTestId] = useState<string | null>(null);
+  const [selectedPassageId, setSelectedPassageId] = useState<string | null>(null);
+  const [expandedTestIds, setExpandedTestIds] = useState<Record<string, boolean>>({});
+  const [editableQuestions, setEditableQuestions] = useState<ReadingQuestion[]>([]);
 
   // Word Configuration State
   const [wordTemplateStyle, setWordTemplateStyle] = useState<'academic' | 'clean'>('academic');
@@ -158,19 +165,54 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const selectActiveDocument = (doc: ExtractedDocument) => {
     setActiveFileId(doc.id);
     const candidateTests = doc.detectedStructure?.candidateTests || [];
-    if (candidateTests.length > 1) {
+    const tests = doc.detectedStructure?.tests || [];
+
+    if (tests.length > 0) {
+      const firstTest = tests[0];
+      const firstPassage = firstTest.passages[0];
+      setSelectedTestId(firstTest.id);
+      setExpandedTestIds({ [firstTest.id]: true });
+      if (firstPassage) {
+        setSelectedPassageId(firstPassage.id);
+        setEditedTitle(firstPassage.title || `${doc.name} - Passage 1`);
+        setEditedPassage(firstPassage.content);
+        setEditableQuestions(firstPassage.questions || []);
+      } else {
+        setEditableQuestions(firstTest.allQuestions || []);
+      }
+    } else if (candidateTests.length > 1) {
       setSelectedCandidateTestId(candidateTests[0].id);
       setEditedTitle(candidateTests[0].title || doc.name.replace(/\.[^/.]+$/, ''));
       setEditedPassage(candidateTests[0].passageText);
       setAssignInstructions(candidateTests[0].instructions || 'Read the text carefully and answer all questions.');
+      setEditableQuestions(candidateTests[0].questions || []);
     } else {
       setSelectedCandidateTestId('combined');
       setEditedTitle(doc.detectedStructure?.title || doc.name.replace(/\.[^/.]+$/, ''));
       setEditedPassage(doc.detectedStructure?.passageText || doc.rawText);
       setAssignInstructions(doc.detectedStructure?.instructions || 'Read the text carefully and answer all questions.');
+      setEditableQuestions(doc.detectedStructure?.questions || []);
     }
     setEditedRawText(doc.rawText);
     setAssignSkill(doc.detectedStructure?.detectedSkill || 'reading');
+  };
+
+  const handleToggleExpandTest = (testId: string) => {
+    setExpandedTestIds((prev) => ({ ...prev, [testId]: !prev[testId] }));
+  };
+
+  const handleSelectPassageFromTree = (testId: string, passageId: string) => {
+    setSelectedTestId(testId);
+    setSelectedPassageId(passageId);
+    if (!activeDoc?.detectedStructure) return;
+
+    const testMatch = activeDoc.detectedStructure.tests?.find((t) => t.id === testId);
+    const passageMatch = testMatch?.passages.find((p) => p.id === passageId);
+    if (passageMatch) {
+      setEditedTitle(passageMatch.title);
+      setEditedPassage(passageMatch.content);
+      setEditableQuestions(passageMatch.questions || []);
+    }
   };
 
   const handleSelectCandidateTest = (candidateId: string | 'combined') => {
@@ -181,13 +223,90 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       setEditedTitle(activeDoc.detectedStructure.title || activeDoc.name.replace(/\.[^/.]+$/, ''));
       setEditedPassage(activeDoc.detectedStructure.passageText || activeDoc.rawText);
       setAssignInstructions(activeDoc.detectedStructure.instructions || 'Read the text carefully and answer all questions.');
+      setEditableQuestions(activeDoc.detectedStructure.questions || []);
     } else {
       const match = tests.find((t) => t.id === candidateId);
       if (match) {
         setEditedTitle(match.title);
         setEditedPassage(match.passageText);
         setAssignInstructions(match.instructions || 'Read the text carefully and answer all questions.');
+        setEditableQuestions(match.questions || []);
       }
+    }
+  };
+
+  const handleAssignCurrentPassageDirectly = async () => {
+    if (!assignCourseId) {
+      alert('Please select a course first.');
+      return;
+    }
+    setIsPublishingAssignment(true);
+    try {
+      await createAssignment({
+        courseId: assignCourseId,
+        title: editedTitle || `${activeDoc?.name} - Reading Practice`,
+        instructions: assignInstructions,
+        skill: assignSkill,
+        objectives: `Master Band ${assignTargetBand} through reading practice.`,
+        dueDate: assignDueDate,
+        status: 'published',
+        readingPassage: editedPassage,
+        readingQuestions: editableQuestions,
+        readingTestType: 'academic',
+        answerReleasePolicy: assignReleasePolicy,
+        sourceDocumentName: activeDoc?.name,
+      });
+      alert('Passage assigned to course successfully!');
+      onAssignmentCreated?.();
+      onClose();
+    } catch (err: any) {
+      alert(`Assignment creation failed: ${err.message}`);
+    } finally {
+      setIsPublishingAssignment(false);
+    }
+  };
+
+  const handleBatchSaveAllTestsToLibrary = async () => {
+    if (!activeDoc || !currentUser) return;
+    setIsPublishingAssignment(true);
+    try {
+      const tests = activeDoc.detectedStructure?.tests || [];
+      if (tests.length > 0) {
+        for (const t of tests) {
+          for (const p of t.passages) {
+            await addResource({
+              title: `${t.title}: ${p.title}`,
+              type: 'doc',
+              content: p.content,
+              tags: ['smart-import', 'reading', t.title],
+              skill: 'reading',
+              folder: t.title,
+              courseId: assignCourseId || null,
+              isPublished: true,
+            });
+          }
+        }
+      } else {
+        const cTests = activeDoc.detectedStructure?.candidateTests || [];
+        for (const ct of cTests) {
+          await addResource({
+            title: ct.title,
+            type: 'doc',
+            content: ct.passageText,
+            tags: ['smart-import', 'reading'],
+            skill: 'reading',
+            folder: 'Imported Tests',
+            courseId: assignCourseId || null,
+            isPublished: true,
+          });
+        }
+      }
+      alert('All tests saved to Resource Library!');
+      onResourceCreated?.();
+    } catch (err: any) {
+      alert(`Failed to save to library: ${err.message}`);
+    } finally {
+      setIsPublishingAssignment(false);
     }
   };
 
@@ -476,8 +595,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
         {/* ==========================================
             MODAL HEADER & STEP PROGRESS
         ========================================== */}
@@ -764,15 +883,124 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
               {previewTab === 'structured' ? (
                 <div className="space-y-4">
-                  {/* Candidate Tests Selector Bar for Multi-Test documents */}
-                  {activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 && (
+                  {/* Overall Document Statistics Header */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Total Pages</span>
+                      <p className="font-mono font-bold text-slate-800 text-sm">{activeDoc.pageCount || 1}</p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Tests Detected</span>
+                      <p className="font-mono font-bold text-blue-600 text-sm">
+                        {activeDoc.detectedStructure?.tests?.length || 1}
+                      </p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Total Passages</span>
+                      <p className="font-mono font-bold text-indigo-600 text-sm">
+                        {activeDoc.detectedStructure?.tests?.reduce((s, t) => s + t.passages.length, 0) ||
+                          activeDoc.detectedStructure?.candidateTests?.length ||
+                          1}
+                      </p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Total Questions</span>
+                      <p className="font-mono font-bold text-emerald-600 text-sm">
+                        {activeDoc.detectedStructure?.questions.length || 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Hierarchical Document Tree View */}
+                  {activeDoc.detectedStructure?.tests && activeDoc.detectedStructure.tests.length > 0 ? (
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                          <Layers className="w-4 h-4 text-blue-600" />
+                          <span>Hierarchical Document Structure (Click passage to edit/assign)</span>
+                        </span>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={handleBatchSaveAllTestsToLibrary}
+                            disabled={isPublishingAssignment}
+                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors"
+                          >
+                            Save All to Library
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {activeDoc.detectedStructure.tests.map((test) => {
+                          const isExpanded = Boolean(expandedTestIds[test.id]);
+                          return (
+                            <div key={test.id} className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
+                              <div
+                                onClick={() => handleToggleExpandTest(test.id)}
+                                className="p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors"
+                              >
+                                <div className="flex items-center space-x-2">
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4 text-slate-500" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 text-slate-500" />
+                                  )}
+                                  <span className="text-xs font-bold text-slate-900">{test.title}</span>
+                                </div>
+                                <span className="text-[11px] font-mono font-semibold text-slate-500">
+                                  {test.passages.length} Passages • {test.questionCount} Questions
+                                </span>
+                              </div>
+
+                              {isExpanded && (
+                                <div className="p-2 pt-0 space-y-1.5 pl-6 bg-white border-t border-slate-100">
+                                  {test.passages.map((p) => {
+                                    const isSelected = selectedPassageId === p.id;
+                                    return (
+                                      <div
+                                        key={p.id}
+                                        onClick={() => handleSelectPassageFromTree(test.id, p.id)}
+                                        className={`p-2 rounded-lg cursor-pointer transition-all flex items-center justify-between text-xs ${
+                                          isSelected
+                                            ? 'bg-blue-50 border border-blue-300 text-blue-900 font-bold'
+                                            : 'hover:bg-slate-50 text-slate-700'
+                                        }`}
+                                      >
+                                        <div className="flex items-center space-x-2">
+                                          <BookOpen className="w-3.5 h-3.5 text-blue-500" />
+                                          <span className="truncate">{p.title}</span>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                          {p.questionGroups && p.questionGroups.length > 0 && (
+                                            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono">
+                                              {p.questionGroups.length} Groups
+                                            </span>
+                                          )}
+                                          <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-mono font-bold">
+                                            {p.questions?.length || 0} Qs
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 ? (
                     <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5">
                           <Layers className="w-4 h-4 text-blue-600" />
-                          <span>Multiple Candidate Tests Detected ({activeDoc.detectedStructure.candidateTests.length} sections)</span>
+                          <span>
+                            Multiple Candidate Tests Detected ({activeDoc.detectedStructure.candidateTests.length} sections)
+                          </span>
                         </span>
-                        <span className="text-[11px] text-blue-700 font-medium">Select a section to preview/edit independently:</span>
+                        <span className="text-[11px] text-blue-700 font-medium">Select a section to preview/edit:</span>
                       </div>
                       <div className="flex flex-wrap gap-2 pt-1">
                         {activeDoc.detectedStructure.candidateTests.map((ct) => (
@@ -796,36 +1024,18 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                             </span>
                           </button>
                         ))}
-                        <button
-                          type="button"
-                          onClick={() => handleSelectCandidateTest('combined')}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1.5 ${
-                            selectedCandidateTestId === 'combined'
-                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span>All Passages Combined</span>
-                          <span
-                            className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                              selectedCandidateTestId === 'combined' ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            {activeDoc.detectedStructure.questions.length} Qs
-                          </span>
-                        </button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* Passage Preview */}
                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
                         <BookOpen className="w-4 h-4 text-blue-600" />
-                        <span>Reading Passage / Study Text</span>
+                        <span>Reading Passage Text</span>
                       </span>
-                      <span className="text-[11px] text-slate-500 font-semibold">
+                      <span className="text-[11px] text-slate-500 font-semibold font-mono">
                         {editedPassage.split(/\s+/).filter(Boolean).length} words
                       </span>
                     </div>
@@ -838,54 +1048,145 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                     />
                   </div>
 
-                  {/* Detected Questions Summary */}
+                  {/* In-Place Editable Questions Summary */}
                   <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
                         <HelpCircle className="w-4 h-4 text-indigo-600" />
-                        <span>Detected Questions ({activeDoc.detectedStructure?.questions.length || 0})</span>
+                        <span>Interactive Questions ({editableQuestions.length})</span>
                       </span>
-                      {activeDoc.detectedStructure?.hasExistingQuestions ? (
-                        <span className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">
-                          Questions Ready
-                        </span>
-                      ) : (
-                        <span className="text-[11px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
-                          Passage Only (AI Can Generate Questions)
-                        </span>
-                      )}
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newQ: ReadingQuestion = {
+                              id: `q_${editableQuestions.length + 1}`,
+                              type: 'sentence_completion',
+                              prompt: `New Question ${editableQuestions.length + 1}`,
+                              correctAnswer: '',
+                              explanation: 'Teacher verified.',
+                              points: 1,
+                              source: 'extracted_from_doc',
+                              answerKeyConfidence: 'high',
+                            };
+                            setEditableQuestions([...editableQuestions, newQ]);
+                          }}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg flex items-center space-x-1 transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Question</span>
+                        </button>
+                      </div>
                     </div>
 
-                    {activeDoc.detectedStructure?.questions.length ? (
-                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                        {activeDoc.detectedStructure.questions.map((q, idx) => (
-                          <div key={q.id} className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/50 text-xs space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-900">
-                                #{idx + 1} ({q.type.replace(/_/g, ' ')})
-                              </span>
-                              {q.correctAnswer && (
-                                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-1.5 py-0.2 rounded">
-                                  Key: {q.correctAnswer}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-slate-700 font-medium">{q.prompt}</p>
-                            {q.options && (
-                              <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 mt-1">
-                                {q.options.map((opt) => (
-                                  <span key={opt} className="truncate">• {opt}</span>
-                                ))}
+                    {editableQuestions.length > 0 ? (
+                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                        {editableQuestions.map((q, idx) => (
+                          <div
+                            key={q.id || idx}
+                            className="p-3 rounded-xl border border-slate-200 bg-slate-50/40 text-xs space-y-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center space-x-2">
+                                <span className="font-bold text-slate-800">#{idx + 1}</span>
+                                <select
+                                  value={q.type}
+                                  onChange={(e) => {
+                                    const updated = [...editableQuestions];
+                                    updated[idx] = { ...updated[idx], type: e.target.value as QuestionType };
+                                    setEditableQuestions(updated);
+                                  }}
+                                  className="p-1 border border-slate-300 rounded text-xs bg-white text-slate-900 font-semibold"
+                                >
+                                  <option value="multiple_choice">Multiple Choice</option>
+                                  <option value="multiple_select">Multiple Select</option>
+                                  <option value="true_false_not_given">True / False / Not Given</option>
+                                  <option value="yes_no_not_given">Yes / No / Not Given</option>
+                                  <option value="matching_headings">Matching Headings</option>
+                                  <option value="matching_features">Matching Features</option>
+                                  <option value="matching_sentence_endings">Matching Sentence Endings</option>
+                                  <option value="sentence_completion">Sentence Completion</option>
+                                  <option value="summary_completion">Summary Completion</option>
+                                  <option value="note_completion">Note Completion</option>
+                                  <option value="table_completion">Table Completion</option>
+                                  <option value="short_answer">Short Answer</option>
+                                </select>
                               </div>
-                            )}
+
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="text"
+                                  placeholder="Answer Key"
+                                  value={q.correctAnswer || ''}
+                                  onChange={(e) => {
+                                    const updated = [...editableQuestions];
+                                    updated[idx] = { ...updated[idx], correctAnswer: e.target.value };
+                                    setEditableQuestions(updated);
+                                  }}
+                                  className="p-1 border border-emerald-300 rounded text-xs font-mono font-bold text-emerald-800 w-28 bg-emerald-50/40"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditableQuestions(editableQuestions.filter((_, i) => i !== idx));
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-red-500 rounded"
+                                  title="Delete question"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <input
+                              type="text"
+                              value={q.prompt}
+                              onChange={(e) => {
+                                const updated = [...editableQuestions];
+                                updated[idx] = { ...updated[idx], prompt: e.target.value };
+                                setEditableQuestions(updated);
+                              }}
+                              className="w-full p-2 border border-slate-200 rounded text-xs font-medium text-slate-800 bg-white"
+                            />
                           </div>
                         ))}
                       </div>
                     ) : (
                       <p className="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-lg">
-                        No numbered questions were detected in this document. You can easily generate authentic IELTS questions using Gemini AI in the next step.
+                        No questions in this section. You can add questions manually or let AI generate them in the next step.
                       </p>
                     )}
+                  </div>
+
+                  {/* Quick Action Footer in Preview Step */}
+                  <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-blue-900">Target Course:</span>
+                      <select
+                        value={assignCourseId}
+                        onChange={(e) => setAssignCourseId(e.target.value)}
+                        className="p-1.5 border border-blue-200 rounded-lg bg-white text-xs font-semibold"
+                      >
+                        {courses.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        disabled={isPublishingAssignment}
+                        onClick={handleAssignCurrentPassageDirectly}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center space-x-1"
+                      >
+                        <span>Assign This Passage Now</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (

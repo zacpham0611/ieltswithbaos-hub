@@ -623,8 +623,8 @@ export const TuitionView: React.FC = () => {
 
         {/* Modal: Record Payment */}
         {showPayModal && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
                 <h3 className="text-base font-bold text-slate-900">{t('tuition.recordModalTitle')}</h3>
                 <button onClick={() => setShowPayModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1028,8 +1028,8 @@ export const TuitionView: React.FC = () => {
 
       {/* Modal: Calculate Tuition Statement */}
       {showCalcModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <h3 className="text-base font-bold text-slate-900">{t('tuition.calcModalTitle')}</h3>
               <button onClick={() => setShowCalcModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1154,8 +1154,8 @@ export const TuitionView: React.FC = () => {
 
       {/* Modal: New Fee Configuration */}
       {showConfigModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <h3 className="text-base font-bold text-slate-900">{t('tuition.configModalTitle')}</h3>
               <button onClick={() => setShowConfigModal(false)} className="text-slate-400 hover:text-slate-600">

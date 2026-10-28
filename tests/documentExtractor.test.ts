@@ -75,4 +75,53 @@ assert.strictEqual(q7.wordLimit, 'NO MORE THAN TWO WORDS');
 assert.strictEqual(q7.correctAnswer, 'Japan');
 console.log('✓ Passed: Passage 2 MCQ, word limits, and answer keys correctly mapped.');
 
+// 2. Test Multi-Test Hierarchy & Question Groups
+const hierarchicalDoc = `
+TEST 1
+READING PASSAGE 1: Urban Architecture
+Modern skyscrapers dominate city skylines across the globe.
+
+Questions 1-3
+Do the following statements agree with the information?
+1. Skyscrapers are common in modern cities.
+2. Steel was the first building material used.
+3. Ancient builders constructed 100-story towers.
+
+Questions 4-6
+Choose NO MORE THAN ONE WORD.
+4. What metal reinforced concrete structures?
+5. Which invention made tall towers practical?
+6. Who designed the first Chicago skyscraper?
+
+TEST 2
+READING PASSAGE 1: Animal Communication
+Dolphins use clicks and whistles to coordinate their hunting pods.
+
+Questions 1-2
+List of Headings
+i Social pod structures
+ii Acoustic frequency bands
+iii Deep ocean predators
+
+1. Paragraph A
+2. Paragraph B
+
+Answer Key:
+1. TRUE
+2. FALSE
+3. NOT GIVEN
+4. steel
+5. elevators
+6. Jenney
+`;
+
+const parsedH = parseDocumentStructure(hierarchicalDoc, 'ielts_tests_2024.txt');
+assert(parsedH.tests && parsedH.tests.length === 2, 'Should detect 2 distinct Tests');
+assert.strictEqual(parsedH.tests[0].passages[0].questionGroups.length, 2, 'Test 1 Passage 1 should have 2 question groups');
+assert.strictEqual(parsedH.tests[0].passages[0].questionGroups[0].questionType, 'true_false_not_given');
+assert.strictEqual(parsedH.tests[0].passages[0].questionGroups[1].wordLimit, 'NO MORE THAN ONE WORD');
+assert.strictEqual(parsedH.tests[1].passages[0].questionGroups[0].headingsList?.length, 3, 'Headings list should contain 3 entries');
+assert.strictEqual(parsedH.tests[1].passages[0].questionGroups[0].questionType, 'matching_headings');
+console.log('✓ Passed: Hierarchical Test -> Passage -> Question Group model & Headings list verified.');
+
 console.log('ALL DOCUMENT EXTRACTOR TESTS PASSED! 🎉');

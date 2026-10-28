@@ -18,6 +18,8 @@ import {
   UserRole,
   TuitionModel,
   ReadingQuestion,
+  QuestionGroup,
+  ParsedPassage,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
@@ -174,6 +176,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { comments, annotations, isDraft };
   };
 
+  // Helper to unpack reading questions, question groups, passages and metadata safely
+  const unpackAssignmentReadingData = (raw: any): {
+    questions: ReadingQuestion[];
+    questionGroups: QuestionGroup[];
+    passages: ParsedPassage[];
+    metadata: any;
+  } => {
+    let questions: ReadingQuestion[] = [];
+    let questionGroups: QuestionGroup[] = [];
+    let passages: ParsedPassage[] = [];
+    let metadata: any = {};
+
+    if (!raw) {
+      return { questions, questionGroups, passages, metadata };
+    }
+
+    if (Array.isArray(raw)) {
+      questions = raw.filter((q: any) => {
+        if (q && q._metadata) {
+          metadata = q._metadata;
+          return false;
+        }
+        return true;
+      });
+    } else if (typeof raw === 'object') {
+      if (Array.isArray(raw.questions)) {
+        questions = raw.questions;
+      }
+      if (Array.isArray(raw.questionGroups)) {
+        questionGroups = raw.questionGroups;
+      }
+      if (Array.isArray(raw.passages)) {
+        passages = raw.passages;
+      }
+      metadata = raw._metadata || raw.metadata || {};
+    }
+
+    return { questions, questionGroups, passages, metadata };
+  };
+
   // 1. DATA REFRESH FUNCTION - Pulls real records from Supabase
   const refreshData = useCallback(async () => {
     if (!currentUser) return;
@@ -278,14 +320,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (assignmentsData) {
               setAssignments(
                 assignmentsData.map((a: any) => {
-                  let metadata: any = {};
-                  const cleanQuestions = (a.reading_questions || []).filter((q: any) => {
-                    if (q && q._metadata) {
-                      metadata = q;
-                      return false;
-                    }
-                    return true;
-                  });
+                  const { questions: cleanQuestions, questionGroups, passages, metadata } = unpackAssignmentReadingData(a.reading_questions);
 
                   return {
                     id: a.id,
@@ -298,6 +333,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     status: a.status,
                     readingPassage: a.reading_passage,
                     readingQuestions: cleanQuestions,
+                    questionGroups,
+                    passages,
                     readingTestType: a.reading_test_type || metadata.readingTestType || 'academic',
                     writingTaskType: a.writing_task_type,
                     writingTaskCategory: a.writing_task_category || metadata.writingTaskCategory || (a.writing_task_type === 'task1' ? 'task1_academic' : 'task2'),
@@ -655,16 +692,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 const isGraded = studentSub && studentSub.status === 'graded';
                 const hasSubmitted = !!studentSub;
 
-                const rawQuestions = a.reading_questions;
-                let questionsList: ReadingQuestion[] = [];
-                let metadata: any = {};
-
-                if (Array.isArray(rawQuestions)) {
-                  questionsList = rawQuestions;
-                } else if (rawQuestions && typeof rawQuestions === 'object') {
-                  questionsList = Array.isArray(rawQuestions.questions) ? rawQuestions.questions : [];
-                  metadata = rawQuestions._metadata || rawQuestions.metadata || {};
-                }
+                const { questions: questionsList, questionGroups, passages, metadata } = unpackAssignmentReadingData(a.reading_questions);
 
                 const releaseCondition =
                   a.model_answer_release_policy ||
@@ -688,6 +716,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   };
                 });
 
+                const sanitizedGroups = questionGroups.map((group) => ({
+                  ...group,
+                  questions: (group.questions || []).map((q: any) => {
+                    if (canSeeAnswers) return q;
+                    const { correctAnswer, explanation, ...safeQ } = q;
+                    return {
+                      ...safeQ,
+                      correctAnswer: '',
+                      explanation: '',
+                    };
+                  }),
+                }));
+
                 return {
                   id: a.id,
                   courseId: a.course_id,
@@ -699,6 +740,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   status: a.status,
                   readingPassage: a.reading_passage,
                   readingQuestions: sanitizedQuestions,
+                  questionGroups: sanitizedGroups,
+                  passages,
                   readingTestType: a.reading_test_type || metadata.readingTestType || 'academic',
                   writingTaskType: a.writing_task_type,
                   writingTaskCategory:
@@ -1497,6 +1540,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const packedQuestions = {
       questions: assignmentData.readingQuestions || [],
+      questionGroups: assignmentData.questionGroups || [],
+      passages: assignmentData.passages || [],
       _metadata: {
         readingTestType: assignmentData.readingTestType || 'academic',
         writingTaskCategory: assignmentData.writingTaskCategory,
@@ -1566,8 +1611,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!existing) throw new Error('Assignment not found');
 
     const mergedQuestions = updates.readingQuestions !== undefined ? updates.readingQuestions : existing.readingQuestions;
+    const mergedGroups = updates.questionGroups !== undefined ? updates.questionGroups : existing.questionGroups;
+    const mergedPassages = updates.passages !== undefined ? updates.passages : existing.passages;
+
     const packedQuestions = {
       questions: mergedQuestions || [],
+      questionGroups: mergedGroups || [],
+      passages: mergedPassages || [],
       _metadata: {
         readingTestType: updates.readingTestType || existing.readingTestType || 'academic',
         writingTaskCategory: updates.writingTaskCategory || existing.writingTaskCategory,
