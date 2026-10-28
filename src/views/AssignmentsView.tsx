@@ -14,6 +14,11 @@ import {
 } from '../types';
 import { gradeAssignmentSubmission, parseMaxWordsFromLimit } from '../lib/assignmentGrader';
 import {
+  extractAllNormalizedQuestions,
+  resolveQuestionPrompt,
+  extractParagraphLabelsFromPassage,
+} from '../lib/questionNormalizer';
+import {
   calculateIeltsOverallBand,
   roundIeltsComponentScore,
   calculateReadingBand,
@@ -727,16 +732,7 @@ export const AssignmentsView: React.FC = () => {
 
   // Helper to get effective reading questions
   const getEffectiveQuestions = (assignment: Assignment): ReadingQuestion[] => {
-    if (assignment.readingQuestions && assignment.readingQuestions.length > 0) {
-      return assignment.readingQuestions;
-    }
-    if (assignment.questionGroups && assignment.questionGroups.length > 0) {
-      return assignment.questionGroups.flatMap((g) => g.questions || []);
-    }
-    if (assignment.passages && assignment.passages.length > 0) {
-      return assignment.passages.flatMap((p) => p.questions || []);
-    }
-    return [];
+    return extractAllNormalizedQuestions(assignment).questions;
   };
 
   // Check unanswered reading questions before submitting
@@ -1414,7 +1410,15 @@ export const AssignmentsView: React.FC = () => {
     const isReading = activeAssignment.skill === 'reading';
     const isWriting = activeAssignment.skill === 'writing';
     const isSpeaking = activeAssignment.skill === 'speaking';
-    const questions = getEffectiveQuestions(activeAssignment);
+    const extractedData = extractAllNormalizedQuestions(activeAssignment);
+    const questions = extractedData.questions;
+    const passageMap = extractedData.passageMap;
+
+    const currentPassageContent =
+      (activeAssignment.passages && activeAssignment.passages[activePassageTab]?.content) ||
+      activeAssignment.readingPassage ||
+      '';
+    const paragraphLabels = extractParagraphLabelsFromPassage(currentPassageContent);
 
     // Count answered reading questions
     const answeredCount = questions.filter((q) => Boolean(readingAnswers[q.id]?.trim())).length;
@@ -1605,7 +1609,7 @@ export const AssignmentsView: React.FC = () => {
                       onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
                       className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded"
                     >
-                      Font: {passageFontSize === 'normal' ? '18px' : '20px'}
+                      Font: {passageFontSize === 'normal' ? '17px' : '19px'}
                     </button>
 
                     <span className="text-xs text-slate-400 font-mono">
@@ -1649,8 +1653,8 @@ export const AssignmentsView: React.FC = () => {
                 {/* Passage Text with Highlighting */}
                 <div
                   onMouseUp={handlePassageMouseUp}
-                  className={`leading-relaxed font-serif whitespace-pre-wrap text-slate-800 select-text ${
-                    passageFontSize === 'normal' ? 'text-[18px]' : 'text-[20px]'
+                  className={`font-serif whitespace-pre-wrap text-slate-800 select-text text-justify leading-[1.7] ${
+                    passageFontSize === 'normal' ? 'text-[17px]' : 'text-[19px]'
                   }`}
                 >
                   {renderHighlightedPassage(
@@ -1694,9 +1698,16 @@ export const AssignmentsView: React.FC = () => {
                         const isAns = Boolean(readingAnswers[q.id]?.trim());
                         const isFlag = Boolean(flaggedQuestions[q.id]);
                         return (
-                          <a
+                          <button
                             key={q.id}
-                            href={`#q_${q.id}`}
+                            type="button"
+                            onClick={() => {
+                              if (passageMap[q.id] !== undefined && passageMap[q.id] !== activePassageTab) {
+                                setActivePassageTab(passageMap[q.id]);
+                              }
+                              const el = document.getElementById(`q_${q.id}`);
+                              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
                             className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
                               isFlag
                                 ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
@@ -1704,72 +1715,90 @@ export const AssignmentsView: React.FC = () => {
                                 ? 'bg-blue-600 text-white shadow-xs'
                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
+                            title={`Question ${idx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
                           >
                             {idx + 1}
-                          </a>
+                          </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Interactive Questions List */}
-                  <div className="space-y-6 pt-3">
-                    {questions.map((q, idx) => {
-                      const answer = readingAnswers[q.id] || '';
-                      const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
-                      const isFlag = Boolean(flaggedQuestions[q.id]);
-                      const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
-                      const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
-                      const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
+                  {/* Empty / Malformed Questions Banner */}
+                  {questions.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl space-y-3 my-6">
+                      <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+                      <h3 className="text-base font-bold text-slate-800">
+                        {activeAssignment.readingPassage || (activeAssignment.passages && activeAssignment.passages.length > 0)
+                          ? 'No Formatted Questions Detected'
+                          : 'Empty Reading Assignment'}
+                      </h3>
+                      <p className="text-sm text-slate-500 max-w-md mx-auto">
+                        {activeAssignment.readingPassage || (activeAssignment.passages && activeAssignment.passages.length > 0)
+                          ? 'Passage text is available, but no structured questions could be extracted. Please ask your instructor to review this test.'
+                          : 'This assignment currently has no reading passages or questions.'}
+                      </p>
+                    </div>
+                  ) : (
+                    /* Interactive Questions List */
+                    <div className="space-y-6 pt-3">
+                      {questions.map((q, idx) => {
+                        const answer = readingAnswers[q.id] || '';
+                        const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
+                        const isFlag = Boolean(flaggedQuestions[q.id]);
+                        const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
+                        const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
+                        const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
+                        const displayPrompt = resolveQuestionPrompt(q, idx + 1);
 
-                      return (
-                        <div
-                          key={q.id}
-                          id={`q_${q.id}`}
-                          className={`p-4 rounded-xl border text-sm space-y-3 transition-colors ${
-                            result
-                              ? result.isCorrect
-                                ? 'border-emerald-300 bg-emerald-50/20'
-                                : 'border-red-300 bg-red-50/20'
-                              : 'border-slate-200 bg-slate-50/40'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-slate-900 text-sm">
-                              Question {idx + 1} ({q.type.replace(/_/g, ' ')})
-                            </span>
+                        return (
+                          <div
+                            key={q.id}
+                            id={`q_${q.id}`}
+                            className={`p-4 rounded-xl border text-sm space-y-3 transition-colors ${
+                              result
+                                ? result.isCorrect
+                                  ? 'border-emerald-300 bg-emerald-50/20'
+                                  : 'border-red-300 bg-red-50/20'
+                                : 'border-slate-200 bg-slate-50/40'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-900 text-sm">
+                                Question {idx + 1} ({q.type.replace(/_/g, ' ')})
+                              </span>
 
-                            <div className="flex items-center space-x-2">
-                              {/* Flag button */}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })
-                                }
-                                className={`p-1 rounded text-xs flex items-center space-x-1 ${
-                                  isFlag ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-slate-600'
-                                }`}
-                                title="Flag for review"
-                              >
-                                <Flag className="w-3.5 h-3.5" />
-                                <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
-                              </button>
-
-                              {result && (
-                                <span
-                                  className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
-                                    result.isCorrect
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : 'bg-red-100 text-red-800'
+                              <div className="flex items-center space-x-2">
+                                {/* Flag button */}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })
+                                  }
+                                  className={`p-1 rounded text-xs flex items-center space-x-1 ${
+                                    isFlag ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-slate-600'
                                   }`}
+                                  title="Flag for review"
                                 >
-                                  {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                                  <Flag className="w-3.5 h-3.5" />
+                                  <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
+                                </button>
 
-                          <p className="font-semibold text-slate-800 text-sm leading-relaxed">{q.prompt}</p>
+                                {result && (
+                                  <span
+                                    className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
+                                      result.isCorrect
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : 'bg-red-100 text-red-800'
+                                    }`}
+                                  >
+                                    {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <p className="font-semibold text-slate-800 text-sm leading-relaxed">{displayPrompt}</p>
 
                           {/* Reference Box: List of Headings */}
                           {q.headingsList && q.headingsList.length > 0 && (
@@ -1839,6 +1868,57 @@ export const AssignmentsView: React.FC = () => {
                                 </button>
                               ))}
                             </div>
+                          ) : q.type === 'matching_information' ? (
+                            <div className="space-y-2 pt-1">
+                              <div className="text-xs text-amber-900 bg-amber-50/80 border border-amber-200 px-2.5 py-1.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                <span className="font-semibold">Which paragraph contains this information?</span>
+                                <span className="text-[11px] font-mono font-medium text-amber-800">
+                                  NB: Letters may be used more than once
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
+                                  const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
+                                  const isSelected =
+                                    answer.toUpperCase() === letter || answer.toUpperCase() === label.toUpperCase();
+                                  return (
+                                    <button
+                                      key={label}
+                                      type="button"
+                                      disabled={mySub?.status === 'graded'}
+                                      onClick={() => handleAnswerChange(q.id, letter)}
+                                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                        isSelected
+                                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      Paragraph {letter}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="pt-1">
+                                <select
+                                  disabled={mySub?.status === 'graded'}
+                                  value={answer}
+                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                  className="w-full sm:w-72 p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                >
+                                  <option value="">-- Or select paragraph from dropdown --</option>
+                                  {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
+                                    const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
+                                    return (
+                                      <option key={label} value={letter}>
+                                        Paragraph {letter}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                            </div>
                           ) : q.type === 'matching_headings' && q.headingsList && q.headingsList.length > 0 ? (
                             <div className="space-y-1.5">
                               <select
@@ -1877,6 +1957,22 @@ export const AssignmentsView: React.FC = () => {
                                     </option>
                                   );
                                 })}
+                              </select>
+                            </div>
+                          ) : q.type === 'matching_sentence_endings' && q.options && q.options.length > 0 ? (
+                            <div className="space-y-1.5">
+                              <select
+                                disabled={mySub?.status === 'graded'}
+                                value={answer}
+                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                              >
+                                <option value="">-- Choose Sentence Ending (A, B, C...) --</option>
+                                {q.options.map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt}
+                                  </option>
+                                ))}
                               </select>
                             </div>
                           ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
@@ -1979,7 +2075,11 @@ export const AssignmentsView: React.FC = () => {
                                 disabled={mySub?.status === 'graded'}
                                 value={answer}
                                 onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                placeholder="Type answer phrase..."
+                                placeholder={
+                                  maxWords
+                                    ? `Type answer (max ${maxWords} word${maxWords > 1 ? 's' : ''})...`
+                                    : 'Type your answer phrase...'
+                                }
                                 className={`w-full sm:w-80 p-2.5 border rounded-lg text-sm bg-white font-medium focus:ring-2 focus:outline-hidden ${
                                   isOverWordLimit
                                     ? 'border-red-400 focus:ring-red-400'
@@ -2012,6 +2112,7 @@ export const AssignmentsView: React.FC = () => {
                       );
                     })}
                   </div>
+                  )}
                 </div>
 
                 {/* Submission footer */}

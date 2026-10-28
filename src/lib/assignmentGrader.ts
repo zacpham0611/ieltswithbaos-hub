@@ -17,6 +17,9 @@ export interface AssignmentGradeSummary {
   errorAnalysis: QuestionGradeResult[];
   earnedScore: number;
   maxScore: number;
+  gradableMaxScore?: number;
+  gradableCount?: number;
+  pendingCount?: number;
   percentage: number;
   correctCount: number;
   incorrectCount: number;
@@ -288,9 +291,35 @@ export function gradeSingleQuestion(
     };
   }
 
-  // 9. Matching Information / Matching Features / Matching Sentence Endings
+  // 9. Matching Information (Which paragraph contains... Supports repeated letters NB)
+  if (q.type === 'matching_information') {
+    const extractParagraphLetter = (text: string): string => {
+      const trimmed = (text || '').trim();
+      const pMatch = trimmed.match(/(?:paragraph\s+|\[|\()?([A-Za-z])(?:\.|\:|\]|\)|\s|$)/i);
+      if (pMatch) return pMatch[1].toUpperCase();
+      const direct = extractChoiceLetter(trimmed);
+      return direct || trimmed.toUpperCase();
+    };
+
+    const userLetter = extractParagraphLetter(userAns);
+    const keyLetter = extractParagraphLetter(key);
+
+    const isCorrect = userLetter.length > 0 && keyLetter.length > 0 && userLetter === keyLetter;
+
+    return {
+      questionId: qId,
+      userAnswer: userAns,
+      correctAnswer: key,
+      isCorrect,
+      isPendingReview: false,
+      earnedPoints: isCorrect ? maxPoints : 0,
+      maxPoints,
+      explanation,
+    };
+  }
+
+  // 10. Matching Features / Matching Sentence Endings
   if (
-    q.type === 'matching_information' ||
     q.type === 'matching_features' ||
     q.type === 'matching_sentence_endings'
   ) {
@@ -396,6 +425,9 @@ export function gradeAssignmentSubmission(
 ): AssignmentGradeSummary {
   let earnedScore = 0;
   let maxScore = 0;
+  let gradableMaxScore = 0;
+  let gradableCount = 0;
+  let pendingCount = 0;
   let correctCount = 0;
   let incorrectCount = 0;
   let unansweredCount = 0;
@@ -408,29 +440,41 @@ export function gradeAssignmentSubmission(
     maxScore += result.maxPoints;
     earnedScore += result.earnedPoints;
 
+    if (result.isPendingReview) {
+      hasOpenEnded = true;
+      pendingCount++;
+      // Exclude from gradable denominator so student is not penalized for missing teacher key
+    } else {
+      gradableMaxScore += result.maxPoints;
+      gradableCount++;
+    }
+
     if (!userAns || !userAns.trim()) {
       unansweredCount++;
     } else if (result.isCorrect) {
       correctCount++;
-    } else {
+    } else if (!result.isPendingReview) {
+      // Ungraded/pending questions are never counted as incorrect!
       incorrectCount++;
     }
 
-    if (result.isPendingReview) {
-      hasOpenEnded = true;
-    }
     return result;
   });
 
-  const percentage = maxScore > 0 ? Math.round((earnedScore / maxScore) * 100) : 0;
+  const effectiveMaxScore = gradableMaxScore > 0 ? gradableMaxScore : maxScore;
+  const percentage = effectiveMaxScore > 0 ? Math.round((earnedScore / effectiveMaxScore) * 100) : 0;
 
-  // Use the official IELTS Reading conversion scale
-  const bandResult = calculateReadingBand(correctCount, testType, questions.length);
+  // Use the official IELTS Reading conversion scale based on gradable question count
+  const totalForBand = gradableCount > 0 ? gradableCount : questions.length;
+  const bandResult = calculateReadingBand(correctCount, testType, totalForBand);
 
   return {
     errorAnalysis,
     earnedScore,
     maxScore,
+    gradableMaxScore,
+    gradableCount,
+    pendingCount,
     percentage,
     correctCount,
     incorrectCount,

@@ -24,6 +24,7 @@ import {
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
 import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
+import { extractAllNormalizedQuestions, sanitizeQuestionsForStudent } from '../lib/questionNormalizer';
 
 interface AppContextType {
   currentUser: User | null;
@@ -213,7 +214,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       metadata = raw._metadata || raw.metadata || {};
     }
 
-    return { questions, questionGroups, passages, metadata };
+    // Normalizes questions and flattens/links any questions from passages or groups to eliminate 0 / 0 Answered
+    const extracted = extractAllNormalizedQuestions({
+      readingQuestions: questions,
+      questionGroups,
+      passages,
+    });
+
+    return {
+      questions: extracted.questions,
+      questionGroups,
+      passages,
+      metadata,
+    };
   };
 
   // 1. DATA REFRESH FUNCTION - Pulls real records from Supabase
@@ -729,6 +742,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   }),
                 }));
 
+                const sanitizedPassages = passages.map((p) => ({
+                  ...p,
+                  questions: (p.questions || []).map((q: any) => {
+                    if (canSeeAnswers) return q;
+                    const { correctAnswer, explanation, ...safeQ } = q;
+                    return {
+                      ...safeQ,
+                      correctAnswer: '',
+                      explanation: '',
+                    };
+                  }),
+                  questionGroups: (p.questionGroups || []).map((g) => ({
+                    ...g,
+                    questions: (g.questions || []).map((q: any) => {
+                      if (canSeeAnswers) return q;
+                      const { correctAnswer, explanation, ...safeQ } = q;
+                      return {
+                        ...safeQ,
+                        correctAnswer: '',
+                        explanation: '',
+                      };
+                    }),
+                  })),
+                }));
+
                 return {
                   id: a.id,
                   courseId: a.course_id,
@@ -741,7 +779,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   readingPassage: a.reading_passage,
                   readingQuestions: sanitizedQuestions,
                   questionGroups: sanitizedGroups,
-                  passages,
+                  passages: sanitizedPassages,
                   readingTestType: a.reading_test_type || metadata.readingTestType || 'academic',
                   writingTaskType: a.writing_task_type,
                   writingTaskCategory:
@@ -1702,7 +1740,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         if (rawAssign) {
           const rawQ = rawAssign.reading_questions;
-          const questionsList = Array.isArray(rawQ) ? rawQ : (rawQ?.questions || []);
+          const { questions: questionsList } = extractAllNormalizedQuestions(
+            Array.isArray(rawQ) ? { readingQuestions: rawQ } : rawQ
+          );
           const gradeSummary = gradeAssignmentSubmission(
             questionsList,
             data.readingAnswers,
