@@ -16,6 +16,8 @@ import {
   generateReadingTestWithAi,
   regenerateQuestionGroupWithAi,
 } from '../lib/ai';
+import { Portal } from './Portal';
+import { normalizeReadingQuestion } from '../lib/questionNormalizer';
 import {
   Sparkles,
   X,
@@ -115,6 +117,7 @@ export const AiReadingTestGeneratorModal: React.FC<AiReadingTestGeneratorModalPr
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignCourseId, setAssignCourseId] = useState(courses[0]?.id || '');
   const [assignDueDate, setAssignDueDate] = useState('2026-11-05');
+  const [teacherApprovedForStudents, setTeacherApprovedForStudents] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -267,28 +270,52 @@ export const AiReadingTestGeneratorModal: React.FC<AiReadingTestGeneratorModalPr
 
       setGenerationStep('Finalizing passages, question groups, and explanation citations...');
 
-      const structured = res.structuredData;
+      let structured = res.structuredData;
       if (!structured || !structured.passages || structured.passages.length === 0) {
-        // Fallback: build structure from raw response
-        throw new Error('AI generation did not return a structured test. Please try again with different settings.');
+        // Fallback: extract and parse JSON from res.draft directly
+        if (res.draft) {
+          try {
+            const jsonCodeFence = res.draft.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+            let jsonStr = '';
+            if (jsonCodeFence) {
+              jsonStr = jsonCodeFence[1].trim();
+            } else {
+              const firstBrace = res.draft.indexOf('{');
+              const lastBrace = res.draft.lastIndexOf('}');
+              if (firstBrace !== -1 && lastBrace > firstBrace) {
+                jsonStr = res.draft.substring(firstBrace, lastBrace + 1).trim();
+              }
+            }
+            if (jsonStr) {
+              const clean = jsonStr.replace(/,\s*([\]}])/g, '$1');
+              structured = JSON.parse(clean);
+            }
+          } catch (parseErr) {
+            console.warn('[AiReadingTestGeneratorModal] Fallback parsing failed:', parseErr);
+          }
+        }
       }
 
-      // Normalize generated passages
+      if (!structured || !structured.passages || structured.passages.length === 0) {
+        throw new Error('AI generation did not return a structured test. Please try again with different settings or source text.');
+      }
+
+      // Normalize generated passages using universal normalizer
       const normalizedPassages: ParsedPassage[] = structured.passages.map((p: any, pIdx: number) => {
         const passageIdx = p.passageIndex || pIdx + 1;
         const qGroups: QuestionGroup[] = (p.questionGroups || []).map((g: any, gIdx: number) => {
-          const questions: ReadingQuestion[] = (g.questions || []).map((q: any, qIdx: number) => ({
-            id: q.id || `q_${passageIdx}_${gIdx + 1}_${qIdx + 1}`,
-            type: q.type || g.questionType || 'multiple_choice',
-            prompt: q.prompt || '',
-            options: q.options || undefined,
-            wordLimit: q.wordLimit || g.wordLimit,
-            correctAnswer: q.correctAnswer || '',
-            explanation: q.explanation || 'Directly cited from passage.',
-            points: q.points || 1,
-            source: 'ai_generated',
-            answerKeyConfidence: 'high',
-          }));
+          const questions: ReadingQuestion[] = (g.questions || []).map((rawQ: any, qIdx: number) => {
+            const norm = normalizeReadingQuestion(rawQ, qIdx + 1, passageIdx - 1);
+            return {
+              ...norm,
+              id: rawQ.id || `q_${passageIdx}_${gIdx + 1}_${qIdx + 1}`,
+              type: norm.type || g.questionType || 'multiple_choice',
+              wordLimit: rawQ.wordLimit || g.wordLimit,
+              source: 'ai_generated',
+              answerKeyConfidence: 'needs_teacher_review',
+              needsReview: true,
+            };
+          });
 
           return {
             id: g.id || `qgroup_${passageIdx}_${gIdx + 1}`,
@@ -500,7 +527,7 @@ export const AiReadingTestGeneratorModal: React.FC<AiReadingTestGeneratorModalPr
         skill: 'reading',
         objectives: `Calibrated to Difficulty ${generatedTest.difficultyLevel}/10. Practice academic reading speed, scanning, and analytical comprehension.`,
         dueDate: assignDueDate,
-        status: 'published',
+        status: teacherApprovedForStudents ? 'published' : 'draft',
         readingTestType: 'academic',
         readingPassage: primaryPassage.content,
         readingQuestions: allQuestions,
@@ -509,7 +536,11 @@ export const AiReadingTestGeneratorModal: React.FC<AiReadingTestGeneratorModalPr
       });
 
       setShowAssignModal(false);
-      setSaveSuccessMsg(`Test successfully assigned to selected course!`);
+      setSaveSuccessMsg(
+        teacherApprovedForStudents
+          ? `Test successfully published to students!`
+          : `Test saved as Draft! You can review questions and publish from Assignments whenever ready.`
+      );
       setTimeout(() => {
         setSaveSuccessMsg(null);
         onClose();
@@ -522,8 +553,9 @@ export const AiReadingTestGeneratorModal: React.FC<AiReadingTestGeneratorModalPr
   const diffMeta = getDifficultyMeta(difficultyLevel);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
-      <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <Portal>
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+        <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* HEADER */}
         <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
@@ -1368,6 +1400,25 @@ Cities such as Paris, Melbourne, and Milan have actively integrated 15-minute ur
                   />
                 </div>
 
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-2">
+                  <label className="flex items-start space-x-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={teacherApprovedForStudents}
+                      onChange={(e) => setTeacherApprovedForStudents(e.target.checked)}
+                      className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-slate-800 font-medium text-[11px] leading-relaxed">
+                      I have reviewed and verified all AI-generated passages, questions, and answer keys.
+                      <span className="block text-slate-500 text-[10px] mt-0.5">
+                        {teacherApprovedForStudents
+                          ? '✓ Ready to publish directly to students.'
+                          : 'Will be saved as Draft. Students cannot view or attempt until you review and publish.'}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-blue-800 space-y-1">
                   <p className="font-semibold">Answer-Key Security Guarantee:</p>
                   <p>
@@ -1389,7 +1440,7 @@ Cities such as Paris, Melbourne, and Milan have actively integrated 15-minute ur
                   onClick={handleConfirmAssignment}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs"
                 >
-                  Confirm & Publish Assignment
+                  {teacherApprovedForStudents ? 'Confirm & Publish Assignment' : 'Save as Draft Assignment'}
                 </button>
               </div>
             </div>
@@ -1397,5 +1448,6 @@ Cities such as Paris, Melbourne, and Milan have actively integrated 15-minute ur
         )}
       </div>
     </div>
+    </Portal>
   );
 };

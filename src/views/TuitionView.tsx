@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import {
@@ -6,6 +6,7 @@ import {
   TuitionModel,
   FeeConfiguration,
   PaymentRecord,
+  TeacherBankInfo,
 } from '../types';
 import {
   WalletCards,
@@ -17,6 +18,7 @@ import {
   Clock,
   Printer,
   ChevronRight,
+  ChevronLeft,
   Filter,
   Search,
   CreditCard,
@@ -28,7 +30,18 @@ import {
   TrendingUp,
   Globe,
   Edit,
+  Upload,
+  Trash2,
+  Check,
+  FileText,
 } from 'lucide-react';
+import { Portal } from '../components/Portal';
+import {
+  calculateMonthlyTuition,
+  getEligibleSessionsForMonth,
+  formatCurrency as formatTuitionCurrency,
+  parseBillingMonth,
+} from '../lib/tuitionCalculator';
 
 export const TuitionView: React.FC = () => {
   const {
@@ -46,6 +59,11 @@ export const TuitionView: React.FC = () => {
     recordPayment,
     selectedStatementId,
     setSelectedStatementId,
+    lessons,
+    toggleAttendanceSession,
+    uploadTeacherPaymentQr,
+    removeTeacherPaymentQr,
+    updateProfile,
   } = useApp();
 
   const { t, locale, formatCurrency } = useI18n();
@@ -57,10 +75,34 @@ export const TuitionView: React.FC = () => {
   const [filterPeriod, setFilterPeriod] = useState('all');
   const [searchStudent, setSearchStudent] = useState('');
 
+  // Active Sub-Tab (Teacher)
+  const [activeSubTab, setActiveSubTab] = useState<'statements' | 'calendar' | 'qr_banking' | 'settings'>('statements');
+
   // Modals
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showCalcModal, setShowCalcModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+
+  // Teaching Calendar state
+  const [calendarCourseId, setCalendarCourseId] = useState<string>('');
+  const [calendarStudentId, setCalendarStudentId] = useState<string>('');
+  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
+  const [sessionDuration, setSessionDuration] = useState<number>(60);
+  const [isAttendanceUpdating, setIsAttendanceUpdating] = useState<boolean>(false);
+
+  // Bank Info & QR Management state
+  const [bankName, setBankName] = useState(currentUser.bankInfo?.bankName || 'Vietcombank');
+  const [accountHolder, setAccountHolder] = useState(currentUser.bankInfo?.accountHolder || currentUser.name.toUpperCase());
+  const [accountNumber, setAccountNumber] = useState(currentUser.bankInfo?.accountNumber || '');
+  const [branch, setBranch] = useState(currentUser.bankInfo?.branch || 'Ho Chi Minh City');
+  const [transferDesc, setTransferDesc] = useState(currentUser.bankInfo?.transferDescription || 'IELTS {STUDENT_NAME}');
+  const [qrFile, setQrFile] = useState<File | null>(null);
+  const [qrPreview, setQrPreview] = useState<string | null>(null);
+  const [isUploadingQr, setIsUploadingQr] = useState<boolean>(false);
+  const [isSavingBank, setIsSavingBank] = useState<boolean>(false);
+  const [qrNotice, setQrNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [bankNotice, setBankNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // PDF Export Language Mode: 'en' | 'vi' | 'bilingual'
   const [pdfLanguageMode, setPdfLanguageMode] = useState<'en' | 'vi' | 'bilingual'>('bilingual');
@@ -124,6 +166,152 @@ export const TuitionView: React.FC = () => {
     setCfgDueDays(cfg.dueDays || 15);
     setCfgDiscountPercent(cfg.earlyPaymentDiscountPercent || 0);
     setShowConfigModal(true);
+  };
+
+  // Active course and dates for Teaching Calendar
+  const activeCalCourse = courses.find((c) => c.id === (calendarCourseId || courses[0]?.id));
+  const effectiveCalCourseId = activeCalCourse?.id || '';
+
+  const calYear = calendarMonth.getFullYear();
+  const calMonthIdx = calendarMonth.getMonth(); // 0-11
+  const daysInCalMonth = new Date(calYear, calMonthIdx + 1, 0).getDate();
+  const firstDayOfCalMonth = new Date(calYear, calMonthIdx, 1).getDay(); // 0 is Sunday
+  const calStartOffset = (firstDayOfCalMonth + 6) % 7; // Monday-first: Mon=0, ..., Sun=6
+  const calMonthName = calendarMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+  // Filter lessons for calendar course and optional student in this calendar month
+  const calMonthSessions = useMemo(() => {
+    return lessons.filter((l) => {
+      if (l.courseId !== effectiveCalCourseId) return false;
+      if (calendarStudentId && l.studentId && l.studentId !== calendarStudentId) return false;
+      if (l.status === 'cancelled') return false;
+      if (!l.date) return false;
+      const d = new Date(l.date);
+      return d.getFullYear() === calYear && d.getMonth() === calMonthIdx;
+    });
+  }, [lessons, effectiveCalCourseId, calendarStudentId, calYear, calMonthIdx]);
+
+  const calSessionMap = useMemo(() => {
+    const map = new Map<string, typeof lessons[0]>();
+    calMonthSessions.forEach((s) => {
+      if (s.date) map.set(s.date, s);
+    });
+    return map;
+  }, [calMonthSessions]);
+
+  const calTotalMinutes = calMonthSessions.reduce((acc, s) => acc + (s.durationMinutes || 60), 0);
+  const calTotalHours = (calTotalMinutes / 60).toFixed(1);
+
+  // Live calculation preview for statement modal
+  const calcPreview = useMemo(() => {
+    if (!calcCourseId) return null;
+    const targetCourse = courses.find((c) => c.id === calcCourseId);
+    const targetStudent = courseMembers.find((m) => m.studentId === calcStudentId);
+    const targetConfig = feeConfigurations.find((f) => f.courseId === calcCourseId);
+
+    return calculateMonthlyTuition({
+      courseId: calcCourseId,
+      courseName: targetCourse?.name || 'Course',
+      studentId: calcStudentId,
+      studentName: targetStudent?.studentName || 'Student',
+      billingMonth: calcPeriod,
+      feeConfig: targetConfig,
+      course: targetCourse,
+      sessions: lessons,
+      manualDiscount: calcCustomDiscount,
+      discountDescription: calcDiscountNote,
+    });
+  }, [calcCourseId, calcStudentId, calcPeriod, calcCustomDiscount, calcDiscountNote, courses, courseMembers, feeConfigurations, lessons]);
+
+  const handleToggleDay = async (dayNumber: number) => {
+    if (!effectiveCalCourseId || isAttendanceUpdating) return;
+    const dateStr = `${calYear}-${String(calMonthIdx + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+    setIsAttendanceUpdating(true);
+    try {
+      await toggleAttendanceSession(effectiveCalCourseId, calendarStudentId || null, dateStr, sessionDuration);
+    } catch (err: any) {
+      alert(err.message || 'Error updating attendance session');
+    } finally {
+      setIsAttendanceUpdating(false);
+    }
+  };
+
+  const handleSelectQrFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQrNotice(null);
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+
+    if (file.size > 5 * 1024 * 1024) {
+      setQrNotice({ type: 'error', text: 'QR image must be under 5MB' });
+      return;
+    }
+
+    const validTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+    if (!validTypes.includes(file.type)) {
+      setQrNotice({ type: 'error', text: 'Supported formats: PNG, JPG, WEBP, SVG' });
+      return;
+    }
+
+    setQrFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setQrPreview(objectUrl);
+  };
+
+  const handleUploadQr = async () => {
+    if (!qrFile) return;
+    setIsUploadingQr(true);
+    setQrNotice(null);
+    try {
+      await uploadTeacherPaymentQr(qrFile);
+      setQrNotice({ type: 'success', text: 'Teacher Payment QR code saved and active!' });
+      setQrFile(null);
+    } catch (err: any) {
+      setQrNotice({ type: 'error', text: err.message || 'Failed to upload QR code' });
+    } finally {
+      setIsUploadingQr(false);
+    }
+  };
+
+  const handleRemoveQr = async () => {
+    if (!confirm('Are you sure you want to remove your payment QR code?')) return;
+    setIsUploadingQr(true);
+    setQrNotice(null);
+    try {
+      await removeTeacherPaymentQr();
+      setQrPreview(null);
+      setQrFile(null);
+      setQrNotice({ type: 'success', text: 'Payment QR code removed' });
+    } catch (err: any) {
+      setQrNotice({ type: 'error', text: err.message || 'Failed to remove QR code' });
+    } finally {
+      setIsUploadingQr(false);
+    }
+  };
+
+  const handleSaveBankInfo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingBank(true);
+    setBankNotice(null);
+    try {
+      const updatedBankInfo: TeacherBankInfo = {
+        bankName: bankName.trim(),
+        accountHolder: accountHolder.trim().toUpperCase(),
+        accountNumber: accountNumber.trim(),
+        branch: branch.trim(),
+        transferDescription: transferDesc.trim(),
+        qrCodeUrl: currentUser.paymentQrUrl,
+      };
+
+      await updateProfile({
+        bankInfo: updatedBankInfo,
+      });
+
+      setBankNotice({ type: 'success', text: 'Banking details updated successfully!' });
+    } catch (err: any) {
+      setBankNotice({ type: 'error', text: err.message || 'Failed to update banking details' });
+    } finally {
+      setIsSavingBank(false);
+    }
   };
 
   const handleCreateFeeConfig = async (e: React.FormEvent) => {
@@ -392,6 +580,22 @@ export const TuitionView: React.FC = () => {
             </div>
           </div>
 
+          {/* Attended Teaching Sessions if available */}
+          {activeStatement.teachingDates && activeStatement.teachingDates.length > 0 && (
+            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/60 text-xs">
+              <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">
+                {getPdfLabel('ATTENDED TEACHING SESSIONS', 'BUỔI HỌC ĐÃ ĐIỂM DANH')} ({activeStatement.teachingDates.length} {getPdfLabel('sessions', 'buổi')}{activeStatement.totalTeachingHours ? ` • ${activeStatement.totalTeachingHours} hrs` : ''})
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {activeStatement.teachingDates.map((dateStr, idx) => (
+                  <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                    ✓ {dateStr}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Fee Breakdown Table */}
           <div>
             <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider mb-2">
@@ -528,40 +732,46 @@ export const TuitionView: React.FC = () => {
               </div>
 
               {/* Scan to Pay QR Graphic */}
-              <div className="p-4 flex flex-col items-center justify-center text-center space-y-3 bg-slate-50/50">
-                <div className="bg-slate-900 text-white text-[10px] font-bold uppercase px-3 py-1 rounded-sm">
-                  {getPdfLabel('SCAN TO PAY', 'QUÉT MÃ ĐỂ THANH TOÁN')}
-                </div>
+              {(() => {
+                const qrUrl = activeStatement.bankInfo?.qrCodeUrl || activeStatement.qrCodeUrl || currentUser.paymentQrUrl;
+                if (!qrUrl) {
+                  return (
+                    <div className="p-4 flex flex-col items-center justify-center text-center space-y-2 bg-slate-50/50">
+                      <div className="bg-slate-200 text-slate-700 text-[10px] font-bold uppercase px-3 py-1 rounded-sm">
+                        {getPdfLabel('DIRECT TRANSFER', 'CHUYỂN KHOẢN TRỰC TIẾP')}
+                      </div>
+                      <p className="text-xs text-slate-500 max-w-xs mt-2">
+                        {getPdfLabel(
+                          'No payment QR code is attached. Please use the account details on the left for manual mobile banking transfer.',
+                          'Không có mã QR thanh toán đính kèm. Vui lòng chuyển khoản theo thông tin tài khoản bên trái.'
+                        )}
+                      </p>
+                      <p className="font-mono font-bold text-slate-700 text-xs mt-1">
+                        {getPdfLabel('Reference', 'Nội dung CK')}: {activeStatement.bankInfo?.transferDescription || activeStatement.statementNumber}
+                      </p>
+                    </div>
+                  );
+                }
 
-                {/* SVG QR Code Simulation */}
-                <div className="w-36 h-36 bg-white p-2 border border-slate-300 rounded shadow-xs flex flex-col items-center justify-center">
-                  <div className="grid grid-cols-4 gap-1 w-full h-full p-2 bg-slate-100 rounded">
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-200 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-200 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-200 rounded-xs"></div>
-                    <div className="bg-slate-200 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-200 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
-                    <div className="bg-slate-900 rounded-xs"></div>
+                return (
+                  <div className="p-4 flex flex-col items-center justify-center text-center space-y-2.5 bg-slate-50/50">
+                    <div className="bg-slate-900 text-white text-[10px] font-bold uppercase px-3 py-1 rounded-sm">
+                      {getPdfLabel('SCAN TO PAY', 'QUÉT MÃ ĐỂ THANH TOÁN')}
+                    </div>
+                    <img
+                      src={qrUrl}
+                      alt="Payment QR Code"
+                      className="w-40 h-40 object-contain rounded-lg border border-slate-300 bg-white p-2 shadow-xs"
+                    />
+                    <div className="text-[11px] text-slate-500">
+                      <p>{getPdfLabel('Scan using your banking or e-wallet app.', 'Quét bằng app ngân hàng hoặc ví điện tử.')}</p>
+                      <p className="font-mono font-bold text-slate-700 mt-0.5">
+                        {getPdfLabel('Reference', 'Mã phiếu')}: {activeStatement.statementNumber}
+                      </p>
+                    </div>
                   </div>
-                </div>
-
-                <div className="text-[11px] text-slate-500">
-                  <p>{getPdfLabel('Scan using your banking app.', 'Quét bằng app ngân hàng của bạn.')}</p>
-                  <p className="font-mono font-bold text-slate-700 mt-0.5">
-                    {getPdfLabel('Reference', 'Mã phiếu')}: {activeStatement.statementNumber}
-                  </p>
-                </div>
-              </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -623,105 +833,107 @@ export const TuitionView: React.FC = () => {
 
         {/* Modal: Record Payment */}
         {showPayModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-                <h3 className="text-base font-bold text-slate-900">{t('tuition.recordModalTitle')}</h3>
-                <button onClick={() => setShowPayModal(false)} className="text-slate-400 hover:text-slate-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs mb-4">
-                <span className="text-slate-500">{t('tuition.tableStudent')}: </span>
-                <strong className="text-slate-800">{activeStatement.studentName}</strong>
-                <span className="block text-slate-500 mt-1">
-                  {t('tuition.remainingLabel')}: <strong>{activeStatement.currency} {activeStatement.remainingBalance.toLocaleString()}</strong>
-                </span>
-              </div>
-
-              <form onSubmit={handleRecordPayment} className="space-y-3 text-xs">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.paymentAmount')}</label>
-                  <input
-                    type="number"
-                    required
-                    step="0.01"
-                    value={payAmount}
-                    onChange={(e) => setPayAmount(Number(e.target.value))}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden font-bold text-sm"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    {t('tuition.partialNote')}
-                  </p>
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                  <h3 className="text-base font-bold text-slate-900">{t('tuition.recordModalTitle')}</h3>
+                  <button onClick={() => setShowPayModal(false)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs mb-4">
+                  <span className="text-slate-500">{t('tuition.tableStudent')}: </span>
+                  <strong className="text-slate-800">{activeStatement.studentName}</strong>
+                  <span className="block text-slate-500 mt-1">
+                    {t('tuition.remainingLabel')}: <strong>{activeStatement.currency} {activeStatement.remainingBalance.toLocaleString()}</strong>
+                  </span>
+                </div>
+
+                <form onSubmit={handleRecordPayment} className="space-y-3 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.paymentDate')}</label>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.paymentAmount')}</label>
                     <input
-                      type="date"
-                      value={payDate}
-                      onChange={(e) => setPayDate(e.target.value)}
+                      type="number"
+                      required
+                      step="0.01"
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(Number(e.target.value))}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden font-bold text-sm"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {t('tuition.partialNote')}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">{t('tuition.paymentDate')}</label>
+                      <input
+                        type="date"
+                        value={payDate}
+                        onChange={(e) => setPayDate(e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">{t('tuition.paymentMethod')}</label>
+                      <select
+                        value={payMethod}
+                        onChange={(e) => setPayMethod(e.target.value as any)}
+                        className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                      >
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Credit Card">Credit Card</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.transactionRef')}</label>
+                    <input
+                      type="text"
+                      value={payRef}
+                      onChange={(e) => setPayRef(e.target.value)}
+                      placeholder="e.g. TX-2026-001234 or bank trace ID"
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.notesRemark')}</label>
+                    <input
+                      type="text"
+                      value={payNotes}
+                      onChange={(e) => setPayNotes(e.target.value)}
+                      placeholder="e.g. Paid in full via banking app"
                       className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
                     />
                   </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.paymentMethod')}</label>
-                    <select
-                      value={payMethod}
-                      onChange={(e) => setPayMethod(e.target.value as any)}
-                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+
+                  <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowPayModal(false)}
+                      className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
                     >
-                      <option value="Bank Transfer">Bank Transfer</option>
-                      <option value="Cash">Cash</option>
-                      <option value="Credit Card">Credit Card</option>
-                      <option value="Other">Other</option>
-                    </select>
+                      {t('common.cancel')}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingPay}
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs"
+                    >
+                      {isSubmittingPay ? t('common.loading') : t('tuition.confirmPaymentBtn')}
+                    </button>
                   </div>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.transactionRef')}</label>
-                  <input
-                    type="text"
-                    value={payRef}
-                    onChange={(e) => setPayRef(e.target.value)}
-                    placeholder="e.g. TX-2026-001234 or bank trace ID"
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.notesRemark')}</label>
-                  <input
-                    type="text"
-                    value={payNotes}
-                    onChange={(e) => setPayNotes(e.target.value)}
-                    placeholder="e.g. Paid in full via banking app"
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                  />
-                </div>
-
-                <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowPayModal(false)}
-                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                  >
-                    {t('common.cancel')}
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingPay}
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs"
-                  >
-                    {isSubmittingPay ? t('common.loading') : t('tuition.confirmPaymentBtn')}
-                  </button>
-                </div>
-              </form>
+                </form>
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
       </div>
     );
@@ -769,84 +981,622 @@ export const TuitionView: React.FC = () => {
         )}
       </div>
 
-      {/* 4 Supported Billing Models Explanatory Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-extrabold text-blue-700 uppercase tracking-wider block">
-            {t('tuition.fixedMonthly')}
-          </span>
-          <p className="text-xs font-bold text-slate-800 mt-1">One amount / month</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.fixedMonthlyDesc')}</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider block">
-            {t('tuition.perSession')}
-          </span>
-          <p className="text-xs font-bold text-slate-800 mt-1">Billable sessions × rate</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.perSessionDesc')}</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-extrabold text-purple-700 uppercase tracking-wider block">
-            {t('tuition.hourly')}
-          </span>
-          <p className="text-xs font-bold text-slate-800 mt-1">Approved hours × rate</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.hourlyDesc')}</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-extrabold text-amber-700 uppercase tracking-wider block">
-            {t('tuition.coursePackage')}
-          </span>
-          <p className="text-xs font-bold text-slate-800 mt-1">Package or instalments</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.coursePackageDesc')}</p>
-        </div>
-      </div>
-
-      {/* 4 Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-            {t('tuition.totalBilled')}
-          </span>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">
-            ${totalRevenue.toLocaleString()}
-          </div>
-          <span className="text-[11px] text-slate-400">{t('tuition.acrossStatements')}</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-            {t('tuition.outstandingBalance')}
-          </span>
-          <div className="text-2xl font-extrabold text-amber-600 mt-1">
-            ${totalOutstanding.toLocaleString()}
-          </div>
-          <span className="text-[11px] text-amber-600 font-semibold">{t('tuition.uncollected')}</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-            {t('tuition.collected')}
-          </span>
-          <div className="text-2xl font-extrabold text-emerald-600 mt-1">
-            ${totalCollected.toLocaleString()}
-          </div>
-          <span className="text-[11px] text-emerald-600 font-semibold">{t('tuition.settled')}</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-            {t('tuition.pendingApproval')}
-          </span>
-          <div className="text-2xl font-extrabold text-blue-600 mt-1">{pendingCount}</div>
-          <span className="text-[11px] text-blue-600 font-semibold">{t('tuition.awaitingSignOff')}</span>
-        </div>
-      </div>
-
-      {/* Course Tuition Configurations (Teachers) */}
+      {/* Sub Tabs Navigation (Teachers) */}
       {isTeacher && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('statements')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+              activeSubTab === 'statements'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <WalletCards className="w-4 h-4" />
+            <span>Statements & Billing</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('calendar')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+              activeSubTab === 'calendar'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Teaching Calendar & Attendance</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('qr_banking')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+              activeSubTab === 'qr_banking'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <QrCode className="w-4 h-4" />
+            <span>Payment QR & Bank Info</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('settings')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+              activeSubTab === 'settings'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>Course Fee Policies</span>
+          </button>
+        </div>
+      )}
+
+      {/* SUBTAB 1: STATEMENTS & BILLING OVERVIEW */}
+      {(activeSubTab === 'statements' || !isTeacher) && (
+        <div className="space-y-6">
+          {/* 4 Supported Billing Models Explanatory Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-extrabold text-blue-700 uppercase tracking-wider block">
+                {t('tuition.fixedMonthly')}
+              </span>
+              <p className="text-xs font-bold text-slate-800 mt-1">One amount / month</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.fixedMonthlyDesc')}</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider block">
+                {t('tuition.perSession')}
+              </span>
+              <p className="text-xs font-bold text-slate-800 mt-1">Billable sessions × rate</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.perSessionDesc')}</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-extrabold text-purple-700 uppercase tracking-wider block">
+                {t('tuition.hourly')}
+              </span>
+              <p className="text-xs font-bold text-slate-800 mt-1">Approved hours × rate</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.hourlyDesc')}</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-extrabold text-amber-700 uppercase tracking-wider block">
+                {t('tuition.coursePackage')}
+              </span>
+              <p className="text-xs font-bold text-slate-800 mt-1">Package or instalments</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">{t('tuition.coursePackageDesc')}</p>
+            </div>
+          </div>
+
+          {/* 4 Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                {t('tuition.totalBilled')}
+              </span>
+              <div className="text-2xl font-extrabold text-slate-900 mt-1">
+                ${totalRevenue.toLocaleString()}
+              </div>
+              <span className="text-[11px] text-slate-400">{t('tuition.acrossStatements')}</span>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                {t('tuition.outstandingBalance')}
+              </span>
+              <div className="text-2xl font-extrabold text-amber-600 mt-1">
+                ${totalOutstanding.toLocaleString()}
+              </div>
+              <span className="text-[11px] text-amber-600 font-semibold">{t('tuition.uncollected')}</span>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                {t('tuition.collected')}
+              </span>
+              <div className="text-2xl font-extrabold text-emerald-600 mt-1">
+                ${totalCollected.toLocaleString()}
+              </div>
+              <span className="text-[11px] text-emerald-600 font-semibold">{t('tuition.settled')}</span>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                {t('tuition.pendingApproval')}
+              </span>
+              <div className="text-2xl font-extrabold text-blue-600 mt-1">{pendingCount}</div>
+              <span className="text-[11px] text-blue-600 font-semibold">{t('tuition.awaitingSignOff')}</span>
+            </div>
+          </div>
+
+          {/* Filters & Search */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
+            <div className="relative w-full sm:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder={t('tuition.searchPlaceholder')}
+                value={searchStudent}
+                onChange={(e) => setSearchStudent(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg outline-hidden focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex items-center space-x-2 text-xs">
+              <select
+                value={filterPeriod}
+                onChange={(e) => setFilterPeriod(e.target.value)}
+                className="px-3 py-1.5 border border-slate-300 rounded-lg bg-white outline-hidden text-slate-700"
+              >
+                <option value="all">{t('tuition.allPeriods')}</option>
+                <option value="October 2026">October 2026</option>
+                <option value="2026">2026 Periods</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Statements Table */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px]">
+                <tr>
+                  <th className="py-3 px-4">{t('tuition.tableStatementNo')}</th>
+                  <th className="py-3 px-4">{t('tuition.tableStudent')}</th>
+                  <th className="py-3 px-4">{t('tuition.tableCourse')}</th>
+                  <th className="py-3 px-4">{t('tuition.tablePeriod')}</th>
+                  <th className="py-3 px-4">{t('tuition.tableAmountDue')}</th>
+                  <th className="py-3 px-4">{t('tuition.tableStatus')}</th>
+                  <th className="py-3 px-4 text-right">{t('common.actions')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredStatements.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-10 text-center text-slate-400">
+                      {isTeacher
+                        ? 'No tuition statements generated yet. Click "Calculate Tuition Statement" above.'
+                        : 'No tuition statements on file.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredStatements.map((stmt) => (
+                    <tr key={stmt.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900">{stmt.statementNumber}</td>
+                      <td className="py-3 px-4 font-bold text-slate-800">{stmt.studentName}</td>
+                      <td className="py-3 px-4 text-slate-600">{stmt.courseName}</td>
+                      <td className="py-3 px-4 text-slate-600">{stmt.billingPeriod}</td>
+                      <td className="py-3 px-4 font-bold text-slate-900">
+                        {stmt.currency} {stmt.totalAmountDue.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                            stmt.status === 'paid'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : stmt.status === 'partially_paid'
+                              ? 'bg-blue-100 text-blue-800'
+                              : stmt.status === 'approved'
+                              ? 'bg-indigo-100 text-indigo-800'
+                              : stmt.status === 'void'
+                              ? 'bg-slate-200 text-slate-600'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {stmt.status.replace('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => setSelectedStatementId(stmt.id)}
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                        >
+                          {t('tuition.viewStatement')} &rarr;
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 2: TEACHING CALENDAR & ATTENDANCE TRACKER */}
+      {isTeacher && activeSubTab === 'calendar' && (
+        <div className="space-y-4">
+          {/* Controls Bar */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Target Course</label>
+                <select
+                  value={calendarCourseId || effectiveCalCourseId}
+                  onChange={(e) => setCalendarCourseId(e.target.value)}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 bg-white outline-hidden"
+                >
+                  {courses
+                    .filter((c) => c.teacherId === currentUser.id)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.tuitionModel.replace('_', ' ')})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Scope</label>
+                <select
+                  value={calendarStudentId}
+                  onChange={(e) => setCalendarStudentId(e.target.value)}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-700 bg-white outline-hidden"
+                >
+                  <option value="">All Course Students (Group / Class)</option>
+                  {courseMembers
+                    .filter((m) => (!effectiveCalCourseId || m.courseId === effectiveCalCourseId) && m.status === 'enrolled')
+                    .map((m) => (
+                      <option key={m.studentId} value={m.studentId}>
+                        {m.studentName} ({m.studentEmail})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Session Duration</label>
+                <div className="flex items-center space-x-1">
+                  {[60, 90, 120].map((dur) => (
+                    <button
+                      key={dur}
+                      type="button"
+                      onClick={() => setSessionDuration(dur)}
+                      className={`px-2.5 py-1 rounded text-xs font-bold transition-colors ${
+                        sessionDuration === dur
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {dur}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Month Navigation */}
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setCalendarMonth(new Date(calYear, calMonthIdx - 1, 1))}
+                className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+                title="Previous month"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm font-bold text-slate-800 min-w-[140px] text-center">
+                {calMonthName}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCalendarMonth(new Date(calYear, calMonthIdx + 1, 1))}
+                className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+                title="Next month"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Monthly Summary Banner */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="space-y-0.5 text-center sm:text-left">
+              <span className="text-xs font-bold text-blue-900">
+                Attendance Summary for {calMonthName}
+              </span>
+              <p className="text-xs text-blue-700">
+                Marked Sessions: <strong className="font-extrabold text-blue-900">{calMonthSessions.length}</strong> · Total Teaching Hours: <strong className="font-extrabold text-blue-900">{calTotalHours} hrs</strong> · Model: <span className="font-bold uppercase text-[10px]">{activeCalCourse?.tuitionModel.replace('_', ' ') || 'Fixed'}</span>
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (effectiveCalCourseId) setCalcCourseId(effectiveCalCourseId);
+                if (calendarStudentId) setCalcStudentId(calendarStudentId);
+                setCalcPeriod(calMonthName);
+                setShowCalcModal(true);
+              }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center space-x-1.5"
+            >
+              <DollarSign className="w-4 h-4" />
+              <span>Generate Statement for {calMonthName} &rarr;</span>
+            </button>
+          </div>
+
+          {/* Calendar Grid */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4">
+            {/* Weekday Header */}
+            <div className="grid grid-cols-7 gap-2 mb-2 text-center text-[11px] font-bold uppercase text-slate-400 tracking-wider">
+              <div>Mon</div>
+              <div>Tue</div>
+              <div>Wed</div>
+              <div>Thu</div>
+              <div>Fri</div>
+              <div>Sat</div>
+              <div>Sun</div>
+            </div>
+
+            {/* Date Cells */}
+            <div className="grid grid-cols-7 gap-2">
+              {/* Empty offset days */}
+              {Array.from({ length: calStartOffset }).map((_, i) => (
+                <div key={`empty-${i}`} className="min-h-[85px] bg-slate-50/50 rounded-lg border border-transparent"></div>
+              ))}
+
+              {/* Days of current month */}
+              {Array.from({ length: daysInCalMonth }).map((_, i) => {
+                const dayNumber = i + 1;
+                const dateStr = `${calYear}-${String(calMonthIdx + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+                const session = calSessionMap.get(dateStr);
+                const isMarked = !!session;
+
+                return (
+                  <div
+                    key={`day-${dayNumber}`}
+                    onClick={() => handleToggleDay(dayNumber)}
+                    className={`min-h-[85px] p-2 rounded-lg border transition-all cursor-pointer flex flex-col justify-between group ${
+                      isMarked
+                        ? 'bg-emerald-50/70 border-emerald-300 hover:bg-emerald-100/80 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-blue-400 hover:bg-blue-50/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${isMarked ? 'text-emerald-900' : 'text-slate-700'}`}>
+                        {dayNumber}
+                      </span>
+                      {isMarked && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      )}
+                    </div>
+
+                    {isMarked ? (
+                      <div className="mt-1 flex flex-col items-center text-center">
+                        <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shadow-2xs">
+                          <Check className="w-3 h-3" />
+                          <span>{session?.durationMinutes || 60}m</span>
+                        </span>
+                        <span className="text-[9px] text-emerald-700 font-semibold mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          Click to unmark
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-center text-[10px] text-slate-400 group-hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                        + Mark {sessionDuration}m
+                      </div>
+                    )}
+
+                    <div className="text-[9px] text-slate-400 text-right">
+                      {isMarked ? 'Completed' : ''}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 3: PAYMENT QR & BANKING DETAILS */}
+      {isTeacher && activeSubTab === 'qr_banking' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Left: Bank Transfer Details Form */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                <Building className="w-5 h-5 text-blue-600" />
+                <span>Teacher Bank Transfer Details</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                These banking instructions will be automatically displayed on student tuition statements and printable bilingual PDF receipts.
+              </p>
+            </div>
+
+            {bankNotice && (
+              <div
+                className={`p-3 rounded-lg text-xs font-semibold flex items-center space-x-2 ${
+                  bankNotice.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                }`}
+              >
+                {bankNotice.type === 'success' ? <CheckCircle className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                <span>{bankNotice.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveBankInfo} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Bank Name</label>
+                <input
+                  type="text"
+                  required
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  placeholder="e.g. Vietcombank, Techcombank, MB Bank"
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Account Holder Name</label>
+                <input
+                  type="text"
+                  required
+                  value={accountHolder}
+                  onChange={(e) => setAccountHolder(e.target.value.toUpperCase())}
+                  placeholder="e.g. NGUYEN VAN A"
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden font-bold uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Account Number</label>
+                <input
+                  type="text"
+                  required
+                  value={accountNumber}
+                  onChange={(e) => setAccountNumber(e.target.value)}
+                  placeholder="e.g. 1029384756"
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden font-mono font-bold text-sm tracking-wider"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Branch (Optional)</label>
+                <input
+                  type="text"
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  placeholder="e.g. Ho Chi Minh City Branch"
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Transfer Description / Message Prefix</label>
+                <input
+                  type="text"
+                  value={transferDesc}
+                  onChange={(e) => setTransferDesc(e.target.value)}
+                  placeholder="e.g. IELTS {STUDENT_NAME} {STATEMENT_NO}"
+                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden font-mono"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Students will be instructed to include this exact message when sending mobile banking payments.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isSavingBank}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs transition-colors flex items-center justify-center space-x-1.5"
+                >
+                  <Building className="w-4 h-4" />
+                  <span>{isSavingBank ? 'Saving...' : 'Save Banking Details'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Right: Payment QR Code Upload & Preview */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                  <QrCode className="w-5 h-5 text-blue-600" />
+                  <span>Teacher Payment QR Code</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Upload your VietQR, banking QR code, or payment gateway image (PNG, JPG, WEBP, SVG ≤ 5MB).
+                </p>
+              </div>
+
+              {qrNotice && (
+                <div
+                  className={`p-3 rounded-lg text-xs font-semibold flex items-center space-x-2 ${
+                    qrNotice.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}
+                >
+                  {qrNotice.type === 'success' ? <CheckCircle className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                  <span>{qrNotice.text}</span>
+                </div>
+              )}
+
+              {/* QR Image Preview or Existing */}
+              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/60 flex flex-col items-center justify-center min-h-[220px]">
+                {qrPreview || currentUser.paymentQrUrl ? (
+                  <div className="flex flex-col items-center space-y-3">
+                    <img
+                      src={qrPreview || currentUser.paymentQrUrl}
+                      alt="Teacher Payment QR Code"
+                      className="w-48 h-48 object-contain rounded-lg border border-slate-300 bg-white p-2 shadow-xs"
+                    />
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center space-x-1">
+                      <Check className="w-3 h-3" />
+                      <span>Active Payment QR</span>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-2 text-slate-400 py-6">
+                    <QrCode className="w-12 h-12 mx-auto stroke-1 text-slate-300" />
+                    <p className="text-xs font-medium">No QR code uploaded yet</p>
+                    <p className="text-[11px] text-slate-400">
+                      Upload your QR image below to enable scan-to-pay for students.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Upload controls */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                onChange={handleSelectQrFile}
+                className="hidden"
+              />
+
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-1 py-2 px-3 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-2xs"
+                >
+                  <Upload className="w-4 h-4 text-slate-500" />
+                  <span>{currentUser.paymentQrUrl ? 'Select Replacement QR' : 'Select QR Image'}</span>
+                </button>
+
+                {qrFile && (
+                  <button
+                    type="button"
+                    disabled={isUploadingQr}
+                    onClick={handleUploadQr}
+                    className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                  >
+                    {isUploadingQr ? 'Uploading...' : 'Save QR'}
+                  </button>
+                )}
+
+                {currentUser.paymentQrUrl && !qrFile && (
+                  <button
+                    type="button"
+                    disabled={isUploadingQr}
+                    onClick={handleRemoveQr}
+                    className="py-2 px-3 border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1"
+                    title="Remove QR code"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 text-[11px] text-slate-400">
+              <span className="font-semibold text-slate-600">Note: </span>
+              If no QR code is uploaded, tuition statements will cleanly omit the QR code section and provide clear text instructions for manual bank transfer.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 4: COURSE FEE POLICIES */}
+      {isTeacher && activeSubTab === 'settings' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-4 border-b border-slate-100 flex items-center justify-between">
             <div>
@@ -935,331 +1685,299 @@ export const TuitionView: React.FC = () => {
         </div>
       )}
 
-      {/* Filters & Search */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder={t('tuition.searchPlaceholder')}
-            value={searchStudent}
-            onChange={(e) => setSearchStudent(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg outline-hidden focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <div className="flex items-center space-x-2 text-xs">
-          <select
-            value={filterPeriod}
-            onChange={(e) => setFilterPeriod(e.target.value)}
-            className="px-3 py-1.5 border border-slate-300 rounded-lg bg-white outline-hidden text-slate-700"
-          >
-            <option value="all">{t('tuition.allPeriods')}</option>
-            <option value="October 2026">October 2026</option>
-            <option value="2026">2026 Periods</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Statements Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px]">
-            <tr>
-              <th className="py-3 px-4">{t('tuition.tableStatementNo')}</th>
-              <th className="py-3 px-4">{t('tuition.tableStudent')}</th>
-              <th className="py-3 px-4">{t('tuition.tableCourse')}</th>
-              <th className="py-3 px-4">{t('tuition.tablePeriod')}</th>
-              <th className="py-3 px-4">{t('tuition.tableAmountDue')}</th>
-              <th className="py-3 px-4">{t('tuition.tableStatus')}</th>
-              <th className="py-3 px-4 text-right">{t('common.actions')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredStatements.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-10 text-center text-slate-400">
-                  {isTeacher
-                    ? 'No tuition statements generated yet. Click "Calculate Tuition Statement" above.'
-                    : 'No tuition statements on file.'}
-                </td>
-              </tr>
-            ) : (
-              filteredStatements.map((stmt) => (
-                <tr key={stmt.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="py-3 px-4 font-mono font-bold text-slate-900">{stmt.statementNumber}</td>
-                  <td className="py-3 px-4 font-bold text-slate-800">{stmt.studentName}</td>
-                  <td className="py-3 px-4 text-slate-600">{stmt.courseName}</td>
-                  <td className="py-3 px-4 text-slate-600">{stmt.billingPeriod}</td>
-                  <td className="py-3 px-4 font-bold text-slate-900">
-                    {stmt.currency} {stmt.totalAmountDue.toLocaleString()}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span
-                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
-                        stmt.status === 'paid'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : stmt.status === 'partially_paid'
-                          ? 'bg-blue-100 text-blue-800'
-                          : stmt.status === 'approved'
-                          ? 'bg-indigo-100 text-indigo-800'
-                          : stmt.status === 'void'
-                          ? 'bg-slate-200 text-slate-600'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {stmt.status.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => setSelectedStatementId(stmt.id)}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-                    >
-                      {t('tuition.viewStatement')} &rarr;
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
       {/* Modal: Calculate Tuition Statement */}
       {showCalcModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="text-base font-bold text-slate-900">{t('tuition.calcModalTitle')}</h3>
-              <button onClick={() => setShowCalcModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleGenerateStatement} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')}</label>
-                <select
-                  required
-                  value={calcCourseId}
-                  onChange={(e) => setCalcCourseId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                >
-                  <option value="">{t('resources.chooseCourse')}</option>
-                  {courses
-                    .filter((c) => c.teacherId === currentUser.id && c.status === 'active')
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.tuitionModel.replace('_', ' ')})
-                      </option>
-                    ))}
-                </select>
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h3 className="text-base font-bold text-slate-900">{t('tuition.calcModalTitle')}</h3>
+                <button onClick={() => setShowCalcModal(false)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('tuition.tableStudent')}</label>
-                <select
-                  required
-                  value={calcStudentId}
-                  onChange={(e) => setCalcStudentId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                >
-                  <option value="">{t('assessments.chooseStudent')}</option>
-                  {courseMembers
-                    .filter((m) => (!calcCourseId || m.courseId === calcCourseId) && m.status === 'enrolled')
-                    .map((m) => (
-                      <option key={m.studentId} value={m.studentId}>
-                        {m.studentName} ({m.studentEmail})
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              <form onSubmit={handleGenerateStatement} className="space-y-3 text-xs">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.billingPeriodLabel')}</label>
-                  <input
-                    type="text"
-                    value={calcPeriod}
-                    onChange={(e) => setCalcPeriod(e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                  />
+                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.selectCourse')}</label>
+                  <select
+                    required
+                    value={calcCourseId}
+                    onChange={(e) => setCalcCourseId(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                  >
+                    <option value="">{t('resources.chooseCourse')}</option>
+                    {courses
+                      .filter((c) => c.teacherId === currentUser.id && c.status === 'active')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.tuitionModel.replace('_', ' ')})
+                        </option>
+                      ))}
+                  </select>
                 </div>
+
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.dueDateLabel')}</label>
-                  <input
-                    type="date"
-                    value={calcDueDate}
-                    onChange={(e) => setCalcDueDate(e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                  />
+                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.tableStudent')}</label>
+                  <select
+                    required
+                    value={calcStudentId}
+                    onChange={(e) => setCalcStudentId(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                  >
+                    <option value="">{t('assessments.chooseStudent')}</option>
+                    {courseMembers
+                      .filter((m) => (!calcCourseId || m.courseId === calcCourseId) && m.status === 'enrolled')
+                      .map((m) => (
+                        <option key={m.studentId} value={m.studentId}>
+                          {m.studentName} ({m.studentEmail})
+                        </option>
+                      ))}
+                  </select>
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  {t('tuition.billableUnitsLabel')}
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={calcUnits}
-                  onChange={(e) => setCalcUnits(Number(e.target.value))}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.billingPeriodLabel')}</label>
+                    <input
+                      type="text"
+                      value={calcPeriod}
+                      onChange={(e) => setCalcPeriod(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.dueDateLabel')}</label>
+                    <input
+                      type="date"
+                      value={calcDueDate}
+                      onChange={(e) => setCalcDueDate(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+                </div>
 
-              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.discountAmountLabel')}</label>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    {t('tuition.billableUnitsLabel')} (Auto-derived from attended sessions)
+                  </label>
                   <input
                     type="number"
-                    value={calcCustomDiscount}
-                    onChange={(e) => setCalcCustomDiscount(Number(e.target.value))}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    min="1"
+                    value={calcPreview?.billableUnits || calcUnits}
+                    onChange={(e) => setCalcUnits(Number(e.target.value))}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden font-bold"
                   />
                 </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.discountDescLabel')}</label>
-                  <input
-                    type="text"
-                    value={calcDiscountNote}
-                    onChange={(e) => setCalcDiscountNote(e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                  />
-                </div>
-              </div>
 
-              <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowCalcModal(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingCalc}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs"
-                >
-                  {isSubmittingCalc ? t('common.loading') : t('tuition.generateStatementBtn')} &rarr;
-                </button>
-              </div>
-            </form>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.discountAmountLabel')}</label>
+                    <input
+                      type="number"
+                      value={calcCustomDiscount}
+                      onChange={(e) => setCalcCustomDiscount(Number(e.target.value))}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.discountDescLabel')}</label>
+                    <input
+                      type="text"
+                      value={calcDiscountNote}
+                      onChange={(e) => setCalcDiscountNote(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                {/* Live Transparent Calculation Preview */}
+                {calcPreview && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-slate-700 font-bold pb-1.5 border-b border-slate-200">
+                      <span className="flex items-center space-x-1.5">
+                        <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Live Calculation Breakdown ({calcPreview.model.replace('_', ' ')})</span>
+                      </span>
+                      <span className="text-blue-700 font-mono">
+                        {calcPreview.currency} {calcPreview.baseRate.toLocaleString()} / unit
+                      </span>
+                    </div>
+
+                    {calcPreview.completedTeachingDates.length > 0 ? (
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                          Attended Sessions ({calcPreview.completedTeachingDates.length} sessions, {calcPreview.totalTeachingHours} hrs):
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {calcPreview.completedTeachingDates.map((date, idx) => (
+                            <span key={idx} className="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-[10px] text-slate-700">
+                              ✓ {date}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic">
+                        No teaching sessions marked on calendar for {calcPeriod}.
+                      </p>
+                    )}
+
+                    <div className="space-y-1 pt-1 text-slate-600">
+                      <div className="flex justify-between">
+                        <span>Subtotal ({calcPreview.billableUnits} {calcPreview.unitLabel}):</span>
+                        <span className="font-semibold text-slate-800 font-mono">
+                          {calcPreview.currency} {calcPreview.subtotal.toLocaleString()}
+                        </span>
+                      </div>
+                      {calcPreview.discountAmount > 0 && (
+                        <div className="flex justify-between text-emerald-700 font-semibold">
+                          <span>Discount:</span>
+                          <span className="font-mono">− {calcPreview.currency} {calcPreview.discountAmount.toLocaleString()}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm font-extrabold text-blue-800 pt-1 border-t border-slate-200">
+                        <span>Total Amount Due:</span>
+                        <span className="font-mono text-base">
+                          {calcPreview.currency} {calcPreview.totalAmountDue.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowCalcModal(false)}
+                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingCalc}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs"
+                  >
+                    {isSubmittingCalc ? t('common.loading') : t('tuition.generateStatementBtn')} &rarr;
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
+        </Portal>
       )}
 
       {/* Modal: New Fee Configuration */}
       {showConfigModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="text-base font-bold text-slate-900">{t('tuition.configModalTitle')}</h3>
-              <button onClick={() => setShowConfigModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h3 className="text-base font-bold text-slate-900">{t('tuition.configModalTitle')}</h3>
+                <button onClick={() => setShowConfigModal(false)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateFeeConfig} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.targetCourse')}</label>
+                  <select
+                    required
+                    value={cfgCourseId}
+                    onChange={(e) => setCfgCourseId(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
+                  >
+                    <option value="">{t('resources.chooseCourse')}</option>
+                    {courses
+                      .filter((c) => c.teacherId === currentUser.id)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('courses.tuitionModel')}</label>
+                    <select
+                      value={cfgModel}
+                      onChange={(e) => setCfgModel(e.target.value as TuitionModel)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    >
+                      <option value="fixed_monthly">{t('tuition.fixedMonthly')}</option>
+                      <option value="per_session">{t('tuition.perSession')}</option>
+                      <option value="hourly">{t('tuition.hourly')}</option>
+                      <option value="course_package">{t('tuition.coursePackage')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Currency</label>
+                    <select
+                      value={cfgCurrency}
+                      onChange={(e) => setCfgCurrency(e.target.value as any)}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                    >
+                      <option value="USD">USD ($)</option>
+                      <option value="VND">VND (đ)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.baseRateLabel')}</label>
+                  <input
+                    type="number"
+                    value={cfgAmount}
+                    onChange={(e) => setCfgAmount(Number(e.target.value))}
+                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.dueDaysLabel')}</label>
+                    <input
+                      type="number"
+                      value={cfgDueDays}
+                      onChange={(e) => setCfgDueDays(Number(e.target.value))}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">{t('tuition.discountPercentLabel')}</label>
+                    <input
+                      type="number"
+                      value={cfgDiscountPercent}
+                      onChange={(e) => setCfgDiscountPercent(Number(e.target.value))}
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfigModal(false)}
+                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingConfig}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs"
+                  >
+                    {isSubmittingConfig ? t('common.loading') : t('tuition.saveConfigBtn')}
+                  </button>
+                </div>
+              </form>
             </div>
-
-            <form onSubmit={handleCreateFeeConfig} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('tuition.targetCourse')}</label>
-                <select
-                  required
-                  value={cfgCourseId}
-                  onChange={(e) => setCfgCourseId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white"
-                >
-                  <option value="">{t('resources.chooseCourse')}</option>
-                  {courses
-                    .filter((c) => c.teacherId === currentUser.id)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('courses.tuitionModel')}</label>
-                  <select
-                    value={cfgModel}
-                    onChange={(e) => setCfgModel(e.target.value as TuitionModel)}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
-                  >
-                    <option value="fixed_monthly">{t('tuition.fixedMonthly')}</option>
-                    <option value="per_session">{t('tuition.perSession')}</option>
-                    <option value="hourly">{t('tuition.hourly')}</option>
-                    <option value="course_package">{t('tuition.coursePackage')}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Currency</label>
-                  <select
-                    value={cfgCurrency}
-                    onChange={(e) => setCfgCurrency(e.target.value as any)}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
-                  >
-                    <option value="USD">USD ($)</option>
-                    <option value="VND">VND (đ)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">{t('tuition.baseRateLabel')}</label>
-                <input
-                  type="number"
-                  value={cfgAmount}
-                  onChange={(e) => setCfgAmount(Number(e.target.value))}
-                  className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.dueDaysLabel')}</label>
-                  <input
-                    type="number"
-                    value={cfgDueDays}
-                    onChange={(e) => setCfgDueDays(Number(e.target.value))}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('tuition.discountPercentLabel')}</label>
-                  <input
-                    type="number"
-                    value={cfgDiscountPercent}
-                    onChange={(e) => setCfgDiscountPercent(Number(e.target.value))}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowConfigModal(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingConfig}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs"
-                >
-                  {isSubmittingConfig ? t('common.loading') : t('tuition.saveConfigBtn')}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
+        </Portal>
       )}
     </div>
   );

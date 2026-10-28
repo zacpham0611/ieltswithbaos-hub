@@ -118,12 +118,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // 2. Read and enforce strict payload size limit (max 64KB = 65,536 bytes)
+    // 2. Read and enforce strict payload size limit (max 1MB = 1,048,576 bytes)
     const rawBody = await req.text();
-    if (rawBody.length > 65536) {
+    if (rawBody.length > 1048576) {
       return new Response(
         JSON.stringify({
-          error: "Payload too large. Maximum request size is 64KB.",
+          error: "Payload too large. Maximum request size is 1MB.",
           code: "PAYLOAD_TOO_LARGE",
         }),
         { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -713,6 +713,7 @@ SPECIFICATION REQUIREMENTS:
 2. Total Questions: Exactly ${targetQCount} questions distributed across logical Question Groups.
 3. Allowed Question Types: Only use types from [${qTypes.map((t: string) => `"${t}"`).join(", ")}].
 4. Supported Types formatting:
+   - "matching_information": Questions prompt specifies an item/statement. Options are the paragraph letters (e.g. ["A", "B", "C", "D", "E", "F"]). Group instructions include "NB You may use any letter more than once." Correct answer is a single letter (e.g. "B").
    - "matching_headings": Provide "headingsList" (Roman numerals i, ii, iii... with at least 2 extra decoy headings). Questions prompt: "Paragraph A", etc.
    - "matching_features": Provide "featuresList" (e.g. "A Dr Smith", "B Prof Miller").
    - "matching_sentence_endings": Questions have sentence stems, with options A, B, C, D...
@@ -884,13 +885,24 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
           "Content-Type": "application/json",
           "x-goog-api-key": geminiApiKey,
         },
+        const isStructuredAction =
+          action === "generate_reading_test" ||
+          action === "regenerate_question_group" ||
+          action === "convert_document_to_assignment";
+
+        const generationConfig: Record<string, any> = {
+          temperature: action === "writing_feedback" ? 0.2 : 0.4,
+          maxOutputTokens: isStructuredAction ? 8192 : 4096,
+          topP: 0.95,
+        };
+
+        if (isStructuredAction) {
+          generationConfig.responseMimeType = "application/json";
+        }
+
         body: JSON.stringify({
           contents: contentsPayload,
-          generationConfig: {
-            temperature: action === "writing_feedback" ? 0.2 : 0.4,
-            maxOutputTokens: 3072,
-            topP: 0.95,
-          },
+          generationConfig,
         }),
         signal: controller.signal,
       });
@@ -1022,9 +1034,24 @@ ${body.evidenceSummary ? `- Evidence Summary: ${body.evidenceSummary.slice(0, 10
       action === "regenerate_question_group"
     ) {
       try {
-        const jsonMatch = generatedDraft.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-        const jsonStr = jsonMatch ? jsonMatch[1].trim() : generatedDraft.trim();
-        structuredData = JSON.parse(jsonStr);
+        let jsonStr = "";
+        const jsonCodeFence = generatedDraft.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonCodeFence) {
+          jsonStr = jsonCodeFence[1].trim();
+        } else {
+          // Extract outermost JSON object between first { and last }
+          const firstBrace = generatedDraft.indexOf("{");
+          const lastBrace = generatedDraft.lastIndexOf("}");
+          if (firstBrace !== -1 && lastBrace > firstBrace) {
+            jsonStr = generatedDraft.substring(firstBrace, lastBrace + 1).trim();
+          } else {
+            jsonStr = generatedDraft.trim();
+          }
+        }
+
+        // Clean trailing commas that break strict JSON parsing
+        const cleanJsonStr = jsonStr.replace(/,\s*([\]}])/g, "$1");
+        structuredData = JSON.parse(cleanJsonStr);
       } catch (parseErr) {
         console.warn("[ai-assistant] Failed to parse structuredData JSON:", parseErr);
       }

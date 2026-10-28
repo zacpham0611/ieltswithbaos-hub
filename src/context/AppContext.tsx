@@ -20,11 +20,13 @@ import {
   ReadingQuestion,
   QuestionGroup,
   ParsedPassage,
+  TeacherBankInfo,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
 import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
 import { extractAllNormalizedQuestions, sanitizeQuestionsForStudent } from '../lib/questionNormalizer';
+import { calculateMonthlyTuition } from '../lib/tuitionCalculator';
 
 interface AppContextType {
   currentUser: User | null;
@@ -52,14 +54,23 @@ interface AppContextType {
   reviewEnrollmentRequest: (requestId: string, status: 'approved' | 'rejected', reason?: string) => Promise<void>;
   removeStudentFromCourse: (courseId: string, studentId: string) => Promise<void>;
 
-  // Resources & Lessons
+  // Resources
   resources: Resource[];
   addResource: (resource: Omit<Resource, 'id' | 'teacherId' | 'createdAt'>) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
   toggleResourcePublish: (id: string) => Promise<void>;
+
+  // Lessons & Attendance
   lessons: Lesson[];
   createLesson: (lesson: Omit<Lesson, 'id'>) => Promise<void>;
   updateLesson: (id: string, updates: Partial<Lesson>) => Promise<void>;
+  toggleAttendanceSession: (
+    courseId: string,
+    studentId: string | null,
+    date: string,
+    durationMinutes?: number,
+    status?: 'completed' | 'scheduled' | 'cancelled'
+  ) => Promise<void>;
 
   // Assignments & Submissions
   assignments: Assignment[];
@@ -92,11 +103,15 @@ interface AppContextType {
     billableUnits?: number;
     customDiscount?: number;
     customDiscountNote?: string;
+    customSurcharge?: number;
+    previousBalance?: number;
   }) => Promise<TuitionStatement>;
   approveTuitionStatement: (id: string) => Promise<void>;
   publishTuitionStatement: (id: string) => Promise<void>;
   voidTuitionStatement: (id: string) => Promise<void>;
   recordPayment: (statementId: string, payment: Omit<PaymentRecord, 'id' | 'statementId'>) => Promise<void>;
+  uploadTeacherPaymentQr: (file: File) => Promise<string>;
+  removeTeacherPaymentQr: () => Promise<void>;
 
   // Activities & Notifications
   activities: ActivityItem[];
@@ -489,6 +504,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               })),
               bankInfo: s.bank_info || {},
               auditHistory: s.audit_history || [],
+              teachingDates: s.bank_info?.teachingDates || [],
+              totalTeachingHours: s.bank_info?.totalTeachingHours,
+              billableSessionCount: s.bank_info?.billableSessionCount,
+              qrCodeUrl: s.bank_info?.qrCodeUrl || s.qr_code_url,
             }))
           );
         }
@@ -588,6 +607,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               homework: l.homework,
               date: l.session_date,
               isPublished: l.is_published,
+              studentId: l.student_id,
+              status: l.status || 'completed',
+              durationMinutes: Number(l.duration_minutes) || 60,
+              isBillable: l.is_billable !== false,
             }))
           );
         }
@@ -917,6 +940,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               })),
               bankInfo: s.bank_info || {},
               auditHistory: s.audit_history || [],
+              teachingDates: s.bank_info?.teachingDates || [],
+              totalTeachingHours: s.bank_info?.totalTeachingHours,
+              billableSessionCount: s.bank_info?.billableSessionCount,
+              qrCodeUrl: s.bank_info?.qrCodeUrl || s.qr_code_url,
             }))
           );
         }
@@ -1008,6 +1035,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             avatar: profile.avatar_url || `https://images.unsplash.com/photo-${profile.role === 'teacher' ? '1472099645785-5658abf4ff4e' : '1534528741775-53994a69daeb'}?w=150&auto=format&fit=crop&q=80`,
             bio: profile.bio || '',
             targetBand: profile.target_band,
+            paymentQrUrl: profile.payment_qr_url,
+            bankInfo: profile.bank_info,
           };
         }
 
@@ -1235,6 +1264,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       target_band: updates.targetBand,
       updated_at: new Date().toISOString(),
     };
+
+    if (updates.paymentQrUrl !== undefined) {
+      sanitized.payment_qr_url = updates.paymentQrUrl;
+    }
+    if (updates.bankInfo !== undefined) {
+      sanitized.bank_info = updates.bankInfo;
+    }
 
     await supabase.from('profiles').update(sanitized).eq('id', currentUser.id);
 
@@ -1570,6 +1606,89 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .eq('id', id);
 
     setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
+  };
+
+  const toggleAttendanceSession = async (
+    courseId: string,
+    studentId: string | null,
+    date: string,
+    durationMinutes: number = 60,
+    status: 'completed' | 'scheduled' | 'cancelled' = 'completed'
+  ) => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const existing = lessons.find(
+      (l) => l.courseId === courseId && l.date === date && (!studentId || !l.studentId || l.studentId === studentId)
+    );
+
+    if (existing) {
+      if (existing.status === 'completed') {
+        await supabase.from('class_sessions').delete().eq('id', existing.id);
+        setLessons((prev) => prev.filter((l) => l.id !== existing.id));
+      } else {
+        await supabase
+          .from('class_sessions')
+          .update({
+            status: 'completed',
+            is_billable: true,
+            duration_minutes: durationMinutes,
+          })
+          .eq('id', existing.id);
+        setLessons((prev) =>
+          prev.map((l) =>
+            l.id === existing.id
+              ? { ...l, status: 'completed', isBillable: true, durationMinutes }
+              : l
+          )
+        );
+      }
+    } else {
+      const newSessionRow = {
+        course_id: courseId,
+        student_id: studentId || null,
+        title: `Teaching Session - ${date}`,
+        session_date: date,
+        status,
+        duration_minutes: durationMinutes,
+        is_billable: true,
+        is_published: true,
+        skill: 'all',
+      };
+
+      const { data: created, error } = await supabase
+        .from('class_sessions')
+        .insert(newSessionRow)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error toggling attendance session:', error);
+        throw error;
+      }
+
+      if (created) {
+        setLessons((prev) => [
+          {
+            id: created.id,
+            courseId: created.course_id,
+            studentId: created.student_id,
+            title: created.title,
+            objectives: created.objectives || '',
+            skill: created.skill || 'all',
+            teacherNotes: created.teacher_notes || '',
+            activities: created.activities || [],
+            homework: created.homework || '',
+            date: created.session_date,
+            status: created.status || 'completed',
+            durationMinutes: Number(created.duration_minutes) || durationMinutes,
+            isBillable: created.is_billable !== false,
+            resources: [],
+            isPublished: created.is_published,
+          },
+          ...prev,
+        ]);
+      }
+    }
   };
 
   // ASSIGNMENTS OPERATIONS
@@ -2115,6 +2234,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshData();
   };
 
+  const uploadTeacherPaymentQr = async (file: File): Promise<string> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      throw new Error('File size exceeds 5MB limit');
+    }
+
+    const validTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+    if (!validTypes.includes(file.type)) {
+      throw new Error('Please upload an image in PNG, JPG, WEBP, or SVG format');
+    }
+
+    const fileExt = file.name.split('.').pop() || 'png';
+    const filePath = `${currentUser.id}/qr_${Date.now()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('teacher_assets')
+      .upload(filePath, file, {
+        upsert: true,
+        contentType: file.type,
+      });
+
+    if (uploadError) {
+      console.error('Error uploading payment QR:', uploadError);
+      throw new Error(uploadError.message || 'Failed to upload QR image to storage');
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('teacher_assets')
+      .getPublicUrl(filePath);
+
+    const publicUrl = publicUrlData.publicUrl;
+
+    await updateProfile({
+      paymentQrUrl: publicUrl,
+    });
+
+    return publicUrl;
+  };
+
+  const removeTeacherPaymentQr = async (): Promise<void> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    await updateProfile({
+      paymentQrUrl: undefined,
+    });
+  };
+
   const generateTuitionStatement = async (data: {
     courseId: string;
     studentId: string;
@@ -2123,74 +2291,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     billableUnits?: number;
     customDiscount?: number;
     customDiscountNote?: string;
+    customSurcharge?: number;
+    previousBalance?: number;
   }): Promise<TuitionStatement> => {
     if (!currentUser) throw new Error('Not authenticated');
 
     const course = courses.find((c) => c.id === data.courseId);
-    const units = data.billableUnits ?? 4;
-    const baseRate = course?.tuitionAmount || 60;
-    const model = course?.tuitionModel || 'fixed_monthly';
-    const currency = course?.currency || 'VND';
+    const student = courseMembers.find((m) => m.studentId === data.studentId);
+    const feeConfig = feeConfigurations.find((f) => f.courseId === data.courseId);
 
-    let itemizedCharges = [];
-    let subtotal = 0;
+    const calcResult = calculateMonthlyTuition({
+      courseId: data.courseId,
+      courseName: course?.name || 'Course',
+      studentId: data.studentId,
+      studentName: student?.studentName || 'Student',
+      billingMonth: data.billingPeriod,
+      feeConfig,
+      course,
+      sessions: lessons,
+      manualDiscount: data.customDiscount,
+      discountDescription: data.customDiscountNote,
+      customSurcharge: data.customSurcharge,
+      previousBalance: data.previousBalance,
+    });
 
-    if (model === 'fixed_monthly') {
-      itemizedCharges.push({
-        id: `c-1`,
-        description: `Monthly tuition (${data.billingPeriod})`,
-        quantity: 1,
-        unitPrice: baseRate,
-        amount: baseRate,
-      });
-      subtotal = baseRate;
-    } else if (model === 'per_session') {
-      const lineTotal = units * baseRate;
-      itemizedCharges.push({
-        id: `c-1`,
-        description: 'Tuition fee',
-        quantity: `${units} sessions`,
-        unitPrice: baseRate,
-        amount: lineTotal,
-      });
-      itemizedCharges.push({
-        id: `c-2`,
-        description: `Number of sessions (${units} attended)`,
-        quantity: `${units} attended`,
-        amount: 0,
-      });
-      subtotal = lineTotal;
-    } else if (model === 'hourly') {
-      const lineTotal = units * baseRate;
-      itemizedCharges.push({
-        id: `c-1`,
-        description: 'Billable tuition hours',
-        quantity: `${units} hours`,
-        unitPrice: baseRate,
-        amount: lineTotal,
-      });
-      subtotal = lineTotal;
-    } else {
-      itemizedCharges.push({
-        id: `c-1`,
-        description: `Course Package: ${course?.name || 'Complete Track'}`,
-        quantity: 1,
-        unitPrice: baseRate,
-        amount: baseRate,
-      });
-      subtotal = baseRate;
-    }
-
-    const discountAmount = data.customDiscount ?? 0;
-    const totalDue = Math.max(0, subtotal - discountAmount);
     const statementNumber = `TS-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const bankInfo = {
-      bankName: 'Vietcombank',
-      accountHolder: currentUser.name.toUpperCase(),
-      accountNumber: '1234 5678 9012',
-      branch: 'Ho Chi Minh City',
-      transferDescription: `${statementNumber}`,
+    const effectiveQr = currentUser.paymentQrUrl || currentUser.bankInfo?.qrCodeUrl;
+    const bankInfo: TeacherBankInfo = {
+      bankName: currentUser.bankInfo?.bankName || 'Vietcombank',
+      accountHolder: currentUser.bankInfo?.accountHolder || currentUser.name.toUpperCase(),
+      accountNumber: currentUser.bankInfo?.accountNumber || '1234 5678 9012',
+      branch: currentUser.bankInfo?.branch || 'Ho Chi Minh City',
+      transferDescription: currentUser.bankInfo?.transferDescription || statementNumber,
+      qrCodeUrl: effectiveQr,
+      teachingDates: calcResult.completedTeachingDates,
+      totalTeachingHours: calcResult.totalTeachingHours,
+      billableSessionCount: calcResult.billableUnits,
     };
 
     const newStatementRow = {
@@ -2201,23 +2338,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       billing_period: data.billingPeriod,
       issue_date: new Date().toISOString().split('T')[0],
       due_date: data.dueDate,
-      currency,
+      currency: calcResult.currency,
       status: 'pending_approval',
-      model,
-      itemized_charges: itemizedCharges,
-      discount_amount: discountAmount,
-      discount_description: data.customDiscountNote || (discountAmount > 0 ? 'Discount' : null),
-      previous_balance: 0,
-      total_amount_due: totalDue,
+      model: calcResult.model,
+      itemized_charges: calcResult.itemizedCharges,
+      discount_amount: calcResult.discountAmount,
+      discount_description: calcResult.discountDescription || (calcResult.discountAmount > 0 ? 'Discount' : null),
+      previous_balance: calcResult.previousBalance,
+      total_amount_due: calcResult.totalAmountDue,
       amount_paid: 0,
-      remaining_balance: totalDue,
+      remaining_balance: calcResult.remainingBalance,
       bank_info: bankInfo,
       audit_history: [
         {
           action: 'Statement drafted with transparent calculation breakdown',
           timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
           user: currentUser.name,
-          details: `Model: ${model}, Subtotal: ${subtotal}, Discount: ${discountAmount}`,
+          details: `Model: ${calcResult.model}, Subtotal: ${calcResult.subtotal}, Discount: ${calcResult.discountAmount}, Units: ${calcResult.billableUnits}`,
         },
       ],
     };
@@ -2230,7 +2367,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: createdRow.id,
       statementNumber,
       studentId: data.studentId,
-      studentName: 'Student',
+      studentName: student?.studentName || 'Student',
       teacherId: currentUser.id,
       teacherName: currentUser.name,
       courseId: data.courseId,
@@ -2238,19 +2375,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       billingPeriod: data.billingPeriod,
       issueDate: createdRow.issue_date,
       dueDate: createdRow.due_date,
-      currency,
+      currency: calcResult.currency,
       status: createdRow.status,
-      model,
-      itemizedCharges,
-      discountAmount,
+      model: calcResult.model,
+      itemizedCharges: calcResult.itemizedCharges,
+      discountAmount: calcResult.discountAmount,
       discountDescription: createdRow.discount_description,
-      previousBalance: 0,
-      totalAmountDue: totalDue,
+      previousBalance: calcResult.previousBalance,
+      totalAmountDue: calcResult.totalAmountDue,
       amountPaid: 0,
-      remainingBalance: totalDue,
+      remainingBalance: calcResult.remainingBalance,
       payments: [],
       bankInfo,
       auditHistory: createdRow.audit_history,
+      teachingDates: calcResult.completedTeachingDates,
+      totalTeachingHours: calcResult.totalTeachingHours,
+      billableSessionCount: calcResult.billableUnits,
+      qrCodeUrl: effectiveQr,
     };
 
     setTuitionStatements((prev) => [created, ...prev]);
@@ -2376,6 +2517,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lessons,
         createLesson,
         updateLesson,
+        toggleAttendanceSession,
         assignments,
         createAssignment,
         updateAssignment,
@@ -2399,6 +2541,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         publishTuitionStatement,
         voidTuitionStatement,
         recordPayment,
+        uploadTeacherPaymentQr,
+        removeTeacherPaymentQr,
         activities,
         notifications,
         markNotificationRead,

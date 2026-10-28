@@ -1,5 +1,18 @@
 export type UserRole = 'teacher' | 'student';
 
+export interface TeacherBankInfo {
+  bankName: string;
+  accountHolder: string;
+  accountNumber: string;
+  branch: string;
+  transferNotes?: string;
+  transferDescription?: string;
+  qrCodeUrl?: string;
+  teachingDates?: string[];
+  totalTeachingHours?: number;
+  billableSessionCount?: number;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -8,6 +21,8 @@ export interface User {
   avatar?: string;
   targetBand?: string;
   bio?: string;
+  paymentQrUrl?: string;
+  bankInfo?: TeacherBankInfo;
 }
 
 export type CourseSkill = 'listening' | 'reading' | 'writing' | 'speaking';
@@ -77,6 +92,7 @@ export interface Resource {
 export interface Lesson {
   id: string;
   courseId: string;
+  studentId?: string; // Target student for 1-on-1 tutoring, or undefined for class-wide
   title: string;
   objectives: string;
   skill: CourseSkill;
@@ -86,6 +102,9 @@ export interface Lesson {
   homework: string;
   date: string;
   isPublished: boolean;
+  status?: 'completed' | 'scheduled' | 'cancelled';
+  durationMinutes?: number; // duration in minutes (e.g. 60, 90, 120)
+  isBillable?: boolean; // eligible for tuition calculation
 }
 
 export type AssignmentSkill = 'reading' | 'writing' | 'speaking';
@@ -400,13 +419,11 @@ export interface TuitionStatement {
   amountPaid: number;
   remainingBalance: number;
   payments: PaymentRecord[];
-  bankInfo: {
-    bankName: string;
-    accountHolder: string;
-    accountNumber: string;
-    branch: string;
-    transferDescription: string;
-  };
+  bankInfo: TeacherBankInfo;
+  teachingDates?: string[];
+  totalTeachingHours?: number;
+  billableSessionCount?: number;
+  qrCodeUrl?: string;
   auditHistory: {
     action: string;
     timestamp: string;

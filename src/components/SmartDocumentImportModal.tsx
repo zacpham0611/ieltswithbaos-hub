@@ -13,6 +13,7 @@ import {
   blobToDataUrl,
 } from '../lib/docxGenerator';
 import { convertDocumentToAssignment } from '../lib/ai';
+import { Portal } from './Portal';
 import {
   FileUp,
   FileText,
@@ -595,7 +596,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+    <Portal>
+      <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
       <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
         {/* ==========================================
             MODAL HEADER & STEP PROGRESS
@@ -2044,5 +2046,6 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         </div>
       </div>
     </div>
+    </Portal>
   );
 };
