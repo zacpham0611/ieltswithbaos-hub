@@ -713,14 +713,9 @@ export const AiAssistantView: React.FC = () => {
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">{t('aiAssistant.testTypeLabel')}</label>
-                <select
-                  value={wfTestType}
-                  onChange={(e) => setWfTestType(e.target.value as any)}
-                  className="w-full p-2 border border-slate-300 rounded-xl bg-white outline-hidden"
-                >
-                  <option value="academic">Academic</option>
-                  <option value="general">General</option>
-                </select>
+                <div className="w-full p-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-800 font-semibold text-sm">
+                  IELTS Academic
+                </div>
               </div>
 
               <div>

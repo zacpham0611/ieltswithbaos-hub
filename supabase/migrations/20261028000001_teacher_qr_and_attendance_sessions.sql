@@ -14,6 +14,9 @@ ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'completed' CHECK (status 
 ADD COLUMN IF NOT EXISTS duration_minutes INTEGER NOT NULL DEFAULT 60,
 ADD COLUMN IF NOT EXISTS is_billable BOOLEAN NOT NULL DEFAULT TRUE;
 
+ALTER TABLE public.class_sessions DROP CONSTRAINT IF EXISTS class_sessions_skill_check;
+ALTER TABLE public.class_sessions ADD CONSTRAINT class_sessions_skill_check CHECK (skill IN ('reading', 'writing', 'speaking', 'listening', 'all'));
+
 -- 3. Create index for fast monthly tuition queries and prevent duplicate date entries
 CREATE INDEX IF NOT EXISTS idx_sessions_course_date ON public.class_sessions (course_id, session_date);
 CREATE INDEX IF NOT EXISTS idx_sessions_student_date ON public.class_sessions (student_id, session_date) WHERE student_id IS NOT NULL;

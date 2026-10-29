@@ -65,6 +65,9 @@ import {
   BarChart3,
   GripVertical,
   Search,
+  CheckCircle2,
+  TrendingUp,
+  Lightbulb,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -439,7 +442,7 @@ export const AssignmentsView: React.FC = () => {
       let targetSkill = resource.skill || 'reading';
       let title = resource.title || 'Imported IELTS Exercise';
 
-      // 1. Check if resource.content is JSON payload (AI generated test or structured import)
+      // 1. Check if resource.content is JSON payload (structured IELTS test from library)
       if (resource.content && (resource.content.trim().startsWith('{') || resource.content.trim().startsWith('['))) {
         try {
           const parsed = JSON.parse(resource.content);
@@ -448,20 +451,19 @@ export const AssignmentsView: React.FC = () => {
             if (parsed.instructions) instructions = parsed.instructions;
             if (parsed.skill) targetSkill = parsed.skill;
 
-            // Multi-passage format
+            // Extract all questions using robust normalizer (checks passages, questionGroups, flat questions)
+            const extracted = extractAllNormalizedQuestions(parsed);
+            if (extracted.questions && extracted.questions.length > 0) {
+              readingQuestions = extracted.questions;
+              questionGroups = extracted.questionGroups;
+              passages = extracted.passages;
+            }
+
             if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
               passages = parsed.passages;
               readingPassage = parsed.passages[0]?.content || '';
-              questionGroups = parsed.passages.flatMap((p: any) => p.questionGroups || []);
-              readingQuestions = parsed.passages.flatMap((p: any) => p.questions || []);
-            } else if (parsed.questions && Array.isArray(parsed.questions)) {
-              // Flat test format
-              readingQuestions = parsed.questions;
-              questionGroups = parsed.questionGroups || [];
+            } else if (parsed.readingPassage || parsed.passageText || parsed.content) {
               readingPassage = parsed.readingPassage || parsed.passageText || parsed.content || '';
-              if (parsed.passages) passages = parsed.passages;
-            } else if (parsed.content) {
-              readingPassage = parsed.content;
             }
           }
         } catch {
@@ -476,6 +478,18 @@ export const AssignmentsView: React.FC = () => {
           readingQuestions = docStruct.questions;
           if (docStruct.candidateTests && docStruct.candidateTests.length > 0) {
             questionGroups = docStruct.candidateTests[0]?.questionGroups || [];
+            if (passages.length === 0 && docStruct.candidateTests[0]?.passageText) {
+              passages = [
+                {
+                  id: 'p_1',
+                  passageIndex: 0,
+                  title: docStruct.candidateTests[0].title || 'Passage 1',
+                  content: docStruct.candidateTests[0].passageText,
+                  questions: docStruct.candidateTests[0].questions || [],
+                  questionGroups: docStruct.candidateTests[0].questionGroups || [],
+                },
+              ];
+            }
           }
         }
       }
@@ -751,6 +765,27 @@ export const AssignmentsView: React.FC = () => {
         }
         await updateAssignment(editingAssignmentId, payload);
       } else {
+        if (formSkill === 'reading' && formReadingPassage.trim()) {
+          const docStruct = parseDocumentStructure(formReadingPassage, formTitle.trim());
+          if (docStruct.questions && docStruct.questions.length > 0) {
+            payload.readingQuestions = docStruct.questions;
+            if (docStruct.candidateTests && docStruct.candidateTests.length > 0) {
+              payload.questionGroups = docStruct.candidateTests[0]?.questionGroups || [];
+              if (docStruct.candidateTests[0]?.passageText) {
+                payload.passages = [
+                  {
+                    id: 'p_1',
+                    passageIndex: 0,
+                    title: docStruct.candidateTests[0].title || 'Passage 1',
+                    content: docStruct.candidateTests[0].passageText,
+                    questions: docStruct.candidateTests[0].questions || [],
+                    questionGroups: docStruct.candidateTests[0].questionGroups || [],
+                  },
+                ];
+              }
+            }
+          }
+        }
         await createAssignment(payload as Omit<Assignment, 'id'>);
       }
 
@@ -1818,7 +1853,7 @@ export const AssignmentsView: React.FC = () => {
               {/* Left Column: Reading Passage */}
               <div
                 style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${splitWidth}%` : '100%' }}
-                className="bg-white p-6 max-h-[calc(100vh-220px)] overflow-y-auto space-y-4 shrink-0 transition-[width] duration-75"
+                className="bg-white p-6 h-[calc(100vh-220px)] min-h-[550px] overflow-y-auto space-y-4 shrink-0 transition-[width] duration-75"
               >
                 {/* Passage Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
@@ -1914,54 +1949,55 @@ export const AssignmentsView: React.FC = () => {
                 <GripVertical className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
               </div>
 
-              {/* Right Column: Question Navigator & Interactive Questions */}
+              {/* Right Column: Pinned Navigator & Independent Scrollable Questions Container */}
               <div
                 style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${100 - splitWidth}%` : '100%' }}
-                className="bg-white p-6 max-h-[calc(100vh-220px)] overflow-y-auto space-y-6 flex flex-col justify-between shrink-0 transition-[width] duration-75 border-t lg:border-t-0 lg:border-l border-slate-200 relative scroll-pt-36 lg:scroll-pt-28"
+                className="bg-white h-[calc(100vh-220px)] min-h-[550px] flex flex-col shrink-0 transition-[width] duration-75 border-t lg:border-t-0 lg:border-l border-slate-200 overflow-hidden relative"
               >
-                <div>
-                  {/* Sticky Question Navigator Bar — Flush to top, never covers questions */}
-                  <div className="sticky top-0 -mt-6 -mx-6 px-6 pt-4 pb-3 bg-white border-b border-slate-200 z-30 shadow-xs space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                        Question Navigator ({answeredCount} / {questions.length} Answered)
-                      </span>
-                      <span className="text-xs text-slate-500 font-mono font-semibold">
-                        {Math.round((answeredCount / (questions.length || 1)) * 100)}% Complete
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
-                      {questions.map((q, idx) => {
-                        const isAns = Boolean(readingAnswers[q.id]?.trim());
-                        const isFlag = Boolean(flaggedQuestions[q.id]);
-                        return (
-                          <button
-                            key={q.id}
-                            type="button"
-                            onClick={() => {
-                              if (passageMap[q.id] !== undefined && passageMap[q.id] !== activePassageTab) {
-                                setActivePassageTab(passageMap[q.id]);
-                              }
-                              const el = document.getElementById(`q_${q.id}`);
-                              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            }}
-                            className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
-                              isFlag
-                                ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
-                                : isAns
-                                ? 'bg-blue-600 text-white shadow-xs'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                            title={`Question ${idx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
-                          >
-                            {idx + 1}
-                          </button>
-                        );
-                      })}
-                    </div>
+                {/* Pinned Question Navigator Header — Fixed at top, zero overlap with passage or questions */}
+                <div className="shrink-0 px-6 py-3.5 bg-white border-b border-slate-200 shadow-xs space-y-2 z-10">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Question Navigator ({answeredCount} / {questions.length} Answered)
+                    </span>
+                    <span className="text-xs text-slate-500 font-mono font-semibold">
+                      {Math.round((answeredCount / (questions.length || 1)) * 100)}% Complete
+                    </span>
                   </div>
 
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                    {questions.map((q, idx) => {
+                      const isAns = Boolean(readingAnswers[q.id]?.trim());
+                      const isFlag = Boolean(flaggedQuestions[q.id]);
+                      return (
+                        <button
+                          key={q.id}
+                          type="button"
+                          onClick={() => {
+                            if (passageMap[q.id] !== undefined && passageMap[q.id] !== activePassageTab) {
+                              setActivePassageTab(passageMap[q.id]);
+                            }
+                            const el = document.getElementById(`q_${q.id}`);
+                            el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
+                          className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
+                            isFlag
+                              ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
+                              : isAns
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                          title={`Question ${idx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
+                        >
+                          {idx + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Independent Questions Scroll Body */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
                   {/* Empty / Malformed Questions Banner */}
                   {questions.length === 0 ? (
                     <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl space-y-3 my-6">
@@ -1979,7 +2015,7 @@ export const AssignmentsView: React.FC = () => {
                     </div>
                   ) : (
                     /* Interactive Questions List */
-                    <div className="space-y-6 pt-3">
+                    <div className="space-y-6">
                       {questions.map((q, idx) => {
                         const answer = readingAnswers[q.id] || '';
                         const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
@@ -1993,7 +2029,7 @@ export const AssignmentsView: React.FC = () => {
                           <div
                             key={q.id}
                             id={`q_${q.id}`}
-                            className={`p-4 rounded-xl border text-sm space-y-3 transition-colors scroll-mt-36 lg:scroll-mt-28 ${
+                            className={`p-4 rounded-xl border text-sm space-y-3 transition-colors scroll-mt-4 ${
                               result
                                 ? result.isCorrect
                                   ? 'border-emerald-300 bg-emerald-50/20'
@@ -2353,9 +2389,9 @@ export const AssignmentsView: React.FC = () => {
                   )}
                 </div>
 
-                {/* Submission footer */}
+                {/* Submission footer: Pinned at bottom of right column */}
                 {!isTeacher && mySub?.status !== 'graded' && (
-                  <div className="pt-4 border-t border-slate-200 flex justify-end">
+                  <div className="shrink-0 px-6 py-3.5 border-t border-slate-200 bg-slate-50/90 flex justify-end z-10">
                     <button
                       onClick={initiateReadingSubmit}
                       className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-xs flex items-center space-x-2 transition-colors"
@@ -2377,14 +2413,136 @@ export const AssignmentsView: React.FC = () => {
         ========================================================================= */}
         {isWriting && (
           <div className="space-y-6">
+            {/* If Graded or Returned, Show Full Writing Assessment Report Card */}
+            {mySub && (mySub.status === 'graded' || mySub.status === 'returned') && (
+              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-indigo-200 rounded-2xl p-6 shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-200/70 pb-4">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <Award className="w-5 h-5 text-indigo-600" />
+                      <span className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider">
+                        Official IELTS Writing Assessment & Band Score Report
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 mt-1">
+                      {mySub.status === 'graded' ? 'Teacher Assessment Published' : 'Teacher Revision Requested'}
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      {mySub.status === 'graded'
+                        ? 'Evaluation strictly based on official IELTS 9-band criteria.'
+                        : 'Your teacher has reviewed your essay and provided notes for revision.'}
+                    </p>
+                  </div>
+
+                  <div className="text-right bg-white px-5 py-3 rounded-xl border border-indigo-100 shadow-xs">
+                    <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider block">Overall Band Score</span>
+                    <span className="text-3xl font-black text-indigo-600">
+                      Band {mySub.score ? Number(mySub.score).toFixed(1) : 'N/A'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4 Official IELTS Criteria Rubrics Breakdown */}
+                {mySub.rubricScores && mySub.rubricScores.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Official IELTS Criteria Breakdown
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {mySub.rubricScores.map((rubric) => (
+                        <div key={rubric.criterion} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-800">{rubric.criterion}</span>
+                            <span className="text-xs font-extrabold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100">
+                              Band {Number(rubric.score).toFixed(1)}
+                            </span>
+                          </div>
+                          {(rubric.descriptor || (rubric as any).comment) && (
+                            <p className="text-xs text-slate-600 leading-relaxed">{rubric.descriptor || (rubric as any).comment}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Strengths & Areas to Improve Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {mySub.strengths && (
+                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-2">
+                      <div className="flex items-center space-x-1.5 text-emerald-800">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span className="text-xs font-bold uppercase tracking-wider">Key Strengths</span>
+                      </div>
+                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.strengths}</p>
+                    </div>
+                  )}
+
+                  {mySub.areasToImprove && (
+                    <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 space-y-2">
+                      <div className="flex items-center space-x-1.5 text-amber-800">
+                        <TrendingUp className="w-4 h-4 text-amber-600" />
+                        <span className="text-xs font-bold uppercase tracking-wider">Areas for Improvement</span>
+                      </div>
+                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.areasToImprove}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Detailed Teacher Comments */}
+                {mySub.teacherComments && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2 shadow-2xs">
+                    <div className="flex items-center space-x-1.5 text-slate-800">
+                      <MessageSquare className="w-4 h-4 text-blue-600" />
+                      <span className="text-xs font-bold uppercase tracking-wider">Teacher's Detailed Feedback</span>
+                    </div>
+                    <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{mySub.teacherComments}</p>
+                  </div>
+                )}
+
+                {/* Next Steps & Recommended Practice */}
+                {mySub.nextSteps && (
+                  <div className="bg-indigo-50/50 border border-indigo-200/80 rounded-xl p-4 space-y-2">
+                    <div className="flex items-center space-x-1.5 text-indigo-900">
+                      <Lightbulb className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-bold uppercase tracking-wider">Next Steps & Targeted Action</span>
+                    </div>
+                    <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.nextSteps}</p>
+                  </div>
+                )}
+
+                {/* Teacher In-line Annotations on Essay */}
+                {mySub.annotations && mySub.annotations.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-2xs">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                      Teacher In-Text Annotations ({mySub.annotations.length})
+                    </span>
+                    <div className="space-y-2">
+                      {mySub.annotations.map((ann, aIdx) => (
+                        <div key={ann.id || aIdx} className="text-xs p-2.5 rounded-lg bg-amber-50/60 border border-amber-200 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                          <div className="space-y-1">
+                            <div className="font-serif italic text-slate-700">"{ann.selectedText || (ann as any).highlightedText}"</div>
+                            <div className="font-sans font-medium text-amber-900">{ann.comment}</div>
+                          </div>
+                          {(ann.type || (ann as any).category) && (
+                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                              {ann.type || (ann as any).category}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Writing Prompt Card */}
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-amber-800 uppercase tracking-wider bg-amber-50 px-2.5 py-1 rounded border border-amber-200">
                   {activeAssignment.writingTaskCategory === 'task1_academic'
                     ? 'IELTS Academic Writing Task 1'
-                    : activeAssignment.writingTaskCategory === 'task1_general'
-                    ? 'IELTS General Training Task 1 (Letter)'
                     : 'IELTS Writing Task 2 (Essay)'}
                 </span>
                 <span className="text-xs text-slate-500 font-semibold">
@@ -2503,6 +2661,106 @@ export const AssignmentsView: React.FC = () => {
         ========================================================================= */}
         {isSpeaking && (
           <div className="space-y-6">
+            {/* If Graded or Returned, Show Full Speaking Assessment Report Card */}
+            {mySub && (mySub.status === 'graded' || mySub.status === 'returned') && (
+              <div className="bg-gradient-to-r from-blue-50 via-teal-50 to-slate-50 border border-teal-200 rounded-2xl p-6 shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-teal-200/70 pb-4">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <Award className="w-5 h-5 text-teal-600" />
+                      <span className="text-xs font-extrabold text-teal-900 uppercase tracking-wider">
+                        Official IELTS Speaking Assessment & Band Score Report
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 mt-1">
+                      {mySub.status === 'graded' ? 'Teacher Assessment Published' : 'Teacher Revision Requested'}
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      {mySub.status === 'graded'
+                        ? 'Evaluation based on official IELTS Speaking 9-band criteria.'
+                        : 'Your teacher has reviewed your speaking response and provided feedback.'}
+                    </p>
+                  </div>
+
+                  <div className="text-right bg-white px-5 py-3 rounded-xl border border-teal-100 shadow-xs">
+                    <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider block">Overall Speaking Band</span>
+                    <span className="text-3xl font-black text-teal-700">
+                      Band {mySub.score ? Number(mySub.score).toFixed(1) : 'N/A'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4 Official Criteria Rubrics Breakdown */}
+                {mySub.rubricScores && mySub.rubricScores.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Official IELTS Speaking Criteria Breakdown
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {mySub.rubricScores.map((rubric) => (
+                        <div key={rubric.criterion} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-800">{rubric.criterion}</span>
+                            <span className="text-xs font-extrabold px-2 py-0.5 bg-teal-50 text-teal-700 rounded-md border border-teal-100">
+                              Band {Number(rubric.score).toFixed(1)}
+                            </span>
+                          </div>
+                          {(rubric.descriptor || (rubric as any).comment) && (
+                            <p className="text-xs text-slate-600 leading-relaxed">{rubric.descriptor || (rubric as any).comment}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Strengths & Areas to Improve */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {mySub.strengths && (
+                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-2">
+                      <div className="flex items-center space-x-1.5 text-emerald-800">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span className="text-xs font-bold uppercase tracking-wider">Key Speaking Strengths</span>
+                      </div>
+                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.strengths}</p>
+                    </div>
+                  )}
+
+                  {mySub.areasToImprove && (
+                    <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 space-y-2">
+                      <div className="flex items-center space-x-1.5 text-amber-800">
+                        <TrendingUp className="w-4 h-4 text-amber-600" />
+                        <span className="text-xs font-bold uppercase tracking-wider">Pronunciation & Fluency Improvement</span>
+                      </div>
+                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.areasToImprove}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Detailed Teacher Comments */}
+                {mySub.teacherComments && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2 shadow-2xs">
+                    <div className="flex items-center space-x-1.5 text-slate-800">
+                      <MessageSquare className="w-4 h-4 text-blue-600" />
+                      <span className="text-xs font-bold uppercase tracking-wider">Teacher's Comprehensive Feedback</span>
+                    </div>
+                    <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{mySub.teacherComments}</p>
+                  </div>
+                )}
+
+                {/* Next Steps */}
+                {mySub.nextSteps && (
+                  <div className="bg-teal-50/50 border border-teal-200/80 rounded-xl p-4 space-y-2">
+                    <div className="flex items-center space-x-1.5 text-teal-900">
+                      <Lightbulb className="w-4 h-4 text-teal-600" />
+                      <span className="text-xs font-bold uppercase tracking-wider">Next Steps & Targeted Action</span>
+                    </div>
+                    <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.nextSteps}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                 {t('assignments.cueCardTitle')} ({activeAssignment.speakingPart?.toUpperCase() || 'PART 2'})
@@ -2933,11 +3191,10 @@ export const AssignmentsView: React.FC = () => {
                 <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-200 space-y-3">
                   <div>
                     <label className="block font-bold text-amber-900 mb-1">Writing Task Type *</label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       {[
-                        { id: 'task1_academic', label: 'Academic Task 1 (Graph / Chart)', min: 150 },
-                        { id: 'task1_general', label: 'General Task 1 (Letter)', min: 150 },
-                        { id: 'task2', label: 'Task 2 Essay', min: 250 },
+                        { id: 'task1_academic', label: 'Academic Task 1 (Graph / Chart / Diagram)', min: 150 },
+                        { id: 'task2', label: 'Academic Task 2 (Essay)', min: 250 },
                       ].map((item) => (
                         <button
                           key={item.id}
@@ -3008,23 +3265,9 @@ export const AssignmentsView: React.FC = () => {
                   <div>
                     <label className="block font-bold text-emerald-900 mb-1">Reading Test Scale *</label>
                     <div className="flex space-x-3">
-                      {[
-                        { id: 'academic', label: 'Academic Reading (Official 40-item scale)' },
-                        { id: 'general', label: 'General Training Reading (GT scale)' },
-                      ].map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setFormReadingTestType(item.id as ReadingTestType)}
-                          className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
-                            formReadingTestType === item.id
-                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                          }`}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
+                      <div className="px-3 py-1.5 rounded-lg border text-xs font-bold bg-emerald-600 text-white border-emerald-600 shadow-xs">
+                        IELTS Academic Reading (Official 40-item Cambridge Scale)
+                      </div>
                     </div>
                   </div>
 

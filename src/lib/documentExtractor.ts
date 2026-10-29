@@ -653,8 +653,8 @@ export function formatPassageParagraphs(lines: string[]): { formattedText: strin
   let currentBlock: ParaBlock = { lines: [] };
   const detectedLabels = new Set<string>();
 
-  const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-I])[\.\:\)]?$/i;
-  const inlineLabelRegex = /^(?:(?:paragraph|section)\s+([A-I])[\.\:\)]?|\[([A-I])\]|\(([A-I])\)|([A-I])[\.\:\)])\s+(.*)$/i;
+  const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-J])[\.\:\)]?$/i;
+  const inlineLabelRegex = /^(?:(?:paragraph|section)\s+([A-J])[\.\:\)]?|\[([A-J])\]|\(([A-J])\)|([A-J])[\.\:\)])\s+(.*)$/i;
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i].trim();

@@ -31,9 +31,6 @@ import {
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
 );
-const AiReadingTestGeneratorModal = React.lazy(() =>
-  import('../components/AiReadingTestGeneratorModal').then((m) => ({ default: m.AiReadingTestGeneratorModal }))
-);
 
 export const ResourcesView: React.FC = () => {
   const {
@@ -61,8 +58,6 @@ export const ResourcesView: React.FC = () => {
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
   const [showAiLessonModal, setShowAiLessonModal] = useState(false);
   const [showSmartImportModal, setShowSmartImportModal] = useState(false);
-  const [showAiTestGenModal, setShowAiTestGenModal] = useState(false);
-  const [selectedEditTest, setSelectedEditTest] = useState<GeneratedReadingTest | null>(null);
 
   // New Resource Form
   const [resTitle, setResTitle] = useState('');
@@ -259,16 +254,6 @@ export const ResourcesView: React.FC = () => {
         {isTeacher && (
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => {
-                setSelectedEditTest(null);
-                setShowAiTestGenModal(true);
-              }}
-              className="px-3.5 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5"
-            >
-              <Sparkles className="w-4 h-4 text-white animate-pulse" />
-              <span>Generate Reading Test with AI</span>
-            </button>
-            <button
               onClick={() => setShowSmartImportModal(true)}
               className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5"
             >
@@ -299,44 +284,6 @@ export const ResourcesView: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* AI Reading Test Generator Banner for Teachers */}
-      {isTeacher && (
-        <div className="bg-gradient-to-r from-purple-50 via-indigo-50/50 to-blue-50 border border-purple-200/80 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
-          <div className="flex items-start space-x-3.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-                  Generate Reading Test with AI
-                </h3>
-                <span className="text-[10px] bg-purple-600 text-white font-bold px-2 py-0.2 rounded-full">
-                  AI STUDIO
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
-                Transform any article URL, uploaded document, or topic prompt into a complete IELTS Reading Practice Test. Calibrated across <strong>1–10 difficulty levels</strong> with authentic question formats, verified paragraph citations, and one-click assignment.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2 shrink-0">
-            <button
-              onClick={() => {
-                setSelectedEditTest(null);
-                setShowAiTestGenModal(true);
-              }}
-              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-white" />
-              <span>Generate Test Now</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Smart Document Import Feature Banner for Teachers */}
       {isTeacher && (
@@ -535,23 +482,6 @@ export const ResourcesView: React.FC = () => {
                           <div className="flex items-center justify-end space-x-2">
                             {isAiReadingTest && res.content && (
                               <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    try {
-                                      const testObj = JSON.parse(res.content || '{}');
-                                      setSelectedEditTest(testObj);
-                                      setShowAiTestGenModal(true);
-                                    } catch {
-                                      alert('Unable to parse test data.');
-                                    }
-                                  }}
-                                  className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded text-[11px] font-semibold border border-purple-200 flex items-center space-x-1 transition-colors"
-                                  title="Edit Test in AI Studio"
-                                >
-                                  <Edit className="w-3 h-3" />
-                                  <span>Edit Test</span>
-                                </button>
                                 <button
                                   type="button"
                                   onClick={() => handleExportAiTestDocx(res)}
@@ -1067,20 +997,6 @@ export const ResourcesView: React.FC = () => {
           <SmartDocumentImportModal
             isOpen={showSmartImportModal}
             onClose={() => setShowSmartImportModal(false)}
-          />
-        </React.Suspense>
-      )}
-
-      {/* AI Reading Test Generator Modal (Lazy Loaded) */}
-      {showAiTestGenModal && (
-        <React.Suspense fallback={null}>
-          <AiReadingTestGeneratorModal
-            isOpen={showAiTestGenModal}
-            onClose={() => {
-              setShowAiTestGenModal(false);
-              setSelectedEditTest(null);
-            }}
-            initialTest={selectedEditTest}
           />
         </React.Suspense>
       )}

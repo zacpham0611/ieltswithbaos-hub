@@ -1695,11 +1695,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         if (updErr) {
           const errMsg = String(updErr.message || '');
-          if (errMsg.includes('duration_minutes') || errMsg.includes('is_billable')) {
-            console.warn('class_sessions missing duration_minutes/is_billable in schema cache; falling back to basic update.', updErr);
+          if (errMsg.includes('duration_minutes') || errMsg.includes('is_billable') || errMsg.includes('status')) {
+            console.warn('class_sessions missing duration_minutes/is_billable/status in schema cache; falling back to basic update.', updErr);
             const { error: fallbackErr } = await supabase
               .from('class_sessions')
-              .update({ status: 'completed' })
+              .update({ is_published: true })
               .eq('id', existing.id);
             if (fallbackErr) throw fallbackErr;
           } else {
@@ -1725,7 +1725,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         duration_minutes: durationMinutes,
         is_billable: true,
         is_published: true,
-        skill: 'all',
+        skill: 'reading',
       };
 
       let { data: created, error } = await supabase
@@ -1736,15 +1736,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (error) {
         const errMsg = String(error.message || '');
-        if (errMsg.includes('duration_minutes') || errMsg.includes('is_billable') || errMsg.includes('student_id')) {
+        if (errMsg.includes('duration_minutes') || errMsg.includes('is_billable') || errMsg.includes('student_id') || errMsg.includes('status') || errMsg.includes('column')) {
           console.warn('class_sessions missing extended columns in schema cache; falling back to standard row insert.', error);
           const fallbackRow: any = {
             course_id: courseId,
             title: `Teaching Session - ${date}`,
             session_date: date,
-            status,
             is_published: true,
-            skill: 'all',
+            skill: 'reading',
           };
           const fallbackRes = await supabase
             .from('class_sessions')
@@ -1768,15 +1767,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           {
             id: created.id,
             courseId: created.course_id,
-            studentId: created.student_id,
+            studentId: created.student_id || studentId || undefined,
             title: created.title,
             objectives: created.objectives || '',
-            skill: created.skill || 'all',
+            skill: (created.skill as CourseSkill) || 'reading',
             teacherNotes: created.teacher_notes || '',
             activities: created.activities || [],
             homework: created.homework || '',
             date: created.session_date,
-            status: created.status || 'completed',
+            status: created.status || status,
             durationMinutes: Number(created.duration_minutes) || durationMinutes,
             isBillable: created.is_billable !== false,
             resources: [],
