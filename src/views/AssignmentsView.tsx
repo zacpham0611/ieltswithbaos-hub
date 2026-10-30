@@ -262,6 +262,32 @@ export const AssignmentsView: React.FC = () => {
   const [newAnnotationSuggestion, setNewAnnotationSuggestion] = useState('');
   const [draftSaveNotice, setDraftSaveNotice] = useState(false);
   const [activeInspectedAnnotation, setActiveInspectedAnnotation] = useState<InlineAnnotation | null>(null);
+  const studentAnnotationPopupRef = useRef<HTMLDivElement>(null);
+
+  // Handle click outside of student annotation popup to dismiss
+  useEffect(() => {
+    if (!activeInspectedAnnotation) return;
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      // Keep open if clicking inside the popup
+      if (studentAnnotationPopupRef.current?.contains(target)) return;
+
+      // Keep open / switch if clicking an annotation mark
+      if (target.closest('mark[id^="annotation_"]')) return;
+
+      // Otherwise dismiss popup and clear ring
+      setActiveInspectedAnnotation(null);
+      setActiveHighlightedAnnotationId(null);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [activeInspectedAnnotation]);
 
   // Active assignment object
   const activeAssignment = selectedAssignmentId
@@ -861,18 +887,29 @@ export const AssignmentsView: React.FC = () => {
         parts.push(<span key={`text-${cursor}`}>{text.substring(cursor, a.resolvedStart)}</span>);
       }
 
+      const isCurrentActive =
+        activeInspectedAnnotation?.id === a.id || activeHighlightedAnnotationId === a.id;
+
       parts.push(
         <mark
           key={`annot-${a.id || idx}`}
           id={`annotation_${a.id}`}
           onClick={(e) => {
             e.stopPropagation();
-            if (interactive) setActiveInspectedAnnotation(a);
+            if (interactive) {
+              if (activeInspectedAnnotation?.id === a.id) {
+                setActiveInspectedAnnotation(null);
+                setActiveHighlightedAnnotationId(null);
+              } else {
+                setActiveHighlightedAnnotationId(a.id);
+                setActiveInspectedAnnotation(a);
+              }
+            }
           }}
-          className={`px-1 py-0.5 rounded-xs transition-colors font-medium cursor-pointer ${
+          className={`px-1 py-0.5 rounded-xs transition-all font-sans font-medium cursor-pointer ${
             typeHighlightMap[a.type] || typeHighlightMap.correction
-          } ${activeInspectedAnnotation?.id === a.id || activeHighlightedAnnotationId === a.id ? 'ring-2 ring-blue-600 scale-105 inline-block shadow-xs' : ''}`}
-          title={`${a.type.toUpperCase()}: ${a.comment}${a.suggestion ? ` (Suggestion: ${a.suggestion})` : ''}`}
+          } ${isCurrentActive ? 'ring-2 ring-blue-600 scale-105 inline-block shadow-xs font-semibold' : ''}`}
+          title={`${a.type.toUpperCase()}: ${a.comment}${a.suggestion ? ` (Gợi ý sửa: ${a.suggestion})` : ''}`}
         >
           {text.substring(a.resolvedStart, a.resolvedEnd)}
         </mark>
@@ -2973,65 +3010,74 @@ export const AssignmentsView: React.FC = () => {
             )}
             {/* If Graded or Returned, Show Full Writing Assessment Report Card */}
             {mySub && (mySub.status === 'graded' || mySub.status === 'returned') && (
-              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-indigo-200 rounded-2xl p-6 shadow-xs space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-200/70 pb-4">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <Award className="w-5 h-5 text-indigo-600" />
-                      <span className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider">
-                        Official IELTS Writing Assessment & Band Score Report
-                      </span>
+              <div className="bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/50 border border-indigo-100 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4 font-sans">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-100/90 pb-4">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-900 text-[11px] font-bold uppercase tracking-wider font-sans">
+                      <Award className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>Official IELTS Writing Assessment</span>
                     </div>
-                    <h3 className="text-xl font-bold text-slate-900 mt-1">
+                    <h3 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight font-sans">
                       {mySub.status === 'graded' ? 'Teacher Assessment Published' : 'Teacher Revision Requested'}
                     </h3>
-                    <p className="text-xs text-slate-600 mt-0.5">
+                    <p className="text-xs text-slate-500 font-sans">
                       {mySub.status === 'graded'
                         ? 'Đánh giá chi tiết theo chuẩn 4 tiêu chí chấm thi IELTS chính thức của Examiners.'
                         : 'Giáo viên đã phản hồi và gửi yêu cầu hoàn thiện bài viết.'}
                     </p>
                   </div>
 
-                  <div className="text-right bg-white px-5 py-3 rounded-xl border border-indigo-100 shadow-xs flex flex-col items-end">
-                    <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider block">Overall Band Score</span>
-                    <span className="text-3xl font-black text-indigo-600">
+                  <div className="bg-white px-5 py-2.5 rounded-xl border border-indigo-200/80 shadow-xs flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 sm:gap-0 min-w-[150px] shrink-0 font-sans">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block font-sans">
+                      Overall Band Score
+                    </span>
+                    <span className="text-2xl sm:text-3xl font-black text-indigo-600 tracking-tight font-sans my-0.5">
                       {displayWritingBand !== null ? `Band ${displayWritingBand.toFixed(1)}` : 'Đang cập nhật'}
                     </span>
-                    <span className="text-[10px] text-slate-500 mt-0.5">
+                    <span className="text-[10px] text-slate-400 font-medium font-sans">
                       Quy chuẩn IELTS 9-band
                     </span>
                   </div>
                 </div>
 
                 {/* IELTS Official Scoring Formula Notice */}
-                <div className="flex items-center space-x-2 text-[11px] text-indigo-900 bg-indigo-100/70 px-3.5 py-2.5 rounded-xl border border-indigo-200">
+                <div className="flex items-center space-x-2 text-xs text-indigo-950 bg-indigo-100/60 px-3.5 py-2 rounded-xl border border-indigo-200/70 font-sans">
                   <Award className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>
-                    <strong>Quy chuẩn tính điểm IELTS:</strong> Overall Band Score = (TR/TA + CC + LR + GRA) ÷ 4, quy tròn theo quy định của Hội đồng thi (ví dụ: trung bình 6.25 ➔ Band 6.5, trung bình 6.75 ➔ Band 7.0).
+                  <span className="leading-relaxed font-sans">
+                    <strong>Quy chuẩn tính điểm IELTS:</strong> Overall Band Score = (TR/TA + CC + LR + GRA) ÷ 4, quy tròn theo quy định Hội đồng thi (ví dụ: trung bình 6.25 ➔ Band 6.5, trung bình 6.75 ➔ Band 7.0).
                   </span>
                 </div>
 
                 {/* 4 Official IELTS Criteria Rubrics Breakdown */}
                 {mySub.rubricScores && mySub.rubricScores.length > 0 && (
-                  <div className="space-y-2.5">
+                  <div className="space-y-2.5 font-sans">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider font-sans">
                         Official IELTS Criteria Breakdown (4 tiêu chí đánh giá)
                       </h4>
-                      <span className="text-[11px] text-slate-500 font-medium">Thang điểm 0 - 9.0</span>
+                      <span className="text-[11px] text-slate-500 font-medium font-sans">Thang điểm 0 - 9.0</span>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
                       {mySub.rubricScores.map((rubric) => (
-                        <div key={rubric.criterion} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5 flex flex-col justify-between">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-800">{rubric.criterion}</span>
-                            <span className="text-xs font-extrabold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100">
-                              Band {Number(rubric.score).toFixed(1)}
-                            </span>
+                        <div
+                          key={rubric.criterion}
+                          className="bg-white p-3.5 rounded-xl border border-slate-200/90 hover:border-indigo-200 shadow-2xs flex flex-col justify-between transition-all h-full font-sans"
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-2 min-h-[36px]">
+                              <span className="text-xs font-bold text-slate-900 leading-snug line-clamp-2 font-sans">
+                                {rubric.criterion}
+                              </span>
+                              <span className="text-xs font-extrabold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 shrink-0 font-sans">
+                                Band {Number(rubric.score).toFixed(1)}
+                              </span>
+                            </div>
+                            {(rubric.descriptor || (rubric as any).comment) && (
+                              <p className="text-xs text-slate-600 leading-relaxed mt-2 pt-2 border-t border-slate-100 font-sans">
+                                {rubric.descriptor || (rubric as any).comment}
+                              </p>
+                            )}
                           </div>
-                          {(rubric.descriptor || (rubric as any).comment) && (
-                            <p className="text-xs text-slate-600 leading-relaxed mt-1">{rubric.descriptor || (rubric as any).comment}</p>
-                          )}
                         </div>
                       ))}
                     </div>
@@ -3039,97 +3085,47 @@ export const AssignmentsView: React.FC = () => {
                 )}
 
                 {/* Strengths & Areas to Improve Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 font-sans">
                   {mySub.strengths && (
-                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-2">
+                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-1.5 font-sans">
                       <div className="flex items-center space-x-1.5 text-emerald-800">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span className="text-xs font-bold uppercase tracking-wider">Key Strengths</span>
+                        <span className="text-xs font-bold uppercase tracking-wider font-sans">Key Strengths</span>
                       </div>
-                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.strengths}</p>
+                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">{mySub.strengths}</p>
                     </div>
                   )}
 
                   {mySub.areasToImprove && (
-                    <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 space-y-2">
+                    <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 space-y-1.5 font-sans">
                       <div className="flex items-center space-x-1.5 text-amber-800">
                         <TrendingUp className="w-4 h-4 text-amber-600" />
-                        <span className="text-xs font-bold uppercase tracking-wider">Areas for Improvement</span>
+                        <span className="text-xs font-bold uppercase tracking-wider font-sans">Areas for Improvement</span>
                       </div>
-                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.areasToImprove}</p>
+                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">{mySub.areasToImprove}</p>
                     </div>
                   )}
                 </div>
 
                 {/* Detailed Teacher Comments */}
                 {mySub.teacherComments && (
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2 shadow-2xs">
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-1.5 shadow-2xs font-sans">
                     <div className="flex items-center space-x-1.5 text-slate-800">
                       <MessageSquare className="w-4 h-4 text-blue-600" />
-                      <span className="text-xs font-bold uppercase tracking-wider">Teacher's Detailed Feedback</span>
+                      <span className="text-xs font-bold uppercase tracking-wider font-sans">Teacher's Detailed Feedback</span>
                     </div>
-                    <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{mySub.teacherComments}</p>
+                    <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap font-sans">{mySub.teacherComments}</p>
                   </div>
                 )}
 
                 {/* Next Steps & Recommended Practice */}
                 {mySub.nextSteps && (
-                  <div className="bg-indigo-50/50 border border-indigo-200/80 rounded-xl p-4 space-y-2">
+                  <div className="bg-indigo-50/50 border border-indigo-200/80 rounded-xl p-4 space-y-1.5 font-sans">
                     <div className="flex items-center space-x-1.5 text-indigo-900">
                       <Lightbulb className="w-4 h-4 text-indigo-600" />
-                      <span className="text-xs font-bold uppercase tracking-wider">Next Steps & Targeted Action</span>
+                      <span className="text-xs font-bold uppercase tracking-wider font-sans">Next Steps & Targeted Action</span>
                     </div>
-                    <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{mySub.nextSteps}</p>
-                  </div>
-                )}
-
-                {/* Teacher In-line Annotations on Essay */}
-                {mySub.annotations && mySub.annotations.length > 0 && (
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                        Teacher In-Text Annotations ({mySub.annotations.length})
-                      </span>
-                      <span className="text-[11px] text-blue-600 font-medium">
-                        Click vào thẻ nhận xét để cuộn đến đoạn văn tương ứng
-                      </span>
-                    </div>
-                    <div className="space-y-2.5">
-                      {mySub.annotations.map((ann, aIdx) => (
-                        <div
-                          key={ann.id || aIdx}
-                          onClick={() => handleAnnotationClick(ann.id)}
-                          className="text-xs p-3 rounded-xl bg-amber-50/70 border border-amber-200 hover:border-amber-400 hover:bg-amber-100/50 cursor-pointer transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-3 shadow-2xs group"
-                        >
-                          <div className="space-y-1.5 flex-1">
-                            <div className="flex items-center space-x-1.5 text-slate-500 font-medium text-[11px]">
-                              <Eye className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition-transform" />
-                              <span>Đoạn văn được nhận xét:</span>
-                            </div>
-                            <div className="font-serif italic text-slate-800 bg-white/80 p-2 rounded border border-amber-100 leading-relaxed">
-                              "{ann.selectedText || (ann as any).highlightedText}"
-                            </div>
-                            <div className="font-sans font-semibold text-amber-950 mt-1">
-                              {ann.comment}
-                            </div>
-                            {ann.suggestion && (
-                              <div className="text-emerald-800 font-medium bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 mt-1 text-[11px]">
-                                <strong className="text-emerald-900">Gợi ý sửa:</strong> {ann.suggestion}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1.5 shrink-0">
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-200/80 text-amber-900">
-                              {ann.type || (ann as any).category || 'Feedback'}
-                            </span>
-                            <span className="text-[11px] text-blue-600 font-bold group-hover:underline flex items-center space-x-0.5">
-                              <span>Xem trên bài</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">{mySub.nextSteps}</p>
                   </div>
                 )}
               </div>
@@ -3347,15 +3343,73 @@ export const AssignmentsView: React.FC = () => {
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2 font-sans">
                       <Columns className="w-4 h-4 text-indigo-600" />
                       <span>Đối chiếu song song: Bài viết gốc vs Bài viết đã chỉnh sửa</span>
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-slate-500 mt-0.5 font-sans">
                       So sánh trực quan giữa bài làm ban đầu và phiên bản đã hoàn thiện theo nhận xét của giáo viên.
                     </p>
                   </div>
                 </div>
+
+                {/* Active Inspected Annotation Popup in Comparison view */}
+                {activeInspectedAnnotation && (
+                  <div
+                    ref={studentAnnotationPopupRef}
+                    className="sticky top-4 z-30 p-4 rounded-xl bg-gradient-to-r from-blue-50/95 via-indigo-50/95 to-white/95 backdrop-blur-xs border-2 border-blue-400 shadow-md space-y-2.5 transition-all animate-in fade-in zoom-in-95 font-sans"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Eye className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span className="text-xs font-bold text-blue-900 uppercase tracking-wider font-sans">
+                          Chi tiết nhận xét từ giáo viên
+                        </span>
+                        {(() => {
+                          const type = (activeInspectedAnnotation.type || 'feedback').toLowerCase();
+                          const typeBadgeMap: Record<string, { label: string; bg: string; text: string; border: string }> = {
+                            correction: { label: 'Correction', bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-200' },
+                            grammar: { label: 'Grammar', bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
+                            vocabulary: { label: 'Vocabulary', bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
+                            suggestion: { label: 'Suggestion', bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
+                            praise: { label: 'Praise', bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-200' },
+                          };
+                          const meta = typeBadgeMap[type] || { label: type.toUpperCase(), bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' };
+                          return (
+                            <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded ${meta.bg} ${meta.text} border ${meta.border} font-sans`}>
+                              {meta.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveInspectedAnnotation(null);
+                          setActiveHighlightedAnnotationId(null);
+                        }}
+                        className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-white/80 cursor-pointer transition-colors"
+                        title="Đóng chi tiết nhận xét"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {activeInspectedAnnotation.selectedText && (
+                      <div className="text-xs bg-white/90 p-2.5 rounded-lg border border-blue-200/80 text-slate-800 font-sans italic leading-relaxed">
+                        "{activeInspectedAnnotation.selectedText}"
+                      </div>
+                    )}
+                    <div className="text-sm font-semibold text-slate-900 leading-snug font-sans">
+                      {activeInspectedAnnotation.comment}
+                    </div>
+                    {activeInspectedAnnotation.suggestion && (
+                      <div className="text-xs bg-emerald-100/90 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
+                        <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <span><strong className="text-emerald-900">Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {/* Left Column: Original with highlights */}
@@ -3436,7 +3490,7 @@ export const AssignmentsView: React.FC = () => {
                         />
                       </div>
                       <span
-                        className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                        className={`text-xs font-sans font-bold px-2 py-0.5 rounded ${
                           wordCount >= targetWords
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-amber-100 text-amber-800'
@@ -3450,38 +3504,59 @@ export const AssignmentsView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Active Inspected Annotation Inspector banner in student view */}
+                {/* Active Inspected Annotation Popup in student view */}
                 {activeInspectedAnnotation && (
-                  <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-400 shadow-xs space-y-2">
+                  <div
+                    ref={studentAnnotationPopupRef}
+                    className="sticky top-4 z-30 p-4 rounded-xl bg-gradient-to-r from-blue-50/95 via-indigo-50/95 to-white/95 backdrop-blur-xs border-2 border-blue-400 shadow-md space-y-2.5 transition-all animate-in fade-in zoom-in-95 font-sans"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
-                        <Eye className="w-4 h-4 text-blue-600" />
-                        <span className="text-xs font-bold text-blue-900 uppercase tracking-wider">
+                        <Eye className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span className="text-xs font-bold text-blue-900 uppercase tracking-wider font-sans">
                           Chi tiết nhận xét từ giáo viên
                         </span>
-                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-blue-200 text-blue-900">
-                          {activeInspectedAnnotation.type}
-                        </span>
+                        {(() => {
+                          const type = (activeInspectedAnnotation.type || 'feedback').toLowerCase();
+                          const typeBadgeMap: Record<string, { label: string; bg: string; text: string; border: string }> = {
+                            correction: { label: 'Correction', bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-200' },
+                            grammar: { label: 'Grammar', bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
+                            vocabulary: { label: 'Vocabulary', bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
+                            suggestion: { label: 'Suggestion', bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
+                            praise: { label: 'Praise', bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-200' },
+                          };
+                          const meta = typeBadgeMap[type] || { label: type.toUpperCase(), bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' };
+                          return (
+                            <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded ${meta.bg} ${meta.text} border ${meta.border} font-sans`}>
+                              {meta.label}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <button
                         type="button"
-                        onClick={() => setActiveInspectedAnnotation(null)}
-                        className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                        onClick={() => {
+                          setActiveInspectedAnnotation(null);
+                          setActiveHighlightedAnnotationId(null);
+                        }}
+                        className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-white/80 cursor-pointer transition-colors"
                         title="Đóng chi tiết nhận xét"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="text-xs bg-white p-2.5 rounded-lg border border-blue-200 text-slate-800 font-serif italic">
-                      "{activeInspectedAnnotation.selectedText}"
-                    </div>
-                    <div className="text-sm font-semibold text-slate-900">
+                    {activeInspectedAnnotation.selectedText && (
+                      <div className="text-xs bg-white/90 p-2.5 rounded-lg border border-blue-200/80 text-slate-800 font-sans italic leading-relaxed">
+                        "{activeInspectedAnnotation.selectedText}"
+                      </div>
+                    )}
+                    <div className="text-sm font-semibold text-slate-900 leading-snug font-sans">
                       {activeInspectedAnnotation.comment}
                     </div>
                     {activeInspectedAnnotation.suggestion && (
-                      <div className="text-xs bg-emerald-100/80 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-1.5">
+                      <div className="text-xs bg-emerald-100/90 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
                         <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
-                        <span><strong>Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
+                        <span><strong className="text-emerald-900">Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
                       </div>
                     )}
                   </div>

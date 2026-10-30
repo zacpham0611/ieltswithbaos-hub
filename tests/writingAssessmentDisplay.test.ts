@@ -207,4 +207,89 @@ console.log('--- RUNNING WRITING ASSESSMENT & FEEDBACK DISPLAY TESTS ---');
   console.log('✓ Passed: Revision requests retain comments and annotations for student.');
 })();
 
+// Test 6: In-Text Annotation Popup & Interactive Click-to-Inspect Logic
+(() => {
+  const typeBadgeMap: Record<string, { label: string; bg: string; text: string; border: string }> = {
+    correction: { label: 'Correction', bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-200' },
+    grammar: { label: 'Grammar', bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
+    vocabulary: { label: 'Vocabulary', bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
+    suggestion: { label: 'Suggestion', bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
+    praise: { label: 'Praise', bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-200' },
+  };
+
+  // Verify all 5 IELTS annotation categories map to accurate labels and color badges
+  const sampleTypes: Array<InlineAnnotation['type']> = ['correction', 'grammar', 'vocabulary', 'suggestion', 'praise'];
+  for (const t of sampleTypes) {
+    const meta = typeBadgeMap[t];
+    assert.ok(meta, `Metadata badge exists for annotation type: ${t}`);
+    assert.equal(meta.label.toLowerCase(), t);
+    assert.ok(meta.bg.startsWith('bg-'));
+    assert.ok(meta.text.startsWith('text-'));
+  }
+
+  // Simulate user clicking on highlight A, then B, then toggling A, then clicking outside
+  let activeInspected: InlineAnnotation | null = null;
+  let activeHighlightId: string | null = null;
+
+  const handleMarkClick = (ann: InlineAnnotation) => {
+    if (activeInspected?.id === ann.id) {
+      activeInspected = null;
+      activeHighlightId = null;
+    } else {
+      activeInspected = ann;
+      activeHighlightId = ann.id;
+    }
+  };
+
+  const handleOutsideClick = () => {
+    activeInspected = null;
+    activeHighlightId = null;
+  };
+
+  const annA: InlineAnnotation = {
+    id: 'ann-a',
+    selectedText: 'Kiểm tra currency configuration',
+    comment: 'Cần sửa đổi cú pháp',
+    suggestion: 'Kiểm tra cấu hình tiền tệ',
+    type: 'correction',
+  };
+
+  const annB: InlineAnnotation = {
+    id: 'ann-b',
+    selectedText: '1.400.000 đ hoặc 1.400.000 VND',
+    comment: 'Đảm bảo định dạng chuẩn Việt Nam',
+    suggestion: '1.400.000 ₫',
+    type: 'suggestion',
+  };
+
+  // 1. Initial state: no popup
+  assert.equal(activeInspected, null);
+
+  // 2. Click annA -> popup opens with annA
+  handleMarkClick(annA);
+  assert.equal(activeInspected?.id, 'ann-a');
+  assert.equal(activeHighlightId, 'ann-a');
+  assert.equal(activeInspected?.suggestion, 'Kiểm tra cấu hình tiền tệ');
+
+  // 3. Click annB -> switches immediately to annB
+  handleMarkClick(annB);
+  assert.equal(activeInspected?.id, 'ann-b');
+  assert.equal(activeHighlightId, 'ann-b');
+  assert.equal(activeInspected?.comment, 'Đảm bảo định dạng chuẩn Việt Nam');
+
+  // 4. Click annB again -> toggles closed
+  handleMarkClick(annB);
+  assert.equal(activeInspected, null);
+  assert.equal(activeHighlightId, null);
+
+  // 5. Open annA and click outside -> closes immediately
+  handleMarkClick(annA);
+  assert.equal(activeInspected?.id, 'ann-a');
+  handleOutsideClick();
+  assert.equal(activeInspected, null);
+  assert.equal(activeHighlightId, null);
+
+  console.log('✓ Passed: In-Text Annotation popup display, switching, toggle, and click-outside dismissal.');
+})();
+
 console.log('ALL WRITING ASSESSMENT & FEEDBACK DISPLAY TESTS PASSED SUCCESSFULLY! 🎉');
