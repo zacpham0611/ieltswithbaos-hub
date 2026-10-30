@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Portal } from '../components/Portal';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
-import { MonthlyReport, AssessmentState } from '../types';
+import { MonthlyReport, AssessmentState, AssignmentAssessmentEvidence } from '../types';
+import { calculateReadingBand } from '../lib/ieltsScoring';
 import {
   Award,
   Sparkles,
@@ -19,6 +20,12 @@ import {
   Calendar,
   Lock,
   X,
+  PenTool,
+  Mic,
+  Headphones,
+  Check,
+  ShieldCheck,
+  TrendingUp,
 } from 'lucide-react';
 
 export const AssessmentsView: React.FC = () => {
@@ -26,6 +33,7 @@ export const AssessmentsView: React.FC = () => {
     currentUser,
     courses,
     courseMembers,
+    submissions,
     monthlyReports,
     createMonthlyReportDraft,
     updateMonthlyReport,
@@ -133,13 +141,93 @@ export const AssessmentsView: React.FC = () => {
     window.print();
   };
 
+  // Dynamic calculation & hydration of completed assignments for active report
+  const activeCompletedAssignments: AssignmentAssessmentEvidence[] = React.useMemo(() => {
+    if (!activeReport) return [];
+    if (
+      activeReport.learningEvidence?.completedAssignments &&
+      activeReport.learningEvidence.completedAssignments.length > 0
+    ) {
+      return activeReport.learningEvidence.completedAssignments;
+    }
+    // Dynamic fallback hydration from submissions in context
+    const studentSubs = submissions.filter(
+      (s) => s.studentId === activeReport.studentId && s.courseId === activeReport.courseId
+    );
+    return studentSubs.map((s) => {
+      let finalBand: number | undefined = undefined;
+      let source: 'teacher' | 'ai' | 'unscored' = 'unscored';
+
+      if (s.skill === 'reading') {
+        const total = s.readingScore?.total || 40;
+        const correct = s.readingScore?.correct || 0;
+        if (typeof s.score === 'number' && s.score > 0) {
+          finalBand = s.score;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        } else if (s.readingScore?.estimatedBand) {
+          finalBand = s.readingScore.estimatedBand;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        } else if (s.status === 'graded' || s.status === 'submitted') {
+          const res = calculateReadingBand(correct, 'academic', total);
+          finalBand = res.band;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        }
+      } else {
+        if (typeof s.score === 'number' && s.score > 0) {
+          finalBand = s.score;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        }
+      }
+
+      return {
+        id: s.id,
+        assignmentId: s.assignmentId,
+        title: s.assignmentTitle || 'Assignment',
+        skill: s.skill,
+        submittedAt: s.submittedAt || '',
+        status: s.status,
+        score: finalBand,
+        scoreSource: source,
+        readingCorrect: s.readingScore?.correct,
+        readingTotal: s.readingScore?.total,
+        criteriaScores: s.rubricScores?.map((r) => ({ criterion: r.criterion, score: r.score })),
+        comments: s.teacherComments || s.strengths || s.areasToImprove || undefined,
+      };
+    });
+  }, [activeReport, submissions]);
+
   // If a report is selected, show detail/print view
   if (activeReport) {
     const isApproved = activeReport.state === 'approved' || activeReport.state === 'published';
     const isPublished = activeReport.state === 'published';
 
+    const readingAssignments = activeCompletedAssignments.filter((a) => a.skill === 'reading');
+    const writingAssignments = activeCompletedAssignments.filter((a) => a.skill === 'writing');
+    const speakingAssignments = activeCompletedAssignments.filter((a) => a.skill === 'speaking');
+
+    const validReadingScores = readingAssignments.map((a) => a.score).filter((s): s is number => typeof s === 'number');
+    const validWritingScores = writingAssignments.map((a) => a.score).filter((s): s is number => typeof s === 'number');
+    const validSpeakingScores = speakingAssignments.map((a) => a.score).filter((s): s is number => typeof s === 'number');
+
+    const avgReading = validReadingScores.length > 0
+      ? Math.round((validReadingScores.reduce((a, b) => a + b, 0) / validReadingScores.length) * 2) / 2
+      : activeReport.learningEvidence?.skillBreakdown?.readingBand;
+
+    const avgWriting = validWritingScores.length > 0
+      ? Math.round((validWritingScores.reduce((a, b) => a + b, 0) / validWritingScores.length) * 2) / 2
+      : activeReport.learningEvidence?.skillBreakdown?.writingBand;
+
+    const avgSpeaking = validSpeakingScores.length > 0
+      ? Math.round((validSpeakingScores.reduce((a, b) => a + b, 0) / validSpeakingScores.length) * 2) / 2
+      : activeReport.learningEvidence?.skillBreakdown?.speakingBand;
+
+    const availableBands = [avgReading, avgWriting, avgSpeaking].filter((b): b is number => typeof b === 'number');
+    const overallEstimatedBand = availableBands.length > 0
+      ? Math.round((availableBands.reduce((a, b) => a + b, 0) / availableBands.length) * 2) / 2
+      : activeReport.learningEvidence?.skillBreakdown?.overallEstimatedBand;
+
     return (
-      <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="space-y-6 max-w-7xl mx-auto w-full">
         {/* Navigation & Action Bar */}
         <div className="no-print flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
@@ -178,7 +266,7 @@ export const AssessmentsView: React.FC = () => {
               className="px-3.5 py-2 bg-slate-800 hover:bg-black text-white text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
             >
               <Printer className="w-4 h-4" />
-              <span>{t('assessments.exportStudentPdf')}</span>
+              <span>{t('assessments.exportStudentPdf')} (Khổ ngang)</span>
             </button>
 
             {isTeacher && (
@@ -247,239 +335,437 @@ export const AssessmentsView: React.FC = () => {
           </div>
         )}
 
-        {/* PRINTABLE REPORT CARD */}
-        <div className="print-page bg-white rounded-xl border border-slate-200 shadow-md p-6 sm:p-8 space-y-6">
-          {/* Header Banner */}
-          <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <span className="text-[10px] tracking-widest font-extrabold uppercase text-blue-400 block">
-                {t('assessments.bannerHeading')}
-              </span>
-              <h2 className="text-lg font-extrabold">{activeReport.month}</h2>
+        {/* PRINTABLE REPORT CARD (LANDSCAPE FORMAT) */}
+        <div className="print-page bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-10 space-y-7">
+          {/* Section 1: Landscape Header Profile */}
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-7 rounded-2xl shadow-md border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <span className="text-[10px] tracking-widest font-black uppercase text-blue-400 block">
+                  IELTS ACADEMIC PERIODICAL ASSESSMENT REPORT — BÁO CÁO ĐÁNH GIÁ ĐỊNH KỲ
+                </span>
+                <h2 className="text-2xl font-black text-white mt-0.5 tracking-tight">{activeReport.month}</h2>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span
+                  className={`text-xs uppercase font-extrabold px-3 py-1 rounded-full ${
+                    isPublished
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : isApproved
+                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  }`}
+                >
+                  {isPublished ? 'Official Published' : activeReport.state.replace('_', ' ')}
+                </span>
+              </div>
             </div>
-            <div className="text-xs text-slate-300 flex flex-wrap gap-4 sm:text-right">
-              <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">{t('assessments.studentLabel')}</span>
-                <span className="font-bold text-white text-sm">{activeReport.studentName}</span>
+
+            {/* Profile Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs pt-1">
+              <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">{t('assessments.studentLabel')}</span>
+                <span className="font-bold text-white text-sm block mt-0.5">{activeReport.studentName}</span>
+                {activeReport.studentEmail && (
+                  <span className="text-slate-400 text-[11px] block">{activeReport.studentEmail}</span>
+                )}
               </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">{t('assessments.courseLabel')}</span>
-                <span className="font-bold text-white text-sm">{activeReport.courseName}</span>
+
+              <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">{t('assessments.courseLabel')}</span>
+                <span className="font-bold text-white text-sm block mt-0.5">{activeReport.courseName}</span>
+                <span className="text-slate-400 text-[11px] block">IELTS Academic Core</span>
               </div>
-              <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">{t('assessments.targetLabel')}</span>
-                <span className="font-bold text-blue-300 text-sm">{activeReport.targetBand}</span>
+
+              <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">{t('assessments.targetLabel')}</span>
+                <span className="font-black text-amber-300 text-sm block mt-0.5">{activeReport.targetBand || 'Band 7.0+'}</span>
+                <span className="text-slate-400 text-[11px] block">Mục tiêu kỳ này</span>
+              </div>
+
+              <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Giáo viên phụ trách</span>
+                <span className="font-bold text-white text-sm block mt-0.5">{activeReport.teacherName}</span>
+                <span className="text-slate-400 text-[11px] block">Ngày lập: {activeReport.createdAt}</span>
               </div>
             </div>
           </div>
 
-          {/* 3-COLUMN REPORT GRID */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Column 1: Learning Evidence */}
-            <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
-              <div className="flex items-center space-x-2 pb-2 border-b border-slate-200">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-                <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
-                  {t('assessments.col1Heading')}
-                </h3>
+          {/* Section 2: Skill Overview Cards (Landscape 4-Skill Strip + Overall Evaluated Band) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print-avoid-break">
+            {/* Reading Card */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
+                  <BookOpen className="w-4 h-4 text-emerald-600" />
+                  <span>Reading</span>
+                </span>
+                <span className="text-[10px] font-semibold text-slate-500">
+                  {readingAssignments.length} bài
+                </span>
               </div>
-
-              <div className="space-y-3 text-xs">
-                <div>
-                  <span className="font-bold text-slate-700 block mb-0.5">{t('assessments.readingAccuracy')}</span>
-                  <p className="text-slate-600 bg-white p-2.5 rounded border border-slate-200/80">
-                    {activeReport.learningEvidence.readingAccuracy || 'No Reading drills logged'}
-                  </p>
-                </div>
-
-                <div>
-                  <span className="font-bold text-slate-700 block mb-0.5">{t('assessments.writingSubmissions')}</span>
-                  <div className="bg-white p-2.5 rounded border border-slate-200/80">
-                    <span className="font-semibold text-slate-800">
-                      {t('assessments.essaysSubmitted', { count: String(activeReport.learningEvidence.writingSubmissions) })}
-                    </span>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      {activeReport.learningEvidence.writingLastFeedback}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <span className="font-bold text-slate-700 block mb-0.5">{t('assessments.speakingRecordings')}</span>
-                  <div className="bg-white p-2.5 rounded border border-slate-200/80">
-                    {activeReport.learningEvidence.speakingAudioAvailable ? (
-                      <span className="text-emerald-700 font-semibold flex items-center space-x-1">
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        <span>{t('assessments.audioAttached', { count: String(activeReport.learningEvidence.speakingSubmissions) })}</span>
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 italic">{t('assessments.noAudio')}</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Evidence Gaps */}
-                {activeReport.learningEvidence.insufficientEvidenceSkills.length > 0 && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-800">
-                    <span className="font-bold block mb-0.5">{t('assessments.gapsFlagged')}</span>
-                    <ul className="list-disc list-inside">
-                      {activeReport.learningEvidence.insufficientEvidenceSkills.map((gap, i) => (
-                        <li key={i}>{gap}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-2xl font-black text-slate-900">
+                  {avgReading ? `Band ${avgReading.toFixed(1)}` : 'Chưa có'}
+                </span>
+                {avgReading && <span className="text-[10px] text-emerald-600 font-bold">Trung bình</span>}
               </div>
+              <p className="text-[11px] text-slate-600 line-clamp-1">
+                {activeReport.learningEvidence.readingAccuracy || 'Chưa ghi nhận bài Reading'}
+              </p>
             </div>
 
-            {/* Column 2: AI-Assisted Draft */}
-            <div className="bg-purple-50/40 p-5 rounded-xl border border-purple-200 space-y-4">
-              <div className="flex items-center space-x-2 pb-2 border-b border-purple-200">
-                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                <h3 className="text-xs font-extrabold text-purple-900 uppercase tracking-wider">
-                  {t('assessments.col2Heading')}
-                </h3>
+            {/* Writing Card */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
+                  <PenTool className="w-4 h-4 text-amber-600" />
+                  <span>Writing</span>
+                </span>
+                <span className="text-[10px] font-semibold text-slate-500">
+                  {writingAssignments.length} bài luận
+                </span>
               </div>
-
-              <div className="space-y-3 text-xs">
-                <div>
-                  <span className="font-bold text-purple-900 block mb-0.5">{t('assessments.demonstratedStrengths')}</span>
-                  <p className="text-slate-700 bg-white p-2.5 rounded border border-purple-100 whitespace-pre-line leading-relaxed">
-                    {activeReport.aiDraft.strengths}
-                  </p>
-                </div>
-
-                <div>
-                  <span className="font-bold text-purple-900 block mb-0.5">{t('assessments.focusAreas')}</span>
-                  <p className="text-slate-700 bg-white p-2.5 rounded border border-purple-100 whitespace-pre-line leading-relaxed">
-                    {activeReport.aiDraft.focusAreas}
-                  </p>
-                </div>
-
-                <div>
-                  <span className="font-bold text-purple-900 block mb-0.5">{t('assessments.recurringPatterns')}</span>
-                  <p className="text-slate-700 bg-white p-2.5 rounded border border-purple-100 leading-relaxed">
-                    {activeReport.aiDraft.recurringPatterns}
-                  </p>
-                </div>
-
-                <div className="p-2.5 bg-purple-100/60 rounded text-[10px] text-purple-800 font-medium">
-                  {activeReport.aiDraft.evidenceGapsFlagged}
-                </div>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-2xl font-black text-slate-900">
+                  {avgWriting ? `Band ${avgWriting.toFixed(1)}` : (writingAssignments.length > 0 ? 'Đã nộp' : 'Chưa có')}
+                </span>
+                {avgWriting && <span className="text-[10px] text-amber-600 font-bold">Trung bình</span>}
               </div>
+              <p className="text-[11px] text-slate-600 line-clamp-1">
+                {writingAssignments.length > 0
+                  ? activeReport.learningEvidence.writingLastFeedback || `${writingAssignments.length} bài đã nộp`
+                  : 'Chưa có bài luận nộp'}
+              </p>
             </div>
 
-            {/* Column 3: Teacher Evaluation */}
-            <div className="bg-blue-50/40 p-5 rounded-xl border border-blue-200 space-y-4">
-              <div className="flex items-center space-x-2 pb-2 border-b border-blue-200">
-                <Award className="w-3.5 h-3.5 text-blue-600" />
-                <h3 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider">
-                  {t('assessments.col3Heading')}
+            {/* Speaking Card */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
+                  <Mic className="w-4 h-4 text-purple-600" />
+                  <span>Speaking</span>
+                </span>
+                <span className="text-[10px] font-semibold text-slate-500">
+                  {speakingAssignments.length} bài ghi âm
+                </span>
+              </div>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-2xl font-black text-slate-900">
+                  {avgSpeaking ? `Band ${avgSpeaking.toFixed(1)}` : (speakingAssignments.length > 0 ? 'Đã nộp' : 'Chưa có')}
+                </span>
+                {avgSpeaking && <span className="text-[10px] text-purple-600 font-bold">Trung bình</span>}
+              </div>
+              <p className="text-[11px] text-slate-600 line-clamp-1">
+                {activeReport.learningEvidence.speakingAudioAvailable ? 'Có file ghi âm' : 'Chưa có bản ghi âm'}
+              </p>
+            </div>
+
+            {/* Overall Band Evaluated */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-blue-900 uppercase flex items-center space-x-1.5">
+                  <Award className="w-4 h-4 text-blue-600" />
+                  <span>Overall Band</span>
+                </span>
+                <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                  {activeReport.teacherEvaluation.estimatedBand ? 'GV xác nhận' : 'AI dự phóng'}
+                </span>
+              </div>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-2xl font-black text-blue-700">
+                  {activeReport.teacherEvaluation.estimatedBand || (overallEstimatedBand ? `Band ${overallEstimatedBand.toFixed(1)}` : 'Chờ đánh giá')}
+                </span>
+              </div>
+              <p className="text-[11px] text-blue-800 line-clamp-1 font-medium">
+                {activeReport.teacherEvaluation.estimatedBand ? 'Điểm đánh giá chính thức' : 'Dựa trên kết quả bài làm thực tế'}
+              </p>
+            </div>
+          </div>
+
+          {/* Section 3: Per-Assignment Band Scores Table */}
+          <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs print-avoid-break">
+            <div className="bg-slate-100/90 px-6 py-3.5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-4 h-4 text-blue-600" />
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                  Chi tiết điểm Band từng bài tập đã hoàn thành (Individual Completed Assignment Scores)
                 </h3>
               </div>
+              <span className="text-xs text-slate-500 font-medium">
+                Tổng cộng {activeCompletedAssignments.length} bài nộp trong kỳ đánh giá
+              </span>
+            </div>
 
-              <div className="space-y-3 text-xs">
-                {isTeacher && !isPublished ? (
-                  <>
-                    <div>
-                      <label className="font-bold text-slate-800 block mb-1">
-                        {t('assessments.profJudgement')}
-                      </label>
-                      <textarea
-                        rows={4}
-                        value={profJudgement}
-                        onChange={(e) => setProfJudgement(e.target.value)}
-                        placeholder={t('assessments.profJudgementDesc')}
-                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white outline-hidden leading-relaxed text-xs"
-                      />
-                    </div>
+            {activeCompletedAssignments.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                Chưa có dữ liệu bài nộp nào trong kỳ này. Khi học viên hoàn thành bài tập, điểm band chi tiết sẽ tự động hiển thị tại đây.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 uppercase font-bold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4 w-12 text-center">#</th>
+                      <th className="py-3 px-4 min-w-[200px]">Tên bài tập</th>
+                      <th className="py-3 px-4 w-28">Kỹ năng</th>
+                      <th className="py-3 px-4 w-32">Ngày nộp</th>
+                      <th className="py-3 px-4 w-28">Trạng thái</th>
+                      <th className="py-3 px-4 w-32">Điểm Band</th>
+                      <th className="py-3 px-4 w-36">Nguồn điểm</th>
+                      <th className="py-3 px-4 min-w-[240px]">Nhận xét / Tiêu chí</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {activeCompletedAssignments.map((sub, idx) => {
+                      const isGraded = sub.status === 'graded';
+                      const isTeacherSource = sub.scoreSource === 'teacher';
 
-                    <div>
-                      <label className="font-bold text-slate-800 block mb-1">{t('assessments.nextPriorities')}</label>
-                      <textarea
-                        rows={3}
-                        value={nextPriorities}
-                        onChange={(e) => setNextPriorities(e.target.value)}
-                        placeholder={t('assessments.nextPrioritiesDesc')}
-                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white outline-hidden leading-relaxed text-xs"
-                      />
-                    </div>
+                      return (
+                        <tr key={sub.id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                          <td className="py-3 px-4">
+                            <span className="font-bold text-slate-900 block leading-snug">{sub.title}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full inline-block ${
+                                sub.skill === 'reading'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : sub.skill === 'writing'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-purple-100 text-purple-800'
+                              }`}
+                            >
+                              {sub.skill}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 text-[11px] whitespace-nowrap">
+                            {sub.submittedAt || '-'}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
+                                sub.status === 'graded'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : sub.status === 'submitted'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {sub.status === 'graded' ? 'Đã chấm' : sub.status === 'submitted' ? 'Đã nộp' : sub.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {typeof sub.score === 'number' ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-800 font-black rounded text-xs">
+                                  Band {sub.score.toFixed(1)}
+                                </span>
+                                {sub.readingCorrect !== undefined && sub.readingTotal !== undefined && (
+                                  <span className="text-[10px] text-slate-400 font-semibold">
+                                    ({sub.readingCorrect}/{sub.readingTotal})
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                Chờ chấm
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {typeof sub.score === 'number' ? (
+                              isTeacherSource ? (
+                                <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-700 font-bold bg-emerald-50/70 px-2 py-0.5 rounded border border-emerald-200">
+                                  <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span>GV công bố</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center space-x-1 text-[11px] text-blue-700 font-semibold bg-blue-50/70 px-2 py-0.5 rounded border border-blue-200">
+                                  <Sparkles className="w-3 h-3 text-blue-600 shrink-0" />
+                                  <span>AI chấm</span>
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">-</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600 text-[11px]">
+                            {sub.criteriaScores && sub.criteriaScores.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-1">
+                                {sub.criteriaScores.map((c, i) => (
+                                  <span key={i} className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-mono text-[10px]">
+                                    {c.criterion.substring(0, 2).toUpperCase()}: {c.score.toFixed(1)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <p className="line-clamp-2 leading-relaxed">
+                              {sub.comments || 'Bài làm đã được ghi nhận vào hồ sơ định kỳ.'}
+                            </p>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
-                    <div>
-                      <label className="font-bold text-slate-800 block mb-1">
-                        {t('assessments.bandEstimateLabel')}
-                      </label>
-                      <input
-                        type="text"
-                        value={estBand}
-                        onChange={(e) => setEstBand(e.target.value)}
-                        placeholder="e.g. Estimated Overall: Band 7.0 (R: 7.5, W: 7.0)"
-                        className="w-full p-2 border border-slate-300 rounded-lg bg-white outline-hidden text-xs"
-                      />
-                    </div>
+          {/* Section 4: Demonstrated Strengths & Focus Areas (Landscape 2-Column Grid) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print-avoid-break">
+            {/* Strengths */}
+            <div className="bg-emerald-50/40 border border-emerald-200 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center space-x-2 pb-2 border-b border-emerald-200/80">
+                <CheckCircle className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-xs font-black text-emerald-950 uppercase tracking-wider">
+                  {t('assessments.demonstratedStrengths')}
+                </h3>
+              </div>
+              <p className="text-slate-800 bg-white p-3.5 rounded-xl border border-emerald-100 whitespace-pre-line leading-relaxed text-xs">
+                {activeReport.aiDraft.strengths || 'Thể hiện thái độ học tập tích cực và nộp bài đều đặn.'}
+              </p>
+            </div>
 
+            {/* Focus Areas & Evidence Gaps */}
+            <div className="bg-amber-50/40 border border-amber-200 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center space-x-2 pb-2 border-b border-amber-200/80">
+                <AlertCircle className="w-4 h-4 text-amber-600" />
+                <h3 className="text-xs font-black text-amber-950 uppercase tracking-wider">
+                  {t('assessments.focusAreas')} & Lỗ hổng kỹ năng
+                </h3>
+              </div>
+              <p className="text-slate-800 bg-white p-3.5 rounded-xl border border-amber-100 whitespace-pre-line leading-relaxed text-xs">
+                {activeReport.aiDraft.focusAreas}
+              </p>
+              {activeReport.learningEvidence.insufficientEvidenceSkills && activeReport.learningEvidence.insufficientEvidenceSkills.length > 0 && (
+                <div className="p-2.5 bg-amber-100/70 border border-amber-200 rounded-xl text-[11px] text-amber-900 font-medium">
+                  <span className="font-bold block mb-0.5">Kỹ năng chưa đủ dữ liệu kiểm tra:</span>
+                  <span>{activeReport.learningEvidence.insufficientEvidenceSkills.join(', ')}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 5: Teacher Professional Evaluation & Action Plan */}
+          <div className="bg-gradient-to-br from-blue-50/60 to-indigo-50/40 border border-blue-200 rounded-2xl p-6 space-y-4 print-avoid-break">
+            <div className="flex items-center justify-between pb-3 border-b border-blue-200">
+              <div className="flex items-center space-x-2">
+                <Award className="w-4 h-4 text-blue-600" />
+                <h3 className="text-xs font-black text-blue-950 uppercase tracking-wider">
+                  Đánh giá chuyên môn & Kế hoạch hành động của Giáo viên
+                </h3>
+              </div>
+              {activeReport.teacherEvaluation.estimatedBand && (
+                <span className="text-xs font-black text-blue-800 bg-blue-100 px-3 py-1 rounded-full border border-blue-300">
+                  {activeReport.teacherEvaluation.estimatedBand}
+                </span>
+              )}
+            </div>
+
+            {isTeacher && !isPublished ? (
+              <div className="space-y-4 text-xs">
+                <div>
+                  <label className="font-bold text-slate-800 block mb-1">
+                    {t('assessments.profJudgement')}
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={profJudgement}
+                    onChange={(e) => setProfJudgement(e.target.value)}
+                    placeholder={t('assessments.profJudgementDesc')}
+                    className="w-full p-3 border border-slate-300 rounded-xl bg-white outline-hidden leading-relaxed text-xs focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="font-bold text-slate-800 block mb-1">{t('assessments.nextPriorities')}</label>
+                    <textarea
+                      rows={2}
+                      value={nextPriorities}
+                      onChange={(e) => setNextPriorities(e.target.value)}
+                      placeholder={t('assessments.nextPrioritiesDesc')}
+                      className="w-full p-3 border border-slate-300 rounded-xl bg-white outline-hidden leading-relaxed text-xs focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-800 block mb-1">
+                      {t('assessments.bandEstimateLabel')}
+                    </label>
+                    <input
+                      type="text"
+                      value={estBand}
+                      onChange={(e) => setEstBand(e.target.value)}
+                      placeholder="e.g. Band 7.0 (R: 7.5, W: 7.0, S: 6.5)"
+                      className="w-full p-3 border border-slate-300 rounded-xl bg-white outline-hidden text-xs focus:ring-2 focus:ring-blue-500"
+                    />
                     <button
+                      type="button"
                       onClick={handleSaveEvaluation}
-                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                      className="mt-3 w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
                     >
                       {t('assessments.saveEvaluation')}
                     </button>
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <span className="font-bold text-blue-900 block mb-0.5">{t('assessments.profJudgement')}</span>
-                      <p className="text-slate-800 bg-white p-3 rounded-lg border border-blue-100 leading-relaxed">
-                        {activeReport.teacherEvaluation.professionalJudgement || 'Pending teacher review.'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <span className="font-bold text-blue-900 block mb-0.5">{t('assessments.nextPriorities')}</span>
-                      <p className="text-slate-800 bg-white p-3 rounded-lg border border-blue-100 whitespace-pre-line leading-relaxed">
-                        {activeReport.teacherEvaluation.nextMonthPriorities || 'Pending teacher review.'}
-                      </p>
-                    </div>
-
-                    {activeReport.teacherEvaluation.estimatedBand && (
-                      <div className="p-3 bg-blue-100/70 rounded-lg border border-blue-200">
-                        <span className="text-[10px] uppercase font-bold text-blue-900 block">
-                          {t('assessments.teacherEstimatedBand')}
-                        </span>
-                        <span className="text-sm font-extrabold text-blue-900">
-                          {activeReport.teacherEvaluation.estimatedBand}
-                        </span>
-                        <p className="text-[10px] text-blue-700 mt-0.5">
-                          {t('assessments.estimateDisclaimer')}
-                        </p>
-                      </div>
-                    )}
-                  </>
-                )}
+                  </div>
+                </div>
               </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                <div>
+                  <span className="font-bold text-blue-950 block mb-1 uppercase text-[10px] tracking-wider">
+                    {t('assessments.profJudgement')}
+                  </span>
+                  <p className="text-slate-800 bg-white p-3.5 rounded-xl border border-blue-100 leading-relaxed min-h-[70px]">
+                    {activeReport.teacherEvaluation.professionalJudgement || 'Chờ nhận xét chính thức từ giáo viên.'}
+                  </p>
+                </div>
+
+                <div>
+                  <span className="font-bold text-blue-950 block mb-1 uppercase text-[10px] tracking-wider">
+                    {t('assessments.nextPriorities')}
+                  </span>
+                  <p className="text-slate-800 bg-white p-3.5 rounded-xl border border-blue-100 whitespace-pre-line leading-relaxed min-h-[70px]">
+                    {activeReport.teacherEvaluation.nextMonthPriorities || 'Tiếp tục luyện tập theo kế hoạch giảng dạy.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Signature sign-off line */}
+            <div className="pt-3 border-t border-blue-200/60 flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-600 gap-2">
+              <span className="font-medium">
+                Xác nhận bởi Giáo viên phụ trách: <span className="font-bold text-slate-900">{activeReport.teacherName}</span>
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Phiên bản đánh giá chính thức · Ngày: {activeReport.publishedAt || activeReport.createdAt}
+              </span>
             </div>
           </div>
 
-          {/* Traceable Audit & Revision History */}
-          <div className="pt-4 border-t border-slate-200">
+          {/* Section 6: Traceable Audit & Revision History */}
+          <div className="pt-3 border-t border-slate-200 print-avoid-break">
             <h4 className="text-xs font-bold text-slate-700 flex items-center space-x-1.5 mb-2">
               <History className="w-3.5 h-3.5 text-slate-400" />
-              <span>{t('assessments.historyTitle')}</span>
+              <span>{t('assessments.historyTitle')} (Audit Trail)</span>
             </h4>
-            <div className="space-y-1.5 text-[11px] text-slate-500">
+            <div className="space-y-1 text-[11px] text-slate-500">
               {activeReport.history.map((h, i) => (
-                <div key={i} className="flex items-center justify-between">
+                <div key={i} className="flex items-center justify-between py-0.5">
                   <span>
                     v{h.version}: {h.action} ({h.actor})
                   </span>
-                  <span>{h.timestamp}</span>
+                  <span className="font-mono">{h.timestamp}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Footer Disclaimer */}
-          <div className="text-[10px] text-slate-400 text-center pt-2">
+          <div className="text-[10px] text-slate-400 text-center pt-1 print-avoid-break">
             {t('assessments.disclaimer')}
           </div>
         </div>

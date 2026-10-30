@@ -308,6 +308,39 @@ export interface InlineAnnotation {
 
 export type AssessmentState = 'draft' | 'ai_generated' | 'in_review' | 'approved' | 'published' | 'void';
 
+export interface AssignmentAssessmentEvidence {
+  id: string;
+  assignmentId: string;
+  title: string;
+  skill: AssignmentSkill;
+  submittedAt: string;
+  status: SubmissionStatus;
+  score?: number; // Band score (e.g. 7.0)
+  scoreSource: 'teacher' | 'ai' | 'unscored';
+  readingCorrect?: number;
+  readingTotal?: number;
+  criteriaScores?: { criterion: string; score: number }[];
+  comments?: string;
+}
+
+export interface MonthlyReportEvidence {
+  readingAccuracy?: string;
+  readingAttempts?: number;
+  writingSubmissions?: number;
+  writingLastFeedback?: string;
+  speakingSubmissions?: number;
+  speakingAudioAvailable?: boolean;
+  insufficientEvidenceSkills: string[];
+  summaryNotes: string;
+  completedAssignments?: AssignmentAssessmentEvidence[];
+  skillBreakdown?: {
+    readingBand?: number;
+    writingBand?: number;
+    speakingBand?: number;
+    overallEstimatedBand?: number;
+  };
+}
+
 export interface MonthlyReport {
   id: string;
   courseId: string;
@@ -322,16 +355,7 @@ export interface MonthlyReport {
   state: AssessmentState;
   createdAt: string;
   publishedAt?: string;
-  learningEvidence: {
-    readingAccuracy?: string;
-    readingAttempts?: number;
-    writingSubmissions?: number;
-    writingLastFeedback?: string;
-    speakingSubmissions?: number;
-    speakingAudioAvailable?: boolean;
-    insufficientEvidenceSkills: string[];
-    summaryNotes: string;
-  };
+  learningEvidence: MonthlyReportEvidence;
   aiDraft: {
     strengths: string;
     focusAreas: string;

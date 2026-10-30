@@ -68,6 +68,8 @@ import {
   CheckCircle2,
   TrendingUp,
   Lightbulb,
+  Users,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -94,6 +96,8 @@ export const AssignmentsView: React.FC = () => {
   const [selectedSkillFilter, setSelectedSkillFilter] = useState<string>('all');
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+  const [selectedAssignmentForRoster, setSelectedAssignmentForRoster] = useState<Assignment | null>(null);
+  const [rosterFilter, setRosterFilter] = useState<'all' | 'pending' | 'graded' | 'not_submitted'>('all');
 
   // Modal states
   const [showCreateEditModal, setShowCreateEditModal] = useState(false);
@@ -1498,6 +1502,58 @@ export const AssignmentsView: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Published Assessment Review Banner for Graded Submissions */}
+          {currentSubmission.status === 'graded' && !currentSubmission.isDraft && !isReadingSubmission && (
+            <div className="p-4 bg-emerald-50/70 border border-emerald-300 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase text-emerald-950 flex items-center space-x-1.5 tracking-wider">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Bản Đánh Giá Đã Chấm & Công Bố (Official Published Assessment)</span>
+                </span>
+                <span className="text-sm font-black text-emerald-900 bg-white px-2.5 py-1 rounded-lg border border-emerald-300 shadow-xs">
+                  Band {Number(currentSubmission.score || overallScore).toFixed(1)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {gradingRubrics.map((r) => (
+                  <div key={r.criterion} className="bg-white p-2.5 rounded-lg border border-emerald-200 text-xs shadow-2xs">
+                    <span className="text-[10px] text-slate-500 font-bold block truncate">{r.criterion}</span>
+                    <span className="text-base font-black text-emerald-800">Band {r.score.toFixed(1)}</span>
+                    {r.descriptor && <p className="text-[10px] text-slate-600 mt-0.5 line-clamp-1">{r.descriptor}</p>}
+                  </div>
+                ))}
+              </div>
+              {(teacherStrengths || teacherAreasToImprove || teacherGeneralComments || teacherNextSteps) && (
+                <div className="bg-white p-3.5 rounded-lg border border-emerald-200 text-xs space-y-2">
+                  {teacherStrengths && (
+                    <div>
+                      <span className="font-bold text-emerald-900 block">Key Strengths (Điểm mạnh):</span>
+                      <p className="text-slate-700 leading-relaxed">{teacherStrengths}</p>
+                    </div>
+                  )}
+                  {teacherAreasToImprove && (
+                    <div>
+                      <span className="font-bold text-amber-900 block">Areas for Improvement (Cần cải thiện):</span>
+                      <p className="text-slate-700 leading-relaxed">{teacherAreasToImprove}</p>
+                    </div>
+                  )}
+                  {teacherGeneralComments && (
+                    <div>
+                      <span className="font-bold text-slate-900 block">Teacher Comments (Nhận xét của GV):</span>
+                      <p className="text-slate-700 leading-relaxed">{teacherGeneralComments}</p>
+                    </div>
+                  )}
+                  {teacherNextSteps && (
+                    <div>
+                      <span className="font-bold text-blue-900 block">Recommended Next Steps (Kế hoạch tiếp theo):</span>
+                      <p className="text-slate-700 leading-relaxed">{teacherNextSteps}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 4 Rubric Criteria: ONLY shown for Writing / Speaking, NEVER for Reading */}
           {!isReadingSubmission && (
@@ -3062,6 +3118,22 @@ export const AssignmentsView: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setSelectedAssignmentForRoster(a);
+                            }}
+                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded font-bold flex items-center space-x-1"
+                            title="Xem danh sách bài làm của học viên"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            <span>
+                              Xem bài làm ({submissions.filter((s) => s.assignmentId === a.id).length}/
+                              {courseMembers.filter((m) => m.courseId === a.courseId && m.status === 'enrolled').length ||
+                                submissions.filter((s) => s.assignmentId === a.id).length})
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               openEditModal(a);
                             }}
                             className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold flex items-center space-x-1"
@@ -3097,6 +3169,305 @@ export const AssignmentsView: React.FC = () => {
           })}
         </div>
       )}
+
+      {/* =========================================================================
+          MODAL: VIEW ASSIGNMENT SUBMISSIONS ROSTER (TEACHER VIEW)
+      ========================================================================= */}
+      {selectedAssignmentForRoster && (() => {
+        const targetAssignment = selectedAssignmentForRoster;
+        const targetCourse = courses.find((c) => c.id === targetAssignment.courseId);
+        const enrolledStudents = courseMembers.filter(
+          (m) => m.courseId === targetAssignment.courseId && m.status === 'enrolled'
+        );
+        const assignmentSubs = submissions.filter((s) => s.assignmentId === targetAssignment.id);
+
+        // Combined roster
+        const rosterMap: Record<
+          string,
+          {
+            studentId: string;
+            studentName: string;
+            studentEmail: string;
+            sub?: (typeof submissions)[0];
+            status: SubmissionStatus | 'not_submitted';
+          }
+        > = {};
+
+        enrolledStudents.forEach((m) => {
+          rosterMap[m.studentId] = {
+            studentId: m.studentId,
+            studentName: m.studentName,
+            studentEmail: m.studentEmail,
+            status: 'not_submitted',
+          };
+        });
+
+        assignmentSubs.forEach((s) => {
+          if (!rosterMap[s.studentId]) {
+            rosterMap[s.studentId] = {
+              studentId: s.studentId,
+              studentName: s.studentName,
+              studentEmail: '',
+              status: s.status,
+              sub: s,
+            };
+          } else {
+            rosterMap[s.studentId].sub = s;
+            rosterMap[s.studentId].status = s.status;
+          }
+        });
+
+        const allStudents = Object.values(rosterMap);
+        const totalCount = allStudents.length;
+        const gradedCount = allStudents.filter((item) => item.status === 'graded').length;
+        const pendingCount = allStudents.filter((item) => item.status !== 'graded' && item.status !== 'not_submitted').length;
+        const notSubmittedCount = allStudents.filter((item) => item.status === 'not_submitted').length;
+
+        const filteredList = allStudents.filter((item) => {
+          if (rosterFilter === 'all') return true;
+          if (rosterFilter === 'pending') return item.status !== 'graded' && item.status !== 'not_submitted';
+          if (rosterFilter === 'graded') return item.status === 'graded';
+          if (rosterFilter === 'not_submitted') return item.status === 'not_submitted';
+          return true;
+        });
+
+        return (
+          <Portal>
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full p-6 sm:p-7 border border-slate-200 my-8 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 space-y-5">
+                {/* Header */}
+                <div className="flex items-start justify-between pb-4 border-b border-slate-100">
+                  <div>
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span
+                        className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full ${
+                          targetAssignment.skill === 'reading'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : targetAssignment.skill === 'writing'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-purple-100 text-purple-800'
+                        }`}
+                      >
+                        {targetAssignment.skill}
+                      </span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        Lớp: <span className="font-bold text-slate-700">{targetCourse?.name || 'Khóa học'}</span>
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900">
+                      Danh sách bài làm — {targetAssignment.title}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Hạn nộp: {targetAssignment.dueDate || 'Không giới hạn'} · Quản lý trạng thái và xem lại bài đã chấm của học viên
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedAssignmentForRoster(null);
+                      setRosterFilter('all');
+                    }}
+                    className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Counter Statistics */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div
+                    onClick={() => setRosterFilter('all')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      rosterFilter === 'all'
+                        ? 'border-blue-500 bg-blue-50/70 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="text-slate-500 block text-[11px] font-bold uppercase">Tổng số học viên</span>
+                    <span className="text-xl font-black text-slate-900">{totalCount}</span>
+                  </div>
+
+                  <div
+                    onClick={() => setRosterFilter('pending')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      rosterFilter === 'pending'
+                        ? 'border-amber-500 bg-amber-50/70 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="text-amber-700 block text-[11px] font-bold uppercase">Chờ chấm</span>
+                    <span className="text-xl font-black text-amber-700">{pendingCount}</span>
+                  </div>
+
+                  <div
+                    onClick={() => setRosterFilter('graded')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      rosterFilter === 'graded'
+                        ? 'border-emerald-500 bg-emerald-50/70 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="text-emerald-700 block text-[11px] font-bold uppercase">Đã chấm</span>
+                    <span className="text-xl font-black text-emerald-700">{gradedCount}</span>
+                  </div>
+
+                  <div
+                    onClick={() => setRosterFilter('not_submitted')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      rosterFilter === 'not_submitted'
+                        ? 'border-slate-500 bg-slate-100 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="text-slate-500 block text-[11px] font-bold uppercase">Chưa nộp</span>
+                    <span className="text-xl font-black text-slate-600">{notSubmittedCount}</span>
+                  </div>
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex items-center space-x-1 border-b border-slate-200 pb-2 text-xs">
+                  {[
+                    { key: 'all', label: `Tất cả (${totalCount})` },
+                    { key: 'pending', label: `Chờ chấm (${pendingCount})` },
+                    { key: 'graded', label: `Đã chấm (${gradedCount})` },
+                    { key: 'not_submitted', label: `Chưa nộp (${notSubmittedCount})` },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setRosterFilter(tab.key as any)}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-colors ${
+                        rosterFilter === tab.key
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Student Roster Table */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold border-b border-slate-200 text-[11px]">
+                      <tr>
+                        <th className="py-3 px-4 min-w-[200px]">Học viên</th>
+                        <th className="py-3 px-4 w-32">Trạng thái</th>
+                        <th className="py-3 px-4 w-36">Thời gian nộp</th>
+                        <th className="py-3 px-4 w-32">Điểm số</th>
+                        <th className="py-3 px-4 text-right w-44">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredList.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-slate-400">
+                            Không có học viên nào trong trạng thái này.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredList.map((item) => {
+                          const isGraded = item.status === 'graded';
+                          const isSubmitted = item.status === 'submitted' || item.status === 'returned';
+
+                          return (
+                            <tr key={item.studentId} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-3 px-4">
+                                <span className="font-bold text-slate-900 block">{item.studentName}</span>
+                                {item.studentEmail && (
+                                  <span className="text-[11px] text-slate-400 block">{item.studentEmail}</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4">
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
+                                    isGraded
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : isSubmitted
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {isGraded ? 'Đã chấm' : isSubmitted ? 'Đã nộp' : 'Chưa nộp'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-slate-500 text-[11px] whitespace-nowrap">
+                                {item.sub?.submittedAt || '-'}
+                              </td>
+                              <td className="py-3 px-4">
+                                {isGraded && item.sub ? (
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-800 font-black rounded text-xs">
+                                      Band {item.sub.score}
+                                    </span>
+                                    {item.sub.readingScore && (
+                                      <span className="text-[10px] text-slate-500 font-semibold">
+                                        ({item.sub.readingScore.correct}/{item.sub.readingScore.total || 40})
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : isSubmitted ? (
+                                  <span className="text-[11px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                    Chờ chấm
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-semibold">-</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                {isGraded && item.sub ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedAssignmentForRoster(null);
+                                      setSelectedSubmissionId(item.sub!.id);
+                                    }}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors inline-flex items-center space-x-1"
+                                  >
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                    <span>Xem lại bài đã chấm</span>
+                                  </button>
+                                ) : isSubmitted && item.sub ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedAssignmentForRoster(null);
+                                      setSelectedSubmissionId(item.sub!.id);
+                                    }}
+                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors inline-flex items-center space-x-1"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    <span>Chấm bài</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-400 text-xs italic">Chưa nộp bài</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Footer Modal Action */}
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedAssignmentForRoster(null);
+                      setRosterFilter('all');
+                    }}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Portal>
+        );
+      })()}
 
       {/* =========================================================================
           MODAL: CREATE / EDIT ASSIGNMENT

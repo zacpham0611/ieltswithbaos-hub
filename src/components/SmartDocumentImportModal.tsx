@@ -99,14 +99,6 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [assignInstructions, setAssignInstructions] = useState('Read the text carefully and answer all questions.');
   const [assignReleasePolicy, setAssignReleasePolicy] = useState<'after_submission' | 'immediate' | 'never'>('after_submission');
 
-  // Enabled Question Types
-  const [enabledQuestionTypes, setEnabledQuestionTypes] = useState<QuestionType[]>([
-    'multiple_choice',
-    'true_false_not_given',
-    'matching',
-    'sentence_completion',
-  ]);
-
   // AI & Assignment Review State
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiProcessingStage, setAiProcessingStage] = useState('');
@@ -197,14 +189,6 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     setEditedRawText(doc.rawText);
     setAssignSkill(doc.detectedStructure?.detectedSkill || 'reading');
 
-    // Auto-detect and populate recognized question types directly from document structure
-    const recognized = (doc.detectedStructure as any)?.recognizedTypes || [];
-    const fromQuestions = (doc.detectedStructure?.questions || []).map((q) => q.type).filter(Boolean);
-    const candidateTypes = (doc.detectedStructure?.candidateTests || []).flatMap((c) => c.recognizedTypes || []);
-    const allDetectedTypes = Array.from(new Set([...recognized, ...fromQuestions, ...candidateTypes])) as QuestionType[];
-    if (allDetectedTypes.length > 0) {
-      setEnabledQuestionTypes(allDetectedTypes);
-    }
   };
 
   const handleToggleExpandTest = (testId: string) => {
@@ -1594,50 +1578,6 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                       className="p-2 border border-slate-300 rounded-lg text-xs"
                     />
                   </div>
-                </div>
-              </div>
-
-              {/* Supported Question Types Checklist */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">
-                  Supported Interactive Question Types to Include
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {[
-                    { type: 'multiple_choice', label: 'Multiple Choice (4 options)' },
-                    { type: 'multiple_select', label: 'Multiple Select (2+ letters)' },
-                    { type: 'true_false_not_given', label: 'True / False / Not Given' },
-                    { type: 'yes_no_not_given', label: 'Yes / No / Not Given' },
-                    { type: 'matching', label: 'Matching Headings / Features' },
-                    { type: 'fill_in_the_blank', label: 'Fill in the Blank' },
-                    { type: 'sentence_completion', label: 'Sentence Completion' },
-                    { type: 'short_answer', label: 'Short Answer (Direct)' },
-                    { type: 'essay', label: 'Essay / Extended Response' },
-                  ].map((item) => {
-                    const isChecked = enabledQuestionTypes.includes(item.type as QuestionType);
-                    return (
-                      <label
-                        key={item.type}
-                        className={`p-2.5 rounded-lg border text-xs flex items-center space-x-2 cursor-pointer transition-colors ${
-                          isChecked ? 'border-blue-400 bg-blue-50/50 text-blue-900 font-semibold' : 'border-slate-200 text-slate-600'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setEnabledQuestionTypes([...enabledQuestionTypes, item.type as QuestionType]);
-                            } else {
-                              setEnabledQuestionTypes(enabledQuestionTypes.filter((t) => t !== item.type));
-                            }
-                          }}
-                          className="rounded text-blue-600"
-                        />
-                        <span className="truncate">{item.label}</span>
-                      </label>
-                    );
-                  })}
                 </div>
               </div>
 

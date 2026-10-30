@@ -22,9 +22,11 @@ import {
   ParsedPassage,
   TeacherBankInfo,
   CourseSkill,
+  AssignmentAssessmentEvidence,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
+import { calculateReadingBand } from '../lib/ieltsScoring';
 import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
 import { extractAllNormalizedQuestions, sanitizeQuestionsForStudent } from '../lib/questionNormalizer';
 import { calculateMonthlyTuition } from '../lib/tuitionCalculator';
@@ -2107,17 +2109,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentUser) throw new Error('Not authenticated');
 
     const course = courses.find((c) => c.id === courseId);
+    const member = courseMembers.find((m) => m.studentId === studentId && m.courseId === courseId);
     const studentSubs = submissions.filter((s) => s.studentId === studentId && s.courseId === courseId);
     const readingSubs = studentSubs.filter((s) => s.skill === 'reading');
     const writingSubs = studentSubs.filter((s) => s.skill === 'writing');
     const speakingSubs = studentSubs.filter((s) => s.skill === 'speaking');
 
+    // Build verified assignment assessment evidence items
+    const completedAssignments: AssignmentAssessmentEvidence[] = studentSubs.map((s) => {
+      let finalBand: number | undefined = undefined;
+      let source: 'teacher' | 'ai' | 'unscored' = 'unscored';
+
+      if (s.skill === 'reading') {
+        const total = s.readingScore?.total || 40;
+        const correct = s.readingScore?.correct || 0;
+        if (typeof s.score === 'number' && s.score > 0) {
+          finalBand = s.score;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        } else if (s.readingScore?.estimatedBand) {
+          finalBand = s.readingScore.estimatedBand;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        } else if (s.status === 'graded' || s.status === 'submitted') {
+          const res = calculateReadingBand(correct, 'academic', total);
+          finalBand = res.band;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        }
+      } else {
+        // Writing / Speaking: only award band if graded or AI scored
+        if (typeof s.score === 'number' && s.score > 0) {
+          finalBand = s.score;
+          source = s.status === 'graded' ? 'teacher' : 'ai';
+        }
+      }
+
+      return {
+        id: s.id,
+        assignmentId: s.assignmentId,
+        title: s.assignmentTitle || 'Assignment',
+        skill: s.skill,
+        submittedAt: s.submittedAt || '',
+        status: s.status,
+        score: finalBand,
+        scoreSource: source,
+        readingCorrect: s.readingScore?.correct,
+        readingTotal: s.readingScore?.total,
+        criteriaScores: s.rubricScores?.map((r) => ({ criterion: r.criterion, score: r.score })),
+        comments: s.teacherComments || s.strengths || s.areasToImprove || undefined,
+      };
+    });
+
+    // Compute skill averages safely (ignoring unscored/never 0)
+    const validReadingScores = completedAssignments
+      .filter((a) => a.skill === 'reading' && typeof a.score === 'number')
+      .map((a) => a.score as number);
+    const validWritingScores = completedAssignments
+      .filter((a) => a.skill === 'writing' && typeof a.score === 'number')
+      .map((a) => a.score as number);
+    const validSpeakingScores = completedAssignments
+      .filter((a) => a.skill === 'speaking' && typeof a.score === 'number')
+      .map((a) => a.score as number);
+
+    const avgReading = validReadingScores.length > 0
+      ? Math.round((validReadingScores.reduce((a, b) => a + b, 0) / validReadingScores.length) * 2) / 2
+      : undefined;
+    const avgWriting = validWritingScores.length > 0
+      ? Math.round((validWritingScores.reduce((a, b) => a + b, 0) / validWritingScores.length) * 2) / 2
+      : undefined;
+    const avgSpeaking = validSpeakingScores.length > 0
+      ? Math.round((validSpeakingScores.reduce((a, b) => a + b, 0) / validSpeakingScores.length) * 2) / 2
+      : undefined;
+
+    const scoredBands = [avgReading, avgWriting, avgSpeaking].filter((b): b is number => typeof b === 'number');
+    const overallEstimatedBand = scoredBands.length > 0
+      ? Math.round((scoredBands.reduce((a, b) => a + b, 0) / scoredBands.length) * 2) / 2
+      : undefined;
+
     let readingAccuracyStr = 'Not enough data';
     if (readingSubs.length > 0) {
-      const avg = Math.round(
+      const avgAcc = Math.round(
         readingSubs.reduce((acc, curr) => acc + (curr.readingScore?.percentage || 75), 0) / readingSubs.length
       );
-      readingAccuracyStr = `Reading accuracy: ${avg}% across ${readingSubs.length} exercise(s)`;
+      readingAccuracyStr = `Reading accuracy: ${avgAcc}% across ${readingSubs.length} exercise(s)${avgReading ? ` (Avg Band ${avgReading.toFixed(1)})` : ''}`;
     }
 
     const missingSkills: string[] = [];
@@ -2135,13 +2207,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       speakingAudioAvailable: speakingSubs.some((s) => !!s.speakingAudioUrl),
       insufficientEvidenceSkills: missingSkills,
       summaryNotes: `Gathered ${studentSubs.length} real submission(s) for ${month}. Evidence strictly scoped to verified activities.`,
+      completedAssignments,
+      skillBreakdown: {
+        readingBand: avgReading,
+        writingBand: avgWriting,
+        speakingBand: avgSpeaking,
+        overallEstimatedBand,
+      },
     };
 
     const aiDraft = {
-      strengths: `• Demonstrates consistent effort in ${writingSubs.length > 0 ? 'Writing essays' : 'Reading exercises'}.\n• Maintained active submission timeline.`,
-      focusAreas: `• Precision in lexical selection.\n• Address flagged evidence gaps before mock testing.`,
+      strengths: `• Demonstrates consistent effort in ${writingSubs.length > 0 ? 'Writing essays' : 'Reading exercises'}.\n• Maintained active submission timeline across ${studentSubs.length} task(s).`,
+      focusAreas: `• Precision in lexical selection and complex sentence structures.\n• Address flagged evidence gaps before mock testing.`,
       evidenceGapsFlagged: missingSkills.length > 0 ? `Flagged: Insufficient evidence in ${missingSkills.join(', ')}. Band estimates must not be invented for these skills.` : 'No gaps flagged.',
-      recurringPatterns: 'Shows analytical strengths with text comprehension; needs structured grammar drills on complex compound sentences.',
+      recurringPatterns: 'Shows analytical strengths with text comprehension; needs structured practice under timed conditions.',
       generatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
     };
 
@@ -2150,14 +2229,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       student_id: studentId,
       teacher_id: currentUser.id,
       month,
-      target_band: 'Band 7.0',
+      target_band: member?.targetBand || 'Band 7.0',
       state: 'ai_generated',
       learning_evidence: learningEvidence,
       ai_draft: aiDraft,
       teacher_evaluation: {
         professionalJudgement: '',
         nextMonthPriorities: '',
-        estimatedBand: '',
+        estimatedBand: overallEstimatedBand ? `Band ${overallEstimatedBand.toFixed(1)}` : '',
       },
       history: [
         {
@@ -2178,8 +2257,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courseId,
       courseName: course?.name || 'Course',
       studentId,
-      studentName: 'Student',
-      studentEmail: '',
+      studentName: member?.studentName || studentSubs[0]?.studentName || 'Student',
+      studentEmail: member?.studentEmail || '',
       teacherId: currentUser.id,
       teacherName: currentUser.name,
       month: data.month,
