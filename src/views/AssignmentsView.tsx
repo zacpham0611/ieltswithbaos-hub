@@ -29,6 +29,10 @@ import {
   calculateReadingBand,
 } from '../lib/ieltsScoring';
 import {
+  generateCorrectedEssay,
+  normalizeAnnotations,
+} from '../lib/writingCorrection';
+import {
   FileCheck2,
   Clock,
   CheckCircle,
@@ -75,6 +79,8 @@ import {
   Globe,
   Lock,
   ArrowRight,
+  Columns,
+  Copy,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -148,8 +154,10 @@ export const AssignmentsView: React.FC = () => {
   } | null>(null);
 
   // Student Writing tab & annotation scrolling
-  const [studentWritingTab, setStudentWritingTab] = useState<'submission' | 'model_answer'>('submission');
+  const [studentWritingTab, setStudentWritingTab] = useState<'submission' | 'corrected' | 'comparison' | 'model_answer'>('submission');
   const [activeHighlightedAnnotationId, setActiveHighlightedAnnotationId] = useState<string | null>(null);
+  const [showDiffInCorrected, setShowDiffInCorrected] = useState<boolean>(true);
+  const [hasCopiedCorrected, setHasCopiedCorrected] = useState<boolean>(false);
 
   // Student active taking state
   const [readingAnswers, setReadingAnswers] = useState<Record<string, string>>({});
@@ -644,16 +652,17 @@ export const AssignmentsView: React.FC = () => {
       return <span>{text}</span>;
     }
 
-    const valid = [...annots]
-      .filter((a) => a.startIndex >= 0 && a.endIndex <= text.length && a.startIndex < a.endIndex)
-      .sort((a, b) => a.startIndex - b.startIndex);
+    const normalized = normalizeAnnotations(text, annots);
+    if (normalized.length === 0) {
+      return <span>{text}</span>;
+    }
 
-    const nonOverlapping: InlineAnnotation[] = [];
+    const nonOverlapping: typeof normalized = [];
     let lastEnd = 0;
-    for (const a of valid) {
-      if (a.startIndex >= lastEnd) {
+    for (const a of normalized) {
+      if (a.resolvedStart >= lastEnd) {
         nonOverlapping.push(a);
-        lastEnd = a.endIndex;
+        lastEnd = a.resolvedEnd;
       }
     }
 
@@ -669,8 +678,8 @@ export const AssignmentsView: React.FC = () => {
     };
 
     nonOverlapping.forEach((a, idx) => {
-      if (a.startIndex > cursor) {
-        parts.push(<span key={`text-${cursor}`}>{text.substring(cursor, a.startIndex)}</span>);
+      if (a.resolvedStart > cursor) {
+        parts.push(<span key={`text-${cursor}`}>{text.substring(cursor, a.resolvedStart)}</span>);
       }
 
       parts.push(
@@ -686,11 +695,11 @@ export const AssignmentsView: React.FC = () => {
           } ${activeInspectedAnnotation?.id === a.id || activeHighlightedAnnotationId === a.id ? 'ring-2 ring-blue-600 scale-105 inline-block shadow-xs' : ''}`}
           title={`${a.type.toUpperCase()}: ${a.comment}${a.suggestion ? ` (Suggestion: ${a.suggestion})` : ''}`}
         >
-          {text.substring(a.startIndex, a.endIndex)}
+          {text.substring(a.resolvedStart, a.resolvedEnd)}
         </mark>
       );
 
-      cursor = a.endIndex;
+      cursor = a.resolvedEnd;
     });
 
     if (cursor < text.length) {
@@ -1854,6 +1863,28 @@ export const AssignmentsView: React.FC = () => {
     const questions = extractedData.questions;
     const passageMap = extractedData.passageMap;
 
+    const displayWritingBand = (() => {
+      if (mySub?.score && Number(mySub.score) > 0) return Number(mySub.score);
+      if (mySub?.rubricScores && mySub.rubricScores.length > 0) {
+        const scores = mySub.rubricScores.map((r: any) => Number(r.score)).filter((n: number) => !isNaN(n) && n > 0);
+        if (scores.length > 0) {
+          return calculateIeltsOverallBand(scores);
+        }
+      }
+      return null;
+    })();
+
+    const studentCorrectedEssay = (mySub?.writingText && isWriting)
+      ? generateCorrectedEssay(mySub.writingText, mySub.annotations || [])
+      : null;
+
+    const handleCopyCorrected = () => {
+      if (!studentCorrectedEssay?.correctedText) return;
+      navigator.clipboard.writeText(studentCorrectedEssay.correctedText);
+      setHasCopiedCorrected(true);
+      setTimeout(() => setHasCopiedCorrected(false), 2000);
+    };
+
     const safePassageIndex =
       activeAssignment.passages && activeAssignment.passages.length > 0
         ? Math.min(activePassageTab, activeAssignment.passages.length - 1)
@@ -1874,6 +1905,10 @@ export const AssignmentsView: React.FC = () => {
     const handleAnnotationClick = (annId: string) => {
       setStudentWritingTab('submission');
       setActiveHighlightedAnnotationId(annId);
+      const targetAnnot = mySub?.annotations?.find((a) => a.id === annId);
+      if (targetAnnot) {
+        setActiveInspectedAnnotation(targetAnnot);
+      }
       setTimeout(() => {
         const el = document.getElementById(`annotation_${annId}`);
         if (el) {
@@ -2685,28 +2720,42 @@ export const AssignmentsView: React.FC = () => {
                     </h3>
                     <p className="text-xs text-slate-600 mt-0.5">
                       {mySub.status === 'graded'
-                        ? 'Evaluation strictly based on official IELTS 9-band criteria.'
-                        : 'Your teacher has reviewed your essay and provided notes for revision.'}
+                        ? 'Đánh giá chi tiết theo chuẩn 4 tiêu chí chấm thi IELTS chính thức của Examiners.'
+                        : 'Giáo viên đã phản hồi và gửi yêu cầu hoàn thiện bài viết.'}
                     </p>
                   </div>
 
-                  <div className="text-right bg-white px-5 py-3 rounded-xl border border-indigo-100 shadow-xs">
+                  <div className="text-right bg-white px-5 py-3 rounded-xl border border-indigo-100 shadow-xs flex flex-col items-end">
                     <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider block">Overall Band Score</span>
                     <span className="text-3xl font-black text-indigo-600">
-                      Band {mySub.score ? Number(mySub.score).toFixed(1) : 'N/A'}
+                      {displayWritingBand !== null ? `Band ${displayWritingBand.toFixed(1)}` : 'Đang cập nhật'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 mt-0.5">
+                      Quy chuẩn IELTS 9-band
                     </span>
                   </div>
                 </div>
 
+                {/* IELTS Official Scoring Formula Notice */}
+                <div className="flex items-center space-x-2 text-[11px] text-indigo-900 bg-indigo-100/70 px-3.5 py-2.5 rounded-xl border border-indigo-200">
+                  <Award className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>
+                    <strong>Quy chuẩn tính điểm IELTS:</strong> Overall Band Score = (TR/TA + CC + LR + GRA) ÷ 4, quy tròn theo quy định của Hội đồng thi (ví dụ: trung bình 6.25 ➔ Band 6.5, trung bình 6.75 ➔ Band 7.0).
+                  </span>
+                </div>
+
                 {/* 4 Official IELTS Criteria Rubrics Breakdown */}
                 {mySub.rubricScores && mySub.rubricScores.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Official IELTS Criteria Breakdown
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Official IELTS Criteria Breakdown (4 tiêu chí đánh giá)
+                      </h4>
+                      <span className="text-[11px] text-slate-500 font-medium">Thang điểm 0 - 9.0</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       {mySub.rubricScores.map((rubric) => (
-                        <div key={rubric.criterion} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                        <div key={rubric.criterion} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1.5 flex flex-col justify-between">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold text-slate-800">{rubric.criterion}</span>
                             <span className="text-xs font-extrabold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100">
@@ -2714,7 +2763,7 @@ export const AssignmentsView: React.FC = () => {
                             </span>
                           </div>
                           {(rubric.descriptor || (rubric as any).comment) && (
-                            <p className="text-xs text-slate-600 leading-relaxed">{rubric.descriptor || (rubric as any).comment}</p>
+                            <p className="text-xs text-slate-600 leading-relaxed mt-1">{rubric.descriptor || (rubric as any).comment}</p>
                           )}
                         </div>
                       ))}
@@ -2862,8 +2911,8 @@ export const AssignmentsView: React.FC = () => {
               </div>
             </div>
 
-            {/* Tabs: Student Submission vs Model Answer */}
-            <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
+            {/* Multi-mode Navigation Tabs */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
               <button
                 type="button"
                 onClick={() => setStudentWritingTab('submission')}
@@ -2874,8 +2923,42 @@ export const AssignmentsView: React.FC = () => {
                 }`}
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>Bài nộp của bạn {mySub ? '(Đã ghi nhận)' : ''}</span>
+                <span>
+                  {mySub && (mySub.status === 'graded' || mySub.status === 'returned')
+                    ? `Bài viết gốc & Chú thích (${mySub.annotations?.length || 0})`
+                    : `Bài nộp của bạn ${mySub ? '(Đã ghi nhận)' : ''}`}
+                </span>
               </button>
+
+              {mySub && (mySub.status === 'graded' || mySub.status === 'returned') && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setStudentWritingTab('corrected')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 ${
+                      studentWritingTab === 'corrected'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Bài viết đã chỉnh sửa {studentCorrectedEssay?.totalCorrections ? `(${studentCorrectedEssay.totalCorrections} cải thiện)` : ''}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudentWritingTab('comparison')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 ${
+                      studentWritingTab === 'comparison'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Columns className="w-3.5 h-3.5" />
+                    <span>Đối chiếu song song (Gốc vs Sửa)</span>
+                  </button>
+                </>
+              )}
 
               {activeAssignment.modelAnswer && (
                 <button
@@ -2887,7 +2970,7 @@ export const AssignmentsView: React.FC = () => {
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <Award className="w-3.5 h-3.5" />
                   <span>Bài mẫu IELTS tham khảo (Band 8.5 - 9.0)</span>
                 </button>
               )}
@@ -2911,7 +2994,155 @@ export const AssignmentsView: React.FC = () => {
               </div>
             )}
 
-            {/* View B: Student Submission Tab */}
+            {/* View B: Corrected Polished Essay Tab */}
+            {studentWritingTab === 'corrected' && mySub && (
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center space-x-2">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                      <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                        Bản hoàn chỉnh đã áp dụng góp ý của giáo viên
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Văn bản được tái tạo hoàn chỉnh dựa trên các đề xuất chỉnh sửa lỗi ngữ pháp, từ vựng và diễn đạt của giáo viên.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowDiffInCorrected(!showDiffInCorrected)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors flex items-center space-x-1.5 ${
+                        showDiffInCorrected
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{showDiffInCorrected ? 'Đang bật tô màu sửa' : 'Bật tô màu sửa'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCopyCorrected}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors flex items-center space-x-1.5 shadow-2xs"
+                    >
+                      {hasCopiedCorrected ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-emerald-700">Đã sao chép!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Sao chép bài đã sửa</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-5 bg-emerald-50/20 rounded-xl border border-emerald-100 text-base font-sans leading-relaxed text-slate-900 whitespace-pre-wrap">
+                  {showDiffInCorrected && studentCorrectedEssay ? (
+                    studentCorrectedEssay.diffSegments.map((seg, idx) =>
+                      seg.type === 'replacement' ? (
+                        <span
+                          key={`corr-seg-${idx}`}
+                          className="bg-emerald-100/90 text-emerald-950 font-semibold px-1 py-0.5 rounded border-b-2 border-emerald-500 inline cursor-help shadow-2xs"
+                          title={`Gốc: "${seg.originalText}" ➔ Đã sửa: "${seg.text}" (${seg.category || 'Góp ý'}: ${seg.comment || ''})`}
+                        >
+                          {seg.text}
+                        </span>
+                      ) : (
+                        <span key={`corr-seg-${idx}`}>{seg.text}</span>
+                      )
+                    )
+                  ) : (
+                    studentCorrectedEssay?.correctedText || mySub.writingText || ''
+                  )}
+                </div>
+
+                {studentCorrectedEssay && studentCorrectedEssay.totalCorrections > 0 && (
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+                    <span>
+                      Tổng số điểm chỉnh sửa nâng cấp: <strong className="text-emerald-700">{studentCorrectedEssay.totalCorrections} vị trí</strong>.
+                    </span>
+                    <span className="text-[11px] text-slate-400">Rà chuột vào đoạn tô xanh để xem từ gốc trước khi sửa</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* View C: Side-by-Side Comparison Tab */}
+            {studentWritingTab === 'comparison' && mySub && (
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                      <Columns className="w-4 h-4 text-indigo-600" />
+                      <span>Đối chiếu song song: Bài viết gốc vs Bài viết đã chỉnh sửa</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      So sánh trực quan giữa bài làm ban đầu và phiên bản đã hoàn thiện theo nhận xét của giáo viên.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Left Column: Original with highlights */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between px-3 py-2 bg-amber-50 rounded-lg border border-amber-200">
+                      <span className="text-xs font-bold text-amber-900 uppercase tracking-wider flex items-center space-x-1.5">
+                        <FileText className="w-3.5 h-3.5 text-amber-700" />
+                        <span>1. Bài viết gốc của bạn</span>
+                      </span>
+                      <span className="text-[11px] font-semibold text-amber-800">
+                        {mySub.annotations?.length || 0} điểm chú thích
+                      </span>
+                    </div>
+                    <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-200 text-sm font-sans leading-relaxed text-slate-900 whitespace-pre-wrap max-h-[600px] overflow-y-auto">
+                      {renderAnnotatedText(mySub.writingText || '', mySub.annotations, true)}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Corrected with improvements */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-200">
+                      <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center space-x-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>2. Phiên bản hoàn chỉnh sau sửa</span>
+                      </span>
+                      <span className="text-[11px] font-semibold text-emerald-800">
+                        {studentCorrectedEssay?.totalCorrections || 0} cải thiện
+                      </span>
+                    </div>
+                    <div className="p-4 bg-emerald-50/20 rounded-xl border border-emerald-200 text-sm font-sans leading-relaxed text-slate-900 whitespace-pre-wrap max-h-[600px] overflow-y-auto">
+                      {studentCorrectedEssay ? (
+                        studentCorrectedEssay.diffSegments.map((seg, idx) =>
+                          seg.type === 'replacement' ? (
+                            <span
+                              key={`comp-seg-${idx}`}
+                              className="bg-emerald-100 text-emerald-950 font-semibold px-1 py-0.5 rounded border-b border-emerald-500 inline cursor-help"
+                              title={`Gốc: "${seg.originalText}" ➔ Đã sửa: "${seg.text}"`}
+                            >
+                              {seg.text}
+                            </span>
+                          ) : (
+                            <span key={`comp-seg-${idx}`}>{seg.text}</span>
+                          )
+                        )
+                      ) : (
+                        mySub.writingText || ''
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* View D: Student Submission Tab */}
             {studentWritingTab === 'submission' && (
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
@@ -2951,6 +3182,43 @@ export const AssignmentsView: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* Active Inspected Annotation Inspector banner in student view */}
+                {activeInspectedAnnotation && (
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-400 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Eye className="w-4 h-4 text-blue-600" />
+                        <span className="text-xs font-bold text-blue-900 uppercase tracking-wider">
+                          Chi tiết nhận xét từ giáo viên
+                        </span>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-blue-200 text-blue-900">
+                          {activeInspectedAnnotation.type}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveInspectedAnnotation(null)}
+                        className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                        title="Đóng chi tiết nhận xét"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="text-xs bg-white p-2.5 rounded-lg border border-blue-200 text-slate-800 font-serif italic">
+                      "{activeInspectedAnnotation.selectedText}"
+                    </div>
+                    <div className="text-sm font-semibold text-slate-900">
+                      {activeInspectedAnnotation.comment}
+                    </div>
+                    {activeInspectedAnnotation.suggestion && (
+                      <div className="text-xs bg-emerald-100/80 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-1.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <span><strong>Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* If submitted and not returned: Strictly Read-Only Formatted Essay with Annotations */}
                 {mySub && mySub.status !== 'returned' ? (

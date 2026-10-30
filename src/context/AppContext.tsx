@@ -26,7 +26,7 @@ import {
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
-import { calculateReadingBand } from '../lib/ieltsScoring';
+import { calculateReadingBand, calculateIeltsOverallBand } from '../lib/ieltsScoring';
 import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
 import { extractAllNormalizedQuestions, sanitizeQuestionsForStudent } from '../lib/questionNormalizer';
 import { calculateMonthlyTuition } from '../lib/tuitionCalculator';
@@ -395,6 +395,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setSubmissions(
                 subsData.map((s: any) => {
                   const { comments, annotations, isDraft } = parseTeacherComments(s.teacher_comments);
+                  let finalScore: number | undefined = undefined;
+                  if (s.score !== null && s.score !== undefined && !isNaN(Number(s.score)) && Number(s.score) > 0) {
+                    finalScore = Number(s.score);
+                  } else if (Array.isArray(s.rubric_scores) && s.rubric_scores.length > 0) {
+                    const numericRubrics = s.rubric_scores
+                      .map((r: any) => Number(r.score))
+                      .filter((num: number) => !isNaN(num) && num > 0);
+                    if (numericRubrics.length > 0) {
+                      finalScore = calculateIeltsOverallBand(numericRubrics);
+                    }
+                  }
+
                   return {
                     id: s.id,
                     assignmentId: s.assignment_id,
@@ -422,7 +434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     teacherComments: comments,
                     nextSteps: s.next_steps,
                     aiSuggestedFeedback: s.ai_suggested_feedback,
-                    score: s.score ? Number(s.score) : undefined,
+                    score: finalScore,
                     annotations,
                     isDraft: isDraft || s.status === 'in_review',
                   };
@@ -839,7 +851,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const parentAssign = s.assignments;
               const { metadata: assignMeta } = unpackAssignmentReadingData(parentAssign?.reading_questions);
               const isScorePublic = (parentAssign?.score_visibility || assignMeta?.scoreVisibility || 'private') === 'public';
-              const isGradedPublished = s.status === 'graded' && !isDraft && isScorePublic;
+
+              // For Writing and Speaking, a graded assessment published by teacher is always accessible to the student.
+              // For Reading, score_visibility controls whether automated reading scores/keys are released.
+              const isGradedPublished = s.status === 'graded' && !isDraft && (s.skill !== 'reading' || isScorePublic);
+              const hasTeacherFeedback = isGradedPublished || s.status === 'returned';
+
+              let finalScore: number | undefined = undefined;
+              if (s.score !== null && s.score !== undefined && !isNaN(Number(s.score)) && Number(s.score) > 0) {
+                finalScore = Number(s.score);
+              } else if (Array.isArray(s.rubric_scores) && s.rubric_scores.length > 0) {
+                const numericRubrics = s.rubric_scores
+                  .map((r: any) => Number(r.score))
+                  .filter((num: number) => !isNaN(num) && num > 0);
+                if (numericRubrics.length > 0) {
+                  finalScore = calculateIeltsOverallBand(numericRubrics);
+                }
+              }
+
               return {
                 id: s.id,
                 assignmentId: s.assignment_id,
@@ -861,14 +890,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 speakingAudioUrl: s.speaking_audio_url,
                 speakingTranscript: s.speaking_transcript,
                 speakingDuration: s.speaking_duration,
-                rubricScores: isGradedPublished ? s.rubric_scores : [],
-                strengths: isGradedPublished ? s.strengths : undefined,
-                areasToImprove: isGradedPublished ? s.areas_to_improve : undefined,
-                teacherComments: isGradedPublished ? comments : undefined,
-                nextSteps: isGradedPublished ? s.next_steps : undefined,
+                rubricScores: hasTeacherFeedback ? s.rubric_scores : [],
+                strengths: hasTeacherFeedback ? s.strengths : undefined,
+                areasToImprove: hasTeacherFeedback ? s.areas_to_improve : undefined,
+                teacherComments: hasTeacherFeedback ? comments : undefined,
+                nextSteps: hasTeacherFeedback ? s.next_steps : undefined,
                 aiSuggestedFeedback: isGradedPublished ? s.ai_suggested_feedback : undefined,
-                score: isGradedPublished && s.score ? Number(s.score) : undefined,
-                annotations: isGradedPublished ? annotations : [],
+                score: isGradedPublished ? finalScore : undefined,
+                annotations: hasTeacherFeedback ? annotations : [],
                 isDraft,
               };
             })
@@ -2103,6 +2132,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const newStatus = updates.isDraft ? 'in_review' : 'graded';
 
+    let finalScore = updates.score;
+    if ((finalScore === undefined || isNaN(finalScore) || finalScore === 0) && updates.rubricScores && updates.rubricScores.length > 0) {
+      const validScores = updates.rubricScores.map((r) => Number(r.score)).filter((n) => !isNaN(n) && n > 0);
+      if (validScores.length > 0) {
+        finalScore = calculateIeltsOverallBand(validScores);
+      }
+    }
+
     await supabase
       .from('submissions')
       .update({
@@ -2111,7 +2148,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         areas_to_improve: updates.areasToImprove,
         teacher_comments: serializedComments,
         next_steps: updates.nextSteps,
-        score: updates.score,
+        score: finalScore,
         status: newStatus,
         updated_at: new Date().toISOString(),
       })
