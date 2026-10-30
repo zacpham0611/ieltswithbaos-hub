@@ -153,8 +153,8 @@ export function calculateReadingBand(
     ? safeRaw
     : Math.min(40, Math.round((safeRaw / Math.max(1, totalQuestions)) * 40));
 
-  const thresholds =
-    testType === 'general' ? GENERAL_READING_THRESHOLDS : ACADEMIC_READING_THRESHOLDS;
+  const isGeneral = testType === 'general' || (testType as string) === 'general_training';
+  const thresholds = isGeneral ? GENERAL_READING_THRESHOLDS : ACADEMIC_READING_THRESHOLDS;
 
   let band = 2.0;
   for (const entry of thresholds) {

@@ -398,6 +398,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   let finalScore: number | undefined = undefined;
                   if (s.score !== null && s.score !== undefined && !isNaN(Number(s.score)) && Number(s.score) > 0) {
                     finalScore = Number(s.score);
+                  } else if (s.reading_score?.estimatedBand) {
+                    finalScore = Number(s.reading_score.estimatedBand);
                   } else if (Array.isArray(s.rubric_scores) && s.rubric_scores.length > 0) {
                     const numericRubrics = s.rubric_scores
                       .map((r: any) => Number(r.score))
@@ -860,6 +862,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               let finalScore: number | undefined = undefined;
               if (s.score !== null && s.score !== undefined && !isNaN(Number(s.score)) && Number(s.score) > 0) {
                 finalScore = Number(s.score);
+              } else if (s.reading_score?.estimatedBand) {
+                finalScore = Number(s.reading_score.estimatedBand);
               } else if (Array.isArray(s.rubric_scores) && s.rubric_scores.length > 0) {
                 const numericRubrics = s.rubric_scores
                   .map((r: any) => Number(r.score))
@@ -2036,28 +2040,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .eq('id', assignmentId)
           .single();
 
-        if (rawAssign) {
-          const rawQ = rawAssign.reading_questions;
-          const { questions: questionsList } = extractAllNormalizedQuestions(
-            Array.isArray(rawQ) ? { readingQuestions: rawQ } : rawQ
-          );
-          const gradeSummary = gradeAssignmentSubmission(
-            questionsList,
-            data.readingAnswers,
-            assign.readingTestType || 'academic'
-          );
-          data.readingScore = {
-            correct: gradeSummary.earnedScore,
-            total: gradeSummary.maxScore,
-            percentage: gradeSummary.percentage,
-            estimatedBand: gradeSummary.bandEstimate,
-            testType: assign.readingTestType || 'academic',
-            bandNotes: gradeSummary.bandNotes,
-          };
-          data.readingErrorAnalysis = gradeSummary.errorAnalysis;
-          data.score = gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate;
-          data.status = gradeSummary.finalStatus;
-        }
+        const unpacked = unpackAssignmentReadingData(rawAssign?.reading_questions || assign.readingQuestions);
+        const { questions: questionsList } = extractAllNormalizedQuestions({
+          readingQuestions: unpacked.questions.length > 0 ? unpacked.questions : assign.readingQuestions,
+          questionGroups: unpacked.questionGroups.length > 0 ? unpacked.questionGroups : assign.questionGroups,
+          passages: unpacked.passages.length > 0 ? unpacked.passages : assign.passages,
+        });
+
+        const testType = assign.readingTestType || unpacked.metadata?.readingTestType || 'academic';
+        const gradeSummary = gradeAssignmentSubmission(
+          questionsList,
+          data.readingAnswers,
+          testType
+        );
+
+        data.readingScore = {
+          correct: gradeSummary.earnedScore,
+          total: gradeSummary.maxScore,
+          percentage: gradeSummary.percentage,
+          estimatedBand: gradeSummary.bandEstimate,
+          testType,
+          bandNotes: gradeSummary.bandNotes,
+        };
+        data.readingErrorAnalysis = gradeSummary.errorAnalysis;
+        data.score = gradeSummary.bandEstimate;
+        data.status = 'graded';
       } catch (gradeErr) {
         console.warn('Error during authoritative grading in submitAssignment:', gradeErr);
       }
@@ -2067,7 +2074,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await supabase
         .from('submissions')
         .update({
-          status: existing.status === 'returned' ? 'resubmitted' : 'submitted',
+          status: data.status || (existing.status === 'returned' ? 'resubmitted' : 'submitted'),
           updated_at: now,
           writing_text: data.writingText ?? existing.writingText,
           writing_word_count: data.writingWordCount ?? existing.writingWordCount,
@@ -2085,7 +2092,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           speaking_audio_url: data.speakingAudioUrl ?? existing.speakingAudioUrl,
           speaking_transcript: data.speakingTranscript ?? existing.speakingTranscript,
           speaking_duration: data.speakingDuration ?? existing.speakingDuration,
-          score: data.score ?? existing.score,
+          score: data.score !== undefined ? data.score : existing.score,
         })
         .eq('id', existing.id);
     } else {

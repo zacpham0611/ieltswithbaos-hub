@@ -13,6 +13,7 @@ import {
   ReadingTestType,
   QuestionType,
   QuestionGroup,
+  ParsedPassage,
 } from '../types';
 import { parseDocumentStructure } from '../lib/documentExtractor';
 import { gradeAssignmentSubmission, parseMaxWordsFromLimit } from '../lib/assignmentGrader';
@@ -81,6 +82,9 @@ import {
   ArrowRight,
   Columns,
   Copy,
+  ArrowUp,
+  ArrowDown,
+  CheckSquare,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -188,6 +192,23 @@ export const AssignmentsView: React.FC = () => {
 
   // Multi-Passage Tab state
   const [activePassageTab, setActivePassageTab] = useState<number>(0);
+
+  // Multi-Passage assignment selection modal state
+  const [passageAssignResource, setPassageAssignResource] = useState<any | null>(null);
+  const [passageAssignList, setPassageAssignList] = useState<
+    Array<{
+      id: string;
+      passageIndex: number;
+      title: string;
+      content: string;
+      questions: ReadingQuestion[];
+      questionGroups: QuestionGroup[];
+      isSelected: boolean;
+    }>
+  >([]);
+  const [passageAssignCourseId, setPassageAssignCourseId] = useState<string>('');
+  const [passageAssignDueDate, setPassageAssignDueDate] = useState<string>('');
+  const [passageAssignScoreVisibility, setPassageAssignScoreVisibility] = useState<'private' | 'public'>('private');
 
   // Reset active passage tab when switching assignments
   useEffect(() => {
@@ -466,6 +487,164 @@ export const AssignmentsView: React.FC = () => {
     });
 
     return parts;
+  };
+
+  // Open Resource for Multi-Passage Assignment or Direct Assignment
+  const handleOpenResourceAssignment = (res: any) => {
+    let extractedPassages: any[] = [];
+    if (res.content && (res.content.trim().startsWith('{') || res.content.trim().startsWith('['))) {
+      try {
+        const parsed = JSON.parse(res.content);
+        if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
+          extractedPassages = parsed.passages;
+        }
+      } catch {}
+    }
+
+    if (extractedPassages.length === 0 && res.skill === 'reading' && res.content) {
+      const docStruct = parseDocumentStructure(res.content, res.title);
+      if (docStruct.candidateTests && docStruct.candidateTests.length > 0) {
+        extractedPassages = docStruct.candidateTests.map((ct: any, idx: number) => ({
+          id: `p_${idx + 1}`,
+          passageIndex: idx,
+          title: ct.title || `Passage ${idx + 1}`,
+          content: ct.passageText,
+          questions: ct.questions || [],
+          questionGroups: ct.questionGroups || [],
+        }));
+      }
+    }
+
+    if (extractedPassages.length > 1) {
+      setPassageAssignResource(res);
+      setPassageAssignCourseId(libraryCourseId || courses[0]?.id || '');
+      setPassageAssignDueDate(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
+      setPassageAssignScoreVisibility('private');
+      setPassageAssignList(
+        extractedPassages.map((p, idx) => ({
+          id: p.id || `p_${idx + 1}`,
+          passageIndex: idx,
+          title: p.title || `Passage ${idx + 1}`,
+          content: p.content || '',
+          questions: p.questions || [],
+          questionGroups: p.questionGroups || [],
+          isSelected: true,
+        }))
+      );
+      setShowImportLibraryModal(false);
+    } else {
+      handleImportResourceToAssignment(res);
+    }
+  };
+
+  const handleMovePassageUp = (index: number) => {
+    if (index <= 0) return;
+    setPassageAssignList((prev) => {
+      const copy = [...prev];
+      const temp = copy[index - 1];
+      copy[index - 1] = copy[index];
+      copy[index] = temp;
+      return copy;
+    });
+  };
+
+  const handleMovePassageDown = (index: number) => {
+    if (index >= passageAssignList.length - 1) return;
+    setPassageAssignList((prev) => {
+      const copy = [...prev];
+      const temp = copy[index + 1];
+      copy[index + 1] = copy[index];
+      copy[index] = temp;
+      return copy;
+    });
+  };
+
+  const handleTogglePassageSelection = (index: number) => {
+    setPassageAssignList((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], isSelected: !copy[index].isSelected };
+      return copy;
+    });
+  };
+
+  const handleConfirmMultiPassageAssignment = async () => {
+    if (!passageAssignResource || !passageAssignCourseId) {
+      alert('Vui lòng chọn khóa học để giao bài.');
+      return;
+    }
+
+    const selectedPassages = passageAssignList.filter((p) => p.isSelected);
+    if (selectedPassages.length === 0) {
+      alert('Vui lòng chọn ít nhất một Passage.');
+      return;
+    }
+
+    setIsImportingFromLibrary(true);
+    try {
+      let currentQIndex = 1;
+      const reindexedQuestions: ReadingQuestion[] = [];
+      const reindexedGroups: QuestionGroup[] = [];
+      const finalPassages: ParsedPassage[] = [];
+
+      selectedPassages.forEach((p, pIdx) => {
+        const passageQuestions = p.questions || [];
+        const updatedPQuestions: ReadingQuestion[] = [];
+
+        passageQuestions.forEach((q) => {
+          const normQ: ReadingQuestion = {
+            ...q,
+            id: q.id || `q_p${pIdx + 1}_${currentQIndex}`,
+          };
+          updatedPQuestions.push(normQ);
+          reindexedQuestions.push(normQ);
+          currentQIndex++;
+        });
+
+        const updatedGroups = (p.questionGroups || []).map((g) => ({
+          ...g,
+          passageIndex: pIdx,
+        }));
+        reindexedGroups.push(...updatedGroups);
+
+        finalPassages.push({
+          id: p.id || `p_${pIdx + 1}`,
+          passageIndex: pIdx,
+          title: p.title || `Passage ${pIdx + 1}`,
+          content: p.content,
+          questions: updatedPQuestions,
+          questionGroups: updatedGroups,
+        });
+      });
+
+      const title = `${passageAssignResource.title} (${finalPassages.length} Passages)`;
+      await createAssignment({
+        courseId: passageAssignCourseId,
+        title,
+        instructions: 'Read the passages carefully and answer all questions in the test.',
+        skill: 'reading',
+        objectives: 'Practice multi-passage IELTS Reading with strict timing and scoring.',
+        dueDate: passageAssignDueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+        status: 'published',
+        readingTestType: 'academic',
+        scoreVisibility: passageAssignScoreVisibility,
+        readingPassage: finalPassages[0]?.content || '',
+        readingQuestions: reindexedQuestions,
+        questionGroups: reindexedGroups,
+        passages: finalPassages,
+      });
+
+      setPassageAssignResource(null);
+      setSubmissionSuccessModal({
+        title: 'Giao bài tập Reading thành công!',
+        message: `Đã giao thành công ${finalPassages.length} Passages với tổng số ${reindexedQuestions.length} câu hỏi. Học sinh sẽ làm bài và nộp toàn bộ các phần trong cùng một bài thi.`,
+        actionText: 'Hoàn tất',
+        onAction: () => setSubmissionSuccessModal(null),
+      });
+    } catch (err: any) {
+      alert(`Lỗi khi tạo bài tập: ${err?.message || err}`);
+    } finally {
+      setIsImportingFromLibrary(false);
+    }
   };
 
   // Import Resource to Assignment Handler
@@ -916,8 +1095,8 @@ export const AssignmentsView: React.FC = () => {
           bandNotes: gradeSummary.bandNotes,
         },
         readingErrorAnalysis: gradeSummary.errorAnalysis,
-        score: gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate,
-        status: gradeSummary.finalStatus,
+        score: gradeSummary.bandEstimate,
+        status: 'graded',
       });
 
       // Clear local storage draft
@@ -927,9 +1106,9 @@ export const AssignmentsView: React.FC = () => {
       setSubmissionSuccessModal({
         title: 'Nộp bài thi Reading thành công!',
         message:
-          isScorePublic && !gradeSummary.hasOpenEnded
-            ? `Bạn đã hoàn thành bài thi với kết quả: ${gradeSummary.earnedScore}/${gradeSummary.maxScore} câu đúng (Band ${gradeSummary.bandEstimate}).`
-            : 'Bài làm của bạn đã được ghi nhận thành công và chuyển đến giáo viên xét duyệt.',
+          isScorePublic
+            ? `Bạn đã hoàn thành bài thi với kết quả: ${gradeSummary.earnedScore}/${gradeSummary.maxScore} câu đúng (Band ${gradeSummary.bandEstimate.toFixed(1)}).`
+            : 'Bài làm của bạn đã được ghi nhận thành công. Điểm số và đáp án chi tiết sẽ hiển thị khi giáo viên mở quyền công bố điểm.',
         actionText: 'Xem chi tiết bài làm',
         onAction: () => setSubmissionSuccessModal(null),
       });
@@ -2001,8 +2180,8 @@ export const AssignmentsView: React.FC = () => {
         ========================================================================= */}
         {isReading && (
           <div className="space-y-6">
-            {/* If Graded, Show Full Performance & Question-by-Question Breakdown Card */}
-            {mySub?.status === 'graded' && mySub.readingScore && (
+            {/* If Graded & Score is Public, Show Full Performance & Band Score Report Card */}
+            {mySub && (mySub.status === 'graded' || mySub.status === 'submitted') && isScorePublic && (mySub.readingScore || mySub.score) && (
               <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6 shadow-xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-200/60 pb-4">
                   <div>
@@ -2010,28 +2189,49 @@ export const AssignmentsView: React.FC = () => {
                       Official IELTS Reading Assessment Report
                     </span>
                     <h3 className="text-xl font-bold text-slate-900 mt-1">
-                      Final Score: {mySub.readingScore.correct} / {mySub.readingScore.total} Correct ({mySub.readingScore.percentage}%)
+                      Kết quả: {mySub.readingScore?.correct ?? 0} / {mySub.readingScore?.total ?? questions.length} Câu đúng ({mySub.readingScore?.percentage ?? 0}%)
                     </h3>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      Scale applied: {mySub.readingScore.testType === 'general' ? 'General Training 40-Item Scale' : 'Academic 40-Item Official Cambridge Scale'}
+                      Thang điểm: {mySub.readingScore?.testType === 'general' ? 'General Training 40-Item Scale' : 'Academic 40-Item Official Cambridge Scale'}
                     </p>
                   </div>
 
                   <div className="flex items-center space-x-3">
-                    <div className="text-right">
+                    <div className="text-right bg-white px-5 py-3 rounded-xl border border-emerald-100 shadow-xs">
                       <span className="text-xs text-slate-500 font-semibold block">{t('assignments.officialEstimatedBand')}</span>
                       <span className="text-3xl font-extrabold text-emerald-700">
-                        Band {mySub.readingScore.estimatedBand?.toFixed(1) || 'N/A'}
+                        Band {(mySub.readingScore?.estimatedBand || (mySub.score ? Number(mySub.score) : null))?.toFixed(1) || 'N/A'}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {mySub.readingScore.bandNotes && (
+                {mySub.readingScore?.bandNotes && (
                   <p className="text-xs text-emerald-900 font-medium bg-white/70 p-3 rounded-lg border border-emerald-200/50">
                     {mySub.readingScore.bandNotes}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* If Submitted/Graded but Score is Private, Show waiting notice */}
+            {mySub && (mySub.status === 'graded' || mySub.status === 'submitted') && !isScorePublic && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                    <CheckCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">Bài thi Reading của bạn đã được nộp thành công!</h4>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Hệ thống đã lưu đầy đủ câu trả lời của bạn. Điểm số Band Score và giải thích đáp án chi tiết sẽ hiển thị khi giáo viên mở quyền công bố điểm.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs font-bold px-3 py-1.5 bg-white text-blue-800 rounded-lg border border-blue-200 shadow-2xs whitespace-nowrap self-start sm:self-auto flex items-center space-x-1.5">
+                  <Lock className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Chờ giáo viên công bố điểm</span>
+                </span>
               </div>
             )}
 
@@ -2294,6 +2494,42 @@ export const AssignmentsView: React.FC = () => {
                                 </div>
                               </div>
                             )}
+
+                            {/* Reference Box: Word List for Summary Completion (Rendered ONCE per group) */}
+                            {group.wordList && group.wordList.length > 0 && (
+                              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2 text-xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-blue-900 uppercase text-[11px] flex items-center space-x-1.5">
+                                    <BookOpen className="w-3.5 h-3.5 text-blue-700" />
+                                    <span>List of Words / Options (A–{String.fromCharCode(64 + group.wordList.length)}):</span>
+                                  </span>
+                                  <span className="text-[11px] font-medium text-blue-700">
+                                    Chọn từ danh sách để hoàn thành đoạn văn tóm tắt
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 pt-1">
+                                  {group.wordList.map((opt) => {
+                                    const letter = opt.match(/^([A-Za-z])[\.\:\s]/)?.[1]?.toUpperCase() || '';
+                                    const text = opt.replace(/^[A-Za-z][\.\:\s]\s*/, '');
+                                    return (
+                                      <div
+                                        key={opt}
+                                        className="p-2 bg-white rounded-md border border-blue-200 shadow-2xs flex items-center space-x-2"
+                                      >
+                                        {letter && (
+                                          <span className="w-5 h-5 rounded-md bg-blue-100 text-blue-800 font-bold text-xs flex items-center justify-center shrink-0">
+                                            {letter}
+                                          </span>
+                                        )}
+                                        <span className="text-slate-800 font-medium text-xs truncate" title={text || opt}>
+                                          {text || opt}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {/* Questions in this group */}
@@ -2394,56 +2630,65 @@ export const AssignmentsView: React.FC = () => {
                                       ))}
                                     </div>
                                   ) : q.type === 'matching_information' ? (
-                                    <div className="space-y-2 pt-1">
-                                      <div className="text-xs text-amber-900 bg-amber-50/80 border border-amber-200 px-2.5 py-1.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                        <span className="font-semibold">Which paragraph contains this information?</span>
-                                        <span className="text-[11px] font-mono font-medium text-amber-800">
-                                          NB: Letters may be used more than once
-                                        </span>
-                                      </div>
+                                    (() => {
+                                      const matchInfoParagraphs = (q.options && q.options.length > 0)
+                                        ? q.options
+                                        : (paragraphLabels && paragraphLabels.length > 1)
+                                        ? paragraphLabels
+                                        : ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+                                      return (
+                                        <div className="space-y-2 pt-1">
+                                          <div className="text-xs text-amber-900 bg-amber-50/80 border border-amber-200 px-2.5 py-1.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                            <span className="font-semibold">Which paragraph contains this information?</span>
+                                            <span className="text-[11px] font-mono font-medium text-amber-800">
+                                              NB: Letters may be used more than once
+                                            </span>
+                                          </div>
 
-                                      <div className="flex flex-wrap gap-1.5 pt-1">
-                                        {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
-                                          const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
-                                          const isSelected =
-                                            answer.toUpperCase() === letter || answer.toUpperCase() === label.toUpperCase();
-                                          return (
-                                            <button
-                                              key={label}
-                                              type="button"
+                                          <div className="flex flex-wrap gap-1.5 pt-1">
+                                            {matchInfoParagraphs.map((label) => {
+                                              const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
+                                              const isSelected =
+                                                answer.toUpperCase() === letter || answer.toUpperCase() === label.toUpperCase();
+                                              return (
+                                                <button
+                                                  key={label}
+                                                  type="button"
+                                                  disabled={isReadOnly}
+                                                  onClick={() => handleAnswerChange(q.id, letter)}
+                                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                                    isSelected
+                                                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                                  }`}
+                                                >
+                                                  Paragraph {letter}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+
+                                          <div className="pt-1">
+                                            <select
                                               disabled={isReadOnly}
-                                              onClick={() => handleAnswerChange(q.id, letter)}
-                                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                                isSelected
-                                                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                                              }`}
+                                              value={answer}
+                                              onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                              className="w-full sm:w-72 p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                                             >
-                                              Paragraph {letter}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-
-                                      <div className="pt-1">
-                                        <select
-                                          disabled={isReadOnly}
-                                          value={answer}
-                                          onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                          className="w-full sm:w-72 p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                                        >
-                                          <option value="">-- Or select paragraph from dropdown --</option>
-                                          {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
-                                            const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
-                                            return (
-                                              <option key={label} value={letter}>
-                                                Paragraph {letter}
-                                              </option>
-                                            );
-                                          })}
-                                        </select>
-                                      </div>
-                                    </div>
+                                              <option value="">-- Or select paragraph from dropdown --</option>
+                                              {matchInfoParagraphs.map((label) => {
+                                                const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
+                                                return (
+                                                  <option key={label} value={letter}>
+                                                    Paragraph {letter}
+                                                  </option>
+                                                );
+                                              })}
+                                            </select>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()
                                   ) : q.type === 'matching_headings' && (group.headingsList || q.headingsList) && (group.headingsList || q.headingsList)!.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
@@ -2533,6 +2778,28 @@ export const AssignmentsView: React.FC = () => {
                                           </label>
                                         );
                                       })}
+                                    </div>
+                                  ) : (q.type === 'summary_completion' || group.wordList) && (group.wordList || (q.options && q.options.length > 0)) ? (
+                                    <div className="space-y-2 pt-1">
+                                      <select
+                                        disabled={isReadOnly}
+                                        value={answer}
+                                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                        className="w-full sm:w-80 p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden shadow-2xs"
+                                      >
+                                        <option value="">
+                                          -- Choose from Word List (A–{String.fromCharCode(64 + (group.wordList?.length || q.options?.length || 7))}) --
+                                        </option>
+                                        {(group.wordList || q.options)!.map((opt) => {
+                                          const letterMatch = opt.match(/^([A-Za-z])[\.\:\s]/);
+                                          const letter = letterMatch ? letterMatch[1].toUpperCase() : opt;
+                                          return (
+                                            <option key={opt} value={letter}>
+                                              {opt}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
                                     </div>
                                   ) : q.options && q.options.length > 0 ? (
                                     <div className="space-y-1.5">
@@ -4603,7 +4870,7 @@ export const AssignmentsView: React.FC = () => {
                       <button
                         type="button"
                         disabled={isImportingFromLibrary}
-                        onClick={() => handleImportResourceToAssignment(res)}
+                        onClick={() => handleOpenResourceAssignment(res)}
                         className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors shrink-0"
                       >
                         {isImportingFromLibrary ? 'Assigning...' : 'Assign to Course'}
@@ -4616,6 +4883,250 @@ export const AssignmentsView: React.FC = () => {
                     No materials found in your resource library yet. You can upload documents via Smart Import.
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* Modal: Configure Multi-Passage Assignment from Materials Library */}
+      {passageAssignResource && (
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+            <div className="relative z-10 bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 flex flex-col max-h-[90vh] space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                    <BookOpen className="w-5 h-5 text-emerald-700" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Cấu hình & Giao bài đọc IELTS Multi-Passage
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Tài liệu: <strong className="text-slate-800">{passageAssignResource.title}</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPassageAssignResource(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body: Scrollable */}
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-sm">
+                {/* Step 1: Passage selection & presets */}
+                <div className="space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                      1. Chọn Passages muốn giao ({passageAssignList.filter((p) => p.isSelected).length} / {passageAssignList.length} phần được chọn)
+                    </label>
+                    <div className="flex items-center space-x-1.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPassageAssignList((prev) => prev.map((p) => ({ ...p, isSelected: true })))
+                        }
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700"
+                      >
+                        Chọn cả {passageAssignList.length} Passages
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPassageAssignList((prev) =>
+                            prev.map((p, idx) => ({ ...p, isSelected: idx === 0 }))
+                          )
+                        }
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700"
+                      >
+                        Chỉ Passage 1
+                      </button>
+                      {passageAssignList.length >= 2 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPassageAssignList((prev) =>
+                              prev.map((p, idx) => ({ ...p, isSelected: idx < 2 }))
+                            )
+                          }
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700"
+                        >
+                          Passage 1 & 2
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Passages List with Checkbox and Reorder Controls */}
+                  <div className="space-y-2">
+                    {passageAssignList.map((p, pIdx) => (
+                      <div
+                        key={p.id || pIdx}
+                        className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+                          p.isSelected
+                            ? 'bg-emerald-50/40 border-emerald-300 shadow-2xs'
+                            : 'bg-slate-50/60 border-slate-200 opacity-60'
+                        }`}
+                      >
+                        <div
+                          className="flex items-center space-x-3 cursor-pointer flex-1"
+                          onClick={() => handleTogglePassageSelection(pIdx)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={p.isSelected}
+                            onChange={() => handleTogglePassageSelection(pIdx)}
+                            className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                          />
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-bold text-slate-900">
+                                #{pIdx + 1}. {p.title}
+                              </span>
+                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+                                {p.questions?.length || 0} câu hỏi
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">
+                              {p.content ? p.content.slice(0, 90) + '...' : 'Không có trích đoạn'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Reorder Buttons */}
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={pIdx === 0}
+                            onClick={() => handleMovePassageUp(pIdx)}
+                            className="p-1.5 rounded hover:bg-slate-200 disabled:opacity-30 text-slate-600"
+                            title="Di chuyển lên"
+                          >
+                            <ArrowUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={pIdx === passageAssignList.length - 1}
+                            onClick={() => handleMovePassageDown(pIdx)}
+                            className="p-1.5 rounded hover:bg-slate-200 disabled:opacity-30 text-slate-600"
+                            title="Di chuyển xuống"
+                          >
+                            <ArrowDown className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Step 2: Live Numbering and Total Questions Preview */}
+                <div className="p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase text-emerald-900 tracking-wider">
+                      Xem trước phân bổ câu hỏi bài thi
+                    </span>
+                    <span className="text-xs font-black text-emerald-800">
+                      Tổng: {passageAssignList.filter((p) => p.isSelected).reduce((sum, p) => sum + (p.questions?.length || 0), 0)} câu hỏi
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-emerald-950">
+                    {(() => {
+                      let acc = 1;
+                      return passageAssignList
+                        .filter((p) => p.isSelected)
+                        .map((p, idx) => {
+                          const start = acc;
+                          const qCount = p.questions?.length || 0;
+                          const end = acc + qCount - 1;
+                          acc += qCount;
+                          return (
+                            <span
+                              key={p.id || idx}
+                              className="bg-white/80 border border-emerald-200 px-2.5 py-1 rounded-md font-medium"
+                            >
+                              Passage {idx + 1}: <strong>Câu {qCount > 0 ? `${start}–${end}` : 'Trống'}</strong> ({qCount} câu)
+                            </span>
+                          );
+                        });
+                    })()}
+                  </div>
+                </div>
+
+                {/* Step 3: Course, Due Date & Score Visibility */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Khóa học áp dụng *
+                    </label>
+                    <select
+                      value={passageAssignCourseId}
+                      onChange={(e) => setPassageAssignCourseId(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium"
+                    >
+                      {courses.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Hạn nộp bài
+                    </label>
+                    <input
+                      type="date"
+                      value={passageAssignDueDate}
+                      onChange={(e) => setPassageAssignDueDate(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Chế độ xem điểm
+                    </label>
+                    <select
+                      value={passageAssignScoreVisibility}
+                      onChange={(e) => setPassageAssignScoreVisibility(e.target.value as any)}
+                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium"
+                    >
+                      <option value="private">🔒 Private (Chỉ GV thấy điểm)</option>
+                      <option value="public">🌐 Public (Học viên thấy ngay)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setPassageAssignResource(null)}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={isImportingFromLibrary || passageAssignList.filter((p) => p.isSelected).length === 0}
+                  onClick={handleConfirmMultiPassageAssignment}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  <span>
+                    {isImportingFromLibrary
+                      ? 'Đang tạo bài tập...'
+                      : `Giao ${passageAssignList.filter((p) => p.isSelected).length} Passages (${passageAssignList.filter((p) => p.isSelected).reduce((sum, p) => sum + (p.questions?.length || 0), 0)} câu)`}
+                  </span>
+                </button>
               </div>
             </div>
           </div>

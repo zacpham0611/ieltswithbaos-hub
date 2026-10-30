@@ -377,7 +377,54 @@ export function gradeSingleQuestion(
     };
   }
 
-  // 11. Completion & Short-Answer Question Types:
+  // 11. Summary Completion with Word List / Options
+  if (q.type === 'summary_completion' && q.options && q.options.length > 0) {
+    const userLetter = extractChoiceLetter(userAns);
+    const keyLetter = extractChoiceLetter(key);
+
+    let isMatch = false;
+    if (userLetter && keyLetter && userLetter === keyLetter) {
+      isMatch = true;
+    } else {
+      const getNormalizedOptionText = (val: string): string => {
+        const letVal = extractChoiceLetter(val);
+        if (letVal) {
+          const optMatch = q.options?.find((o) => extractChoiceLetter(o) === letVal);
+          if (optMatch) return normalizeAnswerText(optMatch.replace(/^[A-Za-z][\.\:\s]\s*/, ''));
+        }
+        return normalizeAnswerText(val.replace(/^[A-Za-z][\.\:\s]\s*/, ''));
+      };
+
+      const userText = getNormalizedOptionText(userAns);
+      const keyText = getNormalizedOptionText(key);
+      if (userText && keyText && userText === keyText) {
+        isMatch = true;
+      } else if (userLetter) {
+        const optMatch = q.options.find((o) => extractChoiceLetter(o) === userLetter);
+        if (optMatch) {
+          const optText = normalizeAnswerText(optMatch.replace(/^[A-Za-z][\.\:\s]\s*/, ''));
+          if (optText && normalizeAnswerText(key).includes(optText)) {
+            isMatch = true;
+          }
+        }
+      }
+    }
+
+    if (isMatch) {
+      return {
+        questionId: qId,
+        userAnswer: userAns,
+        correctAnswer: key,
+        isCorrect: true,
+        isPendingReview: false,
+        earnedPoints: maxPoints,
+        maxPoints,
+        explanation,
+      };
+    }
+  }
+
+  // 12. Completion & Short-Answer Question Types:
   // (sentence_completion, summary_completion, note_completion, table_completion,
   //  flowchart_completion, short_answer, diagram_completion, fill_in_the_blank)
   //

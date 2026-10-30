@@ -230,7 +230,10 @@ export function resolveQuestionPrompt(raw: any, fallbackIndex?: number): string 
 
   for (const cand of candidates) {
     if (typeof cand === 'string' && cand.trim().length > 0) {
-      return cand.trim();
+      let cleaned = cand.trim();
+      // Format numbered blanks like "33 ........" to "(33) ........"
+      cleaned = cleaned.replace(/(?:^|\s)(?!\()(\d+)\s*([\.]{3,}|_{3,})/g, ' ($1) $2');
+      return cleaned.trim();
     }
   }
 
@@ -472,6 +475,7 @@ export interface QuestionRenderGroup {
   instructions?: string;
   headingsList?: string[];
   featuresList?: string[];
+  wordList?: string[];
   wordLimit?: string;
   questions: Array<{ q: ReadingQuestion; idx: number }>;
 }
@@ -486,11 +490,18 @@ export function buildQuestionRenderGroups(questions: ReadingQuestion[]): Questio
     const q = questions[idx];
     const headingsKey = q.headingsList && q.headingsList.length > 0 ? q.headingsList.join('|') : '';
     const featuresKey = q.featuresList && q.featuresList.length > 0 ? q.featuresList.join('|') : '';
+    const qWordList = (q.type === 'summary_completion' && q.options && q.options.length > 0)
+      ? q.options
+      : (q as any).wordList && (q as any).wordList.length > 0
+      ? (q as any).wordList
+      : undefined;
+    const wordListKey = qWordList ? qWordList.join('|') : '';
     const wordLimit = q.wordLimit || (q.maxWords ? `NO MORE THAN ${q.maxWords} WORD${q.maxWords > 1 ? 'S' : ''}` : undefined);
     const instruction = (q as any).instruction || (q as any).groupInstruction || (q as any).instructions || '';
 
     const sameHeadings = (currentGroup?.headingsList?.join('|') || '') === headingsKey;
     const sameFeatures = (currentGroup?.featuresList?.join('|') || '') === featuresKey;
+    const sameWordList = (currentGroup?.wordList?.join('|') || '') === wordListKey;
     const sameInstruction = (currentGroup?.instructions || '') === instruction;
     const sameWordLimit = (currentGroup?.wordLimit || '') === (wordLimit || '');
 
@@ -498,8 +509,9 @@ export function buildQuestionRenderGroups(questions: ReadingQuestion[]): Questio
       currentGroup &&
       (headingsKey ? sameHeadings : true) &&
       (featuresKey ? sameFeatures : true) &&
+      (wordListKey ? sameWordList : true) &&
       (instruction ? sameInstruction : true) &&
-      (!headingsKey && !featuresKey && !instruction ? sameWordLimit : true)
+      (!headingsKey && !featuresKey && !wordListKey && !instruction ? sameWordLimit : true)
     );
 
     if (shouldContinueGroup && currentGroup) {
@@ -518,6 +530,7 @@ export function buildQuestionRenderGroups(questions: ReadingQuestion[]): Questio
         instructions: instruction || undefined,
         headingsList: q.headingsList && q.headingsList.length > 0 ? q.headingsList : undefined,
         featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
+        wordList: qWordList,
         wordLimit,
         questions: [{ q, idx }],
       };
