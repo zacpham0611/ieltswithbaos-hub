@@ -365,7 +365,7 @@ export const AssessmentsView: React.FC = () => {
         )}
 
         {/* PRINTABLE REPORT CARD (LANDSCAPE FORMAT) */}
-        <div className="print-page bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-10 space-y-7">
+        <div className="print-page print-landscape bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-10 space-y-7">
           {/* Section 1: Landscape Header Profile */}
           <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-7 rounded-2xl shadow-md border border-slate-800 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-800 pb-4">

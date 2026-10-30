@@ -595,7 +595,7 @@ export const TuitionView: React.FC = () => {
 
             <button
               onClick={() => window.print()}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-black text-white text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
+              className="whitespace-nowrap shrink-0 px-3.5 py-2 bg-slate-800 hover:bg-black text-white text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
             >
               <Printer className="w-4 h-4" />
               <span>{t('tuition.exportPdfBtn')}</span>
@@ -604,7 +604,7 @@ export const TuitionView: React.FC = () => {
             {isTeacher && activeStatement.status === 'pending_approval' && (
               <button
                 onClick={() => approveTuitionStatement(activeStatement.id)}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
+                className="whitespace-nowrap shrink-0 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
               >
                 <CheckCircle className="w-4 h-4" />
                 <span>{t('tuition.approveBtn')}</span>
@@ -614,7 +614,7 @@ export const TuitionView: React.FC = () => {
             {isTeacher && activeStatement.status === 'approved' && (
               <button
                 onClick={() => publishTuitionStatement(activeStatement.id)}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
+                className="whitespace-nowrap shrink-0 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
               >
                 <CheckCircle className="w-4 h-4" />
                 <span>{t('tuition.publishBtn')}</span>
@@ -627,7 +627,7 @@ export const TuitionView: React.FC = () => {
                   setPayAmount(activeStatement.remainingBalance);
                   setShowPayModal(true);
                 }}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
+                className="whitespace-nowrap shrink-0 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
               >
                 <DollarSign className="w-4 h-4" />
                 <span>{t('tuition.recordPaymentBtn')}</span>
@@ -640,7 +640,7 @@ export const TuitionView: React.FC = () => {
                   setConfirmPaidDeleteChecked(false);
                   setStatementToDelete(activeStatement);
                 }}
-                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
+                className="whitespace-nowrap shrink-0 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
                 title={getPdfLabel('Delete statement', 'Xóa phiếu học phí')}
               >
                 <Trash2 className="w-4 h-4 text-rose-600" />
@@ -650,321 +650,486 @@ export const TuitionView: React.FC = () => {
           </div>
         </div>
 
-        {/* PRINTABLE STATEMENT CONTAINER */}
-        <div className="print-page bg-white rounded-xl border border-slate-200 shadow-md p-6 sm:p-10 space-y-8 font-sans">
-          {/* Header block with logo and title */}
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between pb-6 border-b-2 border-slate-800 gap-4">
-            <div>
-              <div className="flex items-center space-x-2 text-slate-900 font-extrabold text-2xl tracking-tight">
-                <span className="w-3.5 h-3.5 bg-blue-700 inline-block"></span>
-                <span>IELTS Teaching Hub</span>
-              </div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mt-1">
-                {getPdfLabel('MONTHLY TUITION STATEMENT • STUDENT COPY', 'PHIẾU BÁO HỌC PHÍ HÀNG THÁNG • BẢN HỌC VIÊN')}
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="font-extrabold text-lg text-slate-900 uppercase">
-                {activeStatement.billingPeriod}
-              </span>
-            </div>
-          </div>
+        {/* PRINTABLE STATEMENT CONTAINERS (PAGINATION-OPTIMIZED: MAX 2 A4 PAGES) */}
+        {(() => {
+          const sessionCount = activeStatement.teachingDates?.length || 0;
+          const chargeCount = activeStatement.itemizedCharges.length + (activeStatement.discountAmount > 0 ? 1 : 0);
+          const paymentCount = activeStatement.payments.length;
+          const auditCount = activeStatement.auditHistory.length;
+          const qrUrl = activeStatement.bankInfo?.qrCodeUrl || activeStatement.qrCodeUrl || currentUser.paymentQrUrl;
+          const isMultiPage = sessionCount > 8 || chargeCount > 4 || paymentCount > 1 || (sessionCount > 4 && paymentCount > 0) || auditCount > 3;
 
-          {/* Student & Course Meta Info */}
-          <div>
-            <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider mb-3">
-              {getPdfLabel('STUDENT INFORMATION', 'THÔNG TIN HỌC VIÊN')}
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-2 gap-y-3 gap-x-6 text-xs">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  {getPdfLabel('STUDENT', 'HỌC VIÊN')}
-                </span>
-                <span className="font-bold text-slate-900 text-sm">{activeStatement.studentName}</span>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  {getPdfLabel('TEACHER', 'GIÁO VIÊN')}
-                </span>
-                <span className="font-bold text-slate-900 text-sm">{activeStatement.teacherName}</span>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  {getPdfLabel('COURSE', 'KHÓA HỌC')}
-                </span>
-                <span className="font-bold text-slate-900">{activeStatement.courseName}</span>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  {getPdfLabel('BILLING PERIOD', 'KỲ HỌC PHÍ')}
-                </span>
-                <span className="font-bold text-slate-900">{activeStatement.billingPeriod}</span>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  {getPdfLabel('STATEMENT NO.', 'SỐ PHIẾU')}
-                </span>
-                <span className="font-mono font-bold text-slate-900">{activeStatement.statementNumber}</span>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  {getPdfLabel('DUE DATE', 'HẠN THANH TOÁN')}
-                </span>
-                <span className="font-bold text-slate-900">{activeStatement.dueDate}</span>
-              </div>
-            </div>
-          </div>
+          // Render Bank & QR Sub-block
+          const renderPaymentInfoBlock = (isCompact: boolean) => (
+            <div className="print-avoid-break">
+              <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider mb-2">
+                {getPdfLabel('PAYMENT INFORMATION', 'THÔNG TIN THANH TOÁN')}
+              </h3>
 
-          {/* Attended Teaching Sessions if available */}
-          {activeStatement.teachingDates && activeStatement.teachingDates.length > 0 && (
-            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/60 text-xs">
-              <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">
-                {getPdfLabel('ATTENDED TEACHING SESSIONS', 'BUỔI HỌC ĐÃ ĐIỂM DANH')} ({activeStatement.teachingDates.length} {getPdfLabel('sessions', 'buổi')}{activeStatement.totalTeachingHours ? ` • ${activeStatement.totalTeachingHours} hrs` : ''})
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {activeStatement.teachingDates.map((dateStr, idx) => (
-                  <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                    ✓ {dateStr}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Fee Breakdown Table */}
-          <div>
-            <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider mb-2">
-              {getPdfLabel('FEE BREAKDOWN', 'CHI TIẾT CÁC KHOẢN PHÍ')}
-            </h3>
-            <div className="border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900 text-white font-bold text-[10px] uppercase">
-                  <tr>
-                    <th className="py-2.5 px-4">{getPdfLabel('Description', 'Diễn giải')}</th>
-                    <th className="py-2.5 px-4">{getPdfLabel('Quantity', 'Số lượng')}</th>
-                    <th className="py-2.5 px-4">{getPdfLabel('Unit price', 'Đơn giá')}</th>
-                    <th className="py-2.5 px-4 text-right">{getPdfLabel('Amount', 'Thành tiền')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {activeStatement.itemizedCharges.map((item) => (
-                    <tr key={item.id}>
-                      <td className="py-2.5 px-4 font-medium text-slate-800">{item.description}</td>
-                      <td className="py-2.5 px-4 text-slate-600">{item.quantity ?? '—'}</td>
-                      <td className="py-2.5 px-4 text-slate-600">
-                        {item.unitPrice ? `${activeStatement.currency} ${item.unitPrice.toLocaleString()}` : '—'}
-                      </td>
-                      <td className="py-2.5 px-4 text-right font-bold text-slate-900">
-                        {item.amount > 0 ? `${activeStatement.currency} ${item.amount.toLocaleString()}` : '—'}
-                      </td>
-                    </tr>
-                  ))}
-
-                  {/* Discount */}
-                  {activeStatement.discountAmount > 0 && (
-                    <tr className="bg-slate-50/50">
-                      <td className="py-2.5 px-4 font-medium text-slate-800">
-                        {activeStatement.discountDescription || getPdfLabel('Discount', 'Chiết khấu / Giảm giá')}
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-600">—</td>
-                      <td className="py-2.5 px-4 text-slate-600">—</td>
-                      <td className="py-2.5 px-4 text-right font-bold text-emerald-700">
-                        − {activeStatement.currency} {activeStatement.discountAmount.toLocaleString()}
-                      </td>
-                    </tr>
-                  )}
-
-                  {/* Previous Balance */}
-                  <tr>
-                    <td className="py-2 px-4 font-medium text-slate-600">
-                      {getPdfLabel('Previous balance', 'Số dư kỳ trước')}
-                    </td>
-                    <td className="py-2 px-4 text-slate-400">—</td>
-                    <td className="py-2 px-4 text-slate-400">—</td>
-                    <td className="py-2 px-4 text-right font-medium text-slate-600">
-                      {activeStatement.currency} {activeStatement.previousBalance.toLocaleString()}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-
-              {/* Total Due Banner */}
-              <div className="bg-blue-50/80 px-4 py-3 flex items-center justify-between border-t border-slate-200">
-                <span className="font-extrabold text-sm text-slate-900 uppercase">
-                  {getPdfLabel('TOTAL AMOUNT DUE', 'TỔNG TIỀN PHẢI THANH TOÁN')}
-                </span>
-                <span className="font-extrabold text-xl text-blue-800">
-                  {activeStatement.currency} {activeStatement.totalAmountDue.toLocaleString()}
-                </span>
-              </div>
-
-              {/* Payment Status summary strip */}
-              <div className="bg-white px-4 py-2 text-xs flex items-center justify-between border-t border-slate-200 text-slate-600">
-                <span>
-                  {getPdfLabel('Payment status', 'Trạng thái')}: <strong className="capitalize text-slate-900">{activeStatement.status.replace('_', ' ')}</strong>
-                </span>
-                <span>
-                  {getPdfLabel('Amount paid', 'Đã thanh toán')}: <strong>{activeStatement.currency} {activeStatement.amountPaid.toLocaleString()}</strong> • {getPdfLabel('Remaining', 'Còn lại')}: <strong className="text-red-700">{activeStatement.currency} {activeStatement.remainingBalance.toLocaleString()}</strong>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Payment Information & QR code */}
-          <div>
-            <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider mb-2">
-              {getPdfLabel('PAYMENT INFORMATION', 'THÔNG TIN THANH TOÁN')}
-            </h3>
-
-            <div className="border border-slate-200 rounded-lg overflow-hidden grid grid-cols-1 md:grid-cols-2">
-              {/* Bank Transfer Details */}
-              <div className="p-4 space-y-3 border-b md:border-b-0 md:border-r border-slate-200">
-                <div className="bg-slate-900 text-white text-[10px] font-bold uppercase px-3 py-1 rounded-sm w-fit">
-                  {getPdfLabel('BANK TRANSFER', 'CHUYỂN KHOẢN NGÂN HÀNG')}
-                </div>
-                <div className="text-xs space-y-1.5">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      {getPdfLabel('Bank name', 'Tên ngân hàng')}
-                    </span>
-                    <span className="font-bold text-slate-800">{activeStatement.bankInfo.bankName}</span>
+              <div className="border border-slate-200 rounded-lg overflow-hidden grid grid-cols-1 md:grid-cols-2">
+                {/* Bank Transfer Details */}
+                <div className={`${isCompact ? 'p-3 space-y-2' : 'p-4 space-y-3'} border-b md:border-b-0 md:border-r border-slate-200`}>
+                  <div className="bg-slate-900 text-white text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-sm w-fit">
+                    {getPdfLabel('BANK TRANSFER', 'CHUYỂN KHOẢN NGÂN HÀNG')}
                   </div>
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      {getPdfLabel('Account holder', 'Chủ tài khoản')}
-                    </span>
-                    <span className="font-bold text-slate-800">{activeStatement.bankInfo.accountHolder}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      {getPdfLabel('Account number', 'Số tài khoản')}
-                    </span>
-                    <span className="font-mono font-bold text-slate-900 text-sm tracking-wider">
-                      {activeStatement.bankInfo.accountNumber}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      {getPdfLabel('Branch', 'Chi nhánh')}
-                    </span>
-                    <span className="font-semibold text-slate-800">{activeStatement.bankInfo.branch}</span>
-                  </div>
-                  <div className="pt-1">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      {getPdfLabel('Transfer description', 'Nội dung chuyển khoản')}
-                    </span>
-                    <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 block mt-0.5">
-                      {activeStatement.bankInfo.transferDescription}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-[10px] text-slate-400 pt-1">
-                  {getPdfLabel(
-                    'Please verify the recipient and amount before confirming your transfer.',
-                    'Vui lòng kiểm tra kỹ người nhận và số tiền trước khi xác nhận chuyển khoản.'
-                  )}
-                </p>
-              </div>
-
-              {/* Scan to Pay QR Graphic */}
-              {(() => {
-                const qrUrl = activeStatement.bankInfo?.qrCodeUrl || activeStatement.qrCodeUrl || currentUser.paymentQrUrl;
-                if (!qrUrl) {
-                  return (
-                    <div className="p-4 flex flex-col items-center justify-center text-center space-y-2 bg-slate-50/50">
-                      <div className="bg-slate-200 text-slate-700 text-[10px] font-bold uppercase px-3 py-1 rounded-sm">
-                        {getPdfLabel('DIRECT TRANSFER', 'CHUYỂN KHOẢN TRỰC TIẾP')}
-                      </div>
-                      <p className="text-xs text-slate-500 max-w-xs mt-2">
-                        {getPdfLabel(
-                          'No payment QR code is attached. Please use the account details on the left for manual mobile banking transfer.',
-                          'Không có mã QR thanh toán đính kèm. Vui lòng chuyển khoản theo thông tin tài khoản bên trái.'
-                        )}
-                      </p>
-                      <p className="font-mono font-bold text-slate-700 text-xs mt-1">
-                        {getPdfLabel('Reference', 'Nội dung CK')}: {activeStatement.bankInfo?.transferDescription || activeStatement.statementNumber}
-                      </p>
+                  <div className="text-xs space-y-1">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        {getPdfLabel('Bank name', 'Tên ngân hàng')}
+                      </span>
+                      <span className="font-bold text-slate-800">{activeStatement.bankInfo.bankName}</span>
                     </div>
-                  );
-                }
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        {getPdfLabel('Account holder', 'Chủ tài khoản')}
+                      </span>
+                      <span className="font-bold text-slate-800">{activeStatement.bankInfo.accountHolder}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        {getPdfLabel('Account number', 'Số tài khoản')}
+                      </span>
+                      <span className="font-mono font-bold text-slate-900 text-sm tracking-wider">
+                        {activeStatement.bankInfo.accountNumber}
+                      </span>
+                    </div>
+                    {activeStatement.bankInfo.branch && (
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                          {getPdfLabel('Branch', 'Chi nhánh')}
+                        </span>
+                        <span className="font-semibold text-slate-800">{activeStatement.bankInfo.branch}</span>
+                      </div>
+                    )}
+                    <div className="pt-0.5">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        {getPdfLabel('Transfer description', 'Nội dung chuyển khoản')}
+                      </span>
+                      <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 block mt-0.5 text-xs">
+                        {activeStatement.bankInfo.transferDescription || activeStatement.statementNumber}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 pt-0.5">
+                    {getPdfLabel(
+                      'Please verify the recipient and amount before confirming your transfer.',
+                      'Vui lòng kiểm tra kỹ người nhận và số tiền trước khi xác nhận chuyển khoản.'
+                    )}
+                  </p>
+                </div>
 
-                return (
-                  <div className="p-4 flex flex-col items-center justify-center text-center space-y-2.5 bg-slate-50/50">
-                    <div className="bg-slate-900 text-white text-[10px] font-bold uppercase px-3 py-1 rounded-sm">
+                {/* Scan to Pay QR Graphic */}
+                {!qrUrl ? (
+                  <div className="p-3 flex flex-col items-center justify-center text-center space-y-1.5 bg-slate-50/50">
+                    <div className="bg-slate-200 text-slate-700 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-sm">
+                      {getPdfLabel('DIRECT TRANSFER', 'CHUYỂN KHOẢN TRỰC TIẾP')}
+                    </div>
+                    <p className="text-xs text-slate-500 max-w-xs mt-1">
+                      {getPdfLabel(
+                        'No payment QR code is attached. Please use the account details on the left for manual mobile banking transfer.',
+                        'Không có mã QR thanh toán đính kèm. Vui lòng chuyển khoản theo thông tin tài khoản bên trái.'
+                      )}
+                    </p>
+                    <p className="font-mono font-bold text-slate-700 text-xs mt-1">
+                      {getPdfLabel('Reference', 'Nội dung CK')}: {activeStatement.bankInfo?.transferDescription || activeStatement.statementNumber}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-3 flex flex-col items-center justify-center text-center space-y-2 bg-slate-50/50">
+                    <div className="bg-slate-900 text-white text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-sm">
                       {getPdfLabel('SCAN TO PAY', 'QUÉT MÃ ĐỂ THANH TOÁN')}
                     </div>
                     <img
                       src={qrUrl}
                       alt="Payment QR Code"
-                      className="w-40 h-40 object-contain rounded-lg border border-slate-300 bg-white p-2 shadow-xs"
+                      className={`${isCompact ? 'w-24 h-24' : 'w-32 h-32'} object-contain rounded-lg border border-slate-300 bg-white p-1.5 shadow-2xs`}
                     />
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[10px] text-slate-500">
                       <p>{getPdfLabel('Scan using your banking or e-wallet app.', 'Quét bằng app ngân hàng hoặc ví điện tử.')}</p>
                       <p className="font-mono font-bold text-slate-700 mt-0.5">
                         {getPdfLabel('Reference', 'Mã phiếu')}: {activeStatement.statementNumber}
                       </p>
                     </div>
                   </div>
-                );
-              })()}
+                )}
+              </div>
             </div>
-          </div>
+          );
 
-          {/* Payment History Table if payments exist */}
-          {activeStatement.payments.length > 0 && (
-            <div className="pt-2">
-              <h4 className="text-xs font-extrabold uppercase text-slate-800 tracking-wider mb-2">
-                {getPdfLabel('PAYMENT HISTORY & SETTLEMENTS', 'LỊCH SỬ THANH TOÁN & ĐỐI SOÁT')}
-              </h4>
-              <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] uppercase font-bold">
+          // Render Fee Breakdown Table
+          const renderFeeTable = () => (
+            <div className="print-avoid-break">
+              <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider mb-2">
+                {getPdfLabel('FEE BREAKDOWN', 'CHI TIẾT CÁC KHOẢN PHÍ')}
+              </h3>
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-900 text-white font-bold text-[10px] uppercase">
                     <tr>
-                      <th className="py-2 px-3">{getPdfLabel('Date', 'Ngày')}</th>
-                      <th className="py-2 px-3">{getPdfLabel('Method', 'Phương thức')}</th>
-                      <th className="py-2 px-3">{getPdfLabel('Transaction Ref', 'Mã giao dịch')}</th>
-                      <th className="py-2 px-3 text-right">{getPdfLabel('Amount Paid', 'Số tiền')}</th>
+                      <th className="py-2 px-3.5">{getPdfLabel('Description', 'Diễn giải')}</th>
+                      <th className="py-2 px-3.5 text-center">{getPdfLabel('Quantity', 'Số lượng')}</th>
+                      <th className="py-2 px-3.5 text-right">{getPdfLabel('Unit price', 'Đơn giá')}</th>
+                      <th className="py-2 px-3.5 text-right">{getPdfLabel('Amount', 'Thành tiền')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {activeStatement.payments.map((p) => (
-                      <tr key={p.id}>
-                        <td className="py-2 px-3 text-slate-700">{p.paymentDate}</td>
-                        <td className="py-2 px-3 text-slate-700">{p.paymentMethod}</td>
-                        <td className="py-2 px-3 font-mono text-slate-600">{p.transactionReference}</td>
-                        <td className="py-2 px-3 text-right font-bold text-emerald-700">
-                          {activeStatement.currency} {p.amount.toLocaleString()}
+                  <tbody className="divide-y divide-slate-200">
+                    {activeStatement.itemizedCharges.map((item) => (
+                      <tr key={item.id}>
+                        <td className="py-2 px-3.5 font-medium text-slate-800">{item.description}</td>
+                        <td className="py-2 px-3.5 text-center text-slate-600">{item.quantity ?? '—'}</td>
+                        <td className="py-2 px-3.5 text-right text-slate-600">
+                          {item.unitPrice ? `${activeStatement.currency} ${item.unitPrice.toLocaleString()}` : '—'}
+                        </td>
+                        <td className="py-2 px-3.5 text-right font-bold text-slate-900">
+                          {item.amount > 0 ? `${activeStatement.currency} ${item.amount.toLocaleString()}` : '—'}
                         </td>
                       </tr>
                     ))}
+
+                    {/* Discount */}
+                    {activeStatement.discountAmount > 0 && (
+                      <tr className="bg-slate-50/50">
+                        <td className="py-2 px-3.5 font-medium text-slate-800">
+                          {activeStatement.discountDescription || getPdfLabel('Discount', 'Chiết khấu / Giảm giá')}
+                        </td>
+                        <td className="py-2 px-3.5 text-center text-slate-600">—</td>
+                        <td className="py-2 px-3.5 text-right text-slate-600">—</td>
+                        <td className="py-2 px-3.5 text-right font-bold text-emerald-700">
+                          − {activeStatement.currency} {activeStatement.discountAmount.toLocaleString()}
+                        </td>
+                      </tr>
+                    )}
+
+                    {/* Previous Balance */}
+                    <tr>
+                      <td className="py-1.5 px-3.5 font-medium text-slate-600">
+                        {getPdfLabel('Previous balance', 'Số dư kỳ trước')}
+                      </td>
+                      <td className="py-1.5 px-3.5 text-center text-slate-400">—</td>
+                      <td className="py-1.5 px-3.5 text-right text-slate-400">—</td>
+                      <td className="py-1.5 px-3.5 text-right font-medium text-slate-600">
+                        {activeStatement.currency} {activeStatement.previousBalance.toLocaleString()}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
+
+                {/* Total Due Banner */}
+                <div className="bg-blue-50/90 px-4 py-2.5 flex items-center justify-between border-t border-slate-200">
+                  <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wide">
+                    {getPdfLabel('TOTAL AMOUNT DUE', 'TỔNG TIỀN PHẢI THANH TOÁN')}
+                  </span>
+                  <span className="font-extrabold text-lg text-blue-900">
+                    {activeStatement.currency} {activeStatement.totalAmountDue.toLocaleString()}
+                  </span>
+                </div>
+
+                {/* Payment Status summary strip */}
+                <div className="bg-white px-4 py-2 text-xs flex flex-wrap items-center justify-between border-t border-slate-200 text-slate-600 gap-2">
+                  <div className="flex items-center space-x-1.5">
+                    <span>{getPdfLabel('Payment status', 'Trạng thái')}:</span>
+                    <strong className="capitalize text-slate-900 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 border border-slate-200">
+                      {activeStatement.status.replace('_', ' ')}
+                    </strong>
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs">
+                    <span>
+                      {getPdfLabel('Amount paid', 'Đã thanh toán')}: <strong className="text-slate-900">{activeStatement.currency} {activeStatement.amountPaid.toLocaleString()}</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      {getPdfLabel('Remaining', 'Còn lại')}: <strong className="text-rose-700 font-bold">{activeStatement.currency} {activeStatement.remainingBalance.toLocaleString()}</strong>
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-          )}
+          );
 
-          {/* Audit Trail */}
-          <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500 space-y-1">
-            <span className="font-bold text-slate-700 flex items-center space-x-1 mb-1">
-              <History className="w-3.5 h-3.5" />
-              <span>{getPdfLabel('Traceable Audit History:', 'Lịch sử kiểm tra đối soát:')}</span>
-            </span>
-            {activeStatement.auditHistory.map((a, i) => (
-              <div key={i} className="flex justify-between">
-                <span>• {a.action} ({a.user})</span>
-                <span>{a.timestamp}</span>
+          // Render Payment History Table
+          const renderPaymentHistory = () => (
+            activeStatement.payments.length > 0 ? (
+              <div className="print-avoid-break">
+                <h4 className="text-xs font-extrabold uppercase text-slate-800 tracking-wider mb-2">
+                  {getPdfLabel('PAYMENT HISTORY & SETTLEMENTS', 'LỊCH SỬ THANH TOÁN & ĐỐI SOÁT')}
+                </h4>
+                <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[10px] uppercase font-bold">
+                      <tr>
+                        <th className="py-2 px-3">{getPdfLabel('Date', 'Ngày')}</th>
+                        <th className="py-2 px-3">{getPdfLabel('Method', 'Phương thức')}</th>
+                        <th className="py-2 px-3">{getPdfLabel('Transaction Ref', 'Mã giao dịch')}</th>
+                        <th className="py-2 px-3 text-right">{getPdfLabel('Amount Paid', 'Số tiền')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {activeStatement.payments.map((p) => (
+                        <tr key={p.id}>
+                          <td className="py-1.5 px-3 text-slate-700">{p.paymentDate}</td>
+                          <td className="py-1.5 px-3 text-slate-700">{p.paymentMethod}</td>
+                          <td className="py-1.5 px-3 font-mono text-slate-600">{p.transactionReference}</td>
+                          <td className="py-1.5 px-3 text-right font-bold text-emerald-700">
+                            {activeStatement.currency} {p.amount.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            ))}
-          </div>
+            ) : null
+          );
 
-          {/* Legal Disclaimer */}
-          <div className="text-[10px] text-slate-400 text-center pt-4 border-t border-slate-100">
-            {getPdfLabel(
-              'This statement is a tuition payment document generated by IELTS Teaching Hub, not a legally compliant tax invoice.',
-              'Phiếu này là chứng từ học phí được tạo từ IELTS Teaching Hub, không phải hóa đơn giá trị gia tăng.'
-            )}
-          </div>
-        </div>
+          // Render Audit History & Disclaimer
+          const renderAuditAndDisclaimer = () => (
+            <div className="space-y-2 pt-2 border-t border-slate-200 print-avoid-break">
+              {activeStatement.auditHistory.length > 0 && (
+                <div className="text-[10px] text-slate-500 space-y-0.5">
+                  <span className="font-bold text-slate-700 flex items-center space-x-1 mb-0.5">
+                    <History className="w-3 h-3 text-slate-400" />
+                    <span>{getPdfLabel('Traceable Audit History:', 'Lịch sử đối soát:')}</span>
+                  </span>
+                  {activeStatement.auditHistory.slice(0, 3).map((a, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span>• {a.action} ({a.user})</span>
+                      <span className="text-slate-400">{a.timestamp}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="text-[9px] text-slate-400 text-center pt-2 border-t border-slate-100">
+                {getPdfLabel(
+                  'This statement is a tuition payment document generated by IELTS Teaching Hub, not a tax invoice.',
+                  'Phiếu này là chứng từ học phí được tạo từ IELTS Teaching Hub, không phải hóa đơn giá trị gia tăng.'
+                )}
+              </div>
+            </div>
+          );
+
+          // -------------------------------------------------------------
+          // CONDITIONAL RENDERING: SINGLE-PAGE MODE
+          // -------------------------------------------------------------
+          if (!isMultiPage) {
+            return (
+              <div className="print-page bg-white rounded-xl border border-slate-200 shadow-md p-6 sm:p-8 space-y-4 font-sans">
+                {/* Header */}
+                <div className="flex items-start justify-between pb-4 border-b-2 border-slate-800 gap-4">
+                  <div>
+                    <div className="flex items-center space-x-2 text-slate-900 font-extrabold text-xl tracking-tight">
+                      <span className="w-3 h-3 bg-blue-700 inline-block"></span>
+                      <span>IELTS Teaching Hub</span>
+                    </div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-0.5">
+                      {getPdfLabel('MONTHLY TUITION STATEMENT • STUDENT COPY', 'PHIẾU BÁO HỌC PHÍ HÀNG THÁNG • BẢN HỌC VIÊN')}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-extrabold text-base text-slate-900 uppercase">
+                      {activeStatement.billingPeriod}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Student & Course Meta Info */}
+                <div className="print-avoid-break">
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs">
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">{getPdfLabel('STUDENT', 'HỌC VIÊN')}</span>
+                      <span className="font-bold text-slate-900 text-xs">{activeStatement.studentName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">{getPdfLabel('TEACHER', 'GIÁO VIÊN')}</span>
+                      <span className="font-bold text-slate-900 text-xs">{activeStatement.teacherName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">{getPdfLabel('COURSE', 'KHÓA HỌC')}</span>
+                      <span className="font-bold text-slate-800">{activeStatement.courseName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">{getPdfLabel('DUE DATE', 'HẠN THANH TOÁN')}</span>
+                      <span className="font-bold text-slate-800">{activeStatement.dueDate}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">{getPdfLabel('STATEMENT NO.', 'SỐ PHIẾU')}</span>
+                      <span className="font-mono font-bold text-slate-800">{activeStatement.statementNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">{getPdfLabel('BILLING PERIOD', 'KỲ HỌC PHÍ')}</span>
+                      <span className="font-bold text-slate-800">{activeStatement.billingPeriod}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Attended Teaching Sessions */}
+                {activeStatement.teachingDates && activeStatement.teachingDates.length > 0 && (
+                  <div className="border border-slate-200 rounded-lg p-2.5 bg-slate-50/60 text-xs print-avoid-break">
+                    <span className="text-[9px] uppercase font-bold text-slate-500 block mb-1">
+                      {getPdfLabel('ATTENDED TEACHING SESSIONS', 'BUỔI HỌC ĐÃ ĐIỂM DANH')} ({activeStatement.teachingDates.length} {getPdfLabel('sessions', 'buổi')}{activeStatement.totalTeachingHours ? ` • ${activeStatement.totalTeachingHours} hrs` : ''})
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {activeStatement.teachingDates.map((dateStr, idx) => (
+                        <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                          ✓ {dateStr}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Fee Breakdown Table */}
+                {renderFeeTable()}
+
+                {/* Payment Information & QR code */}
+                {renderPaymentInfoBlock(true)}
+
+                {/* Payment History if any */}
+                {renderPaymentHistory()}
+
+                {/* Audit & Disclaimer */}
+                {renderAuditAndDisclaimer()}
+
+                {/* Page Indicator Footer */}
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400 print-avoid-break">
+                  <span>{activeStatement.statementNumber} • {activeStatement.billingPeriod}</span>
+                  <span className="font-semibold text-slate-500">{getPdfLabel('Page 1 of 1', 'Trang 1 / 1')}</span>
+                </div>
+              </div>
+            );
+          }
+
+          // -------------------------------------------------------------
+          // CONDITIONAL RENDERING: MULTI-PAGE MODE (EXACTLY 2 A4 PAGES)
+          // -------------------------------------------------------------
+          return (
+            <div className="space-y-6">
+              {/* PAGE 1 CONTAINER */}
+              <div className="print-page bg-white rounded-xl border border-slate-200 shadow-md p-6 sm:p-8 space-y-4 font-sans relative">
+                {/* Header */}
+                <div className="flex items-start justify-between pb-4 border-b-2 border-slate-800 gap-4">
+                  <div>
+                    <div className="flex items-center space-x-2 text-slate-900 font-extrabold text-xl tracking-tight">
+                      <span className="w-3.5 h-3.5 bg-blue-700 inline-block"></span>
+                      <span>IELTS Teaching Hub</span>
+                    </div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-0.5">
+                      {getPdfLabel('MONTHLY TUITION STATEMENT • STUDENT COPY', 'PHIẾU BÁO HỌC PHÍ HÀNG THÁNG • BẢN HỌC VIÊN')}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-extrabold text-base text-slate-900 uppercase">
+                      {activeStatement.billingPeriod}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Student & Course Meta Info */}
+                <div className="print-avoid-break">
+                  <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider mb-2">
+                    {getPdfLabel('STUDENT INFORMATION', 'THÔNG TIN HỌC VIÊN')}
+                  </h3>
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">{getPdfLabel('STUDENT', 'HỌC VIÊN')}</span>
+                      <span className="font-bold text-slate-900 text-sm">{activeStatement.studentName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">{getPdfLabel('TEACHER', 'GIÁO VIÊN')}</span>
+                      <span className="font-bold text-slate-900 text-sm">{activeStatement.teacherName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">{getPdfLabel('COURSE', 'KHÓA HỌC')}</span>
+                      <span className="font-bold text-slate-800">{activeStatement.courseName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">{getPdfLabel('DUE DATE', 'HẠN THANH TOÁN')}</span>
+                      <span className="font-bold text-slate-800">{activeStatement.dueDate}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">{getPdfLabel('STATEMENT NO.', 'SỐ PHIẾU')}</span>
+                      <span className="font-mono font-bold text-slate-900">{activeStatement.statementNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">{getPdfLabel('BILLING PERIOD', 'KỲ HỌC PHÍ')}</span>
+                      <span className="font-bold text-slate-800">{activeStatement.billingPeriod}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Attended Teaching Sessions */}
+                {activeStatement.teachingDates && activeStatement.teachingDates.length > 0 && (
+                  <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/60 text-xs print-avoid-break">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">
+                      {getPdfLabel('ATTENDED TEACHING SESSIONS', 'BUỔI HỌC ĐÃ ĐIỂM DANH')} ({activeStatement.teachingDates.length} {getPdfLabel('sessions', 'buổi')}{activeStatement.totalTeachingHours ? ` • ${activeStatement.totalTeachingHours} hrs` : ''})
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {activeStatement.teachingDates.map((dateStr, idx) => (
+                        <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                          ✓ {dateStr}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Fee Breakdown Table */}
+                {renderFeeTable()}
+
+                {/* Transition notice to Page 2 */}
+                <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center justify-between print-avoid-break">
+                  <span className="font-medium">
+                    {getPdfLabel(
+                      'Payment instructions, bank QR code, and settlement history are detailed on Page 2.',
+                      'Hướng dẫn chuyển khoản, mã QR và lịch sử thanh toán được trình bày chi tiết tại Trang 2.'
+                    )}
+                  </span>
+                  <span className="font-bold text-blue-700 ml-2 whitespace-nowrap">&rarr; {getPdfLabel('See Page 2', 'Xem Trang 2')}</span>
+                </div>
+
+                {/* Page 1 Footer */}
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400 print-avoid-break">
+                  <span>{activeStatement.statementNumber} • {activeStatement.billingPeriod}</span>
+                  <span className="font-bold text-slate-600">{getPdfLabel('Page 1 of 2', 'Trang 1 / 2')}</span>
+                </div>
+              </div>
+
+              {/* PAGE 2 CONTAINER */}
+              <div className="print-page print-force-page-break bg-white rounded-xl border border-slate-200 shadow-md p-6 sm:p-8 space-y-4 font-sans relative">
+                {/* Compact Page 2 Header */}
+                <div className="flex items-center justify-between pb-3 border-b-2 border-slate-800 text-xs">
+                  <div className="flex items-center space-x-2 text-slate-900 font-extrabold">
+                    <span className="w-2.5 h-2.5 bg-blue-700 inline-block"></span>
+                    <span>IELTS Teaching Hub • {getPdfLabel('TUITION STATEMENT', 'PHIẾU HỌC PHÍ')}</span>
+                  </div>
+                  <div className="flex items-center space-x-3 text-slate-600 text-[11px]">
+                    <span>{activeStatement.studentName}</span>
+                    <span>•</span>
+                    <span className="font-mono">{activeStatement.statementNumber}</span>
+                    <span>•</span>
+                    <span className="font-bold text-blue-800">
+                      {activeStatement.currency} {activeStatement.totalAmountDue.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Payment Information & QR code */}
+                {renderPaymentInfoBlock(false)}
+
+                {/* Payment History Table */}
+                {renderPaymentHistory()}
+
+                {/* Audit & Legal Disclaimer */}
+                {renderAuditAndDisclaimer()}
+
+                {/* Page 2 Footer */}
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400 print-avoid-break">
+                  <span>{activeStatement.statementNumber} • {activeStatement.billingPeriod}</span>
+                  <span className="font-bold text-slate-600">{getPdfLabel('Page 2 of 2', 'Trang 2 / 2')}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Modal: Record Payment */}
         {showPayModal && (
@@ -1124,50 +1289,50 @@ export const TuitionView: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveSubTab('statements')}
-            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
               activeSubTab === 'statements'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <WalletCards className="w-4 h-4" />
-            <span>Statements & Billing</span>
+            <span>{t('tuition.tabStatements')}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveSubTab('calendar')}
-            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
               activeSubTab === 'calendar'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <Calendar className="w-4 h-4" />
-            <span>Teaching Calendar & Attendance</span>
+            <span>{t('tuition.tabCalendar')}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveSubTab('qr_banking')}
-            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
               activeSubTab === 'qr_banking'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <QrCode className="w-4 h-4" />
-            <span>Payment QR & Bank Info</span>
+            <span>{t('tuition.tabQrBanking')}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveSubTab('settings')}
-            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1.5 ${
               activeSubTab === 'settings'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <CreditCard className="w-4 h-4" />
-            <span>Course Fee Policies</span>
+            <span>{t('tuition.tabPolicies')}</span>
           </button>
         </div>
       )}
@@ -1366,7 +1531,7 @@ export const TuitionView: React.FC = () => {
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
               <div>
-                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Target Course</label>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">{t('tuition.calTargetCourse')}</label>
                 <select
                   value={calendarCourseId || effectiveCalCourseId}
                   onChange={(e) => setCalendarCourseId(e.target.value)}
@@ -1383,13 +1548,13 @@ export const TuitionView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Scope</label>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">{t('tuition.calStudentScope')}</label>
                 <select
                   value={calendarStudentId}
                   onChange={(e) => setCalendarStudentId(e.target.value)}
                   className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-700 bg-white outline-hidden"
                 >
-                  <option value="">All Course Students (Group / Class)</option>
+                  <option value="">{t('tuition.calAllStudents')}</option>
                   {courseMembers
                     .filter((m) => (!effectiveCalCourseId || m.courseId === effectiveCalCourseId) && m.status === 'enrolled')
                     .map((m) => (
@@ -1401,7 +1566,7 @@ export const TuitionView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Session Duration</label>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">{t('tuition.calSessionDuration')}</label>
                 <div className="flex items-center space-x-1">
                   {[60, 90, 120].map((dur) => (
                     <button
@@ -1449,11 +1614,8 @@ export const TuitionView: React.FC = () => {
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="space-y-0.5 text-center sm:text-left">
               <span className="text-xs font-bold text-blue-900">
-                Attendance Summary for {calMonthName}
+                {t('tuition.calRecordedSessions')}: <strong className="font-extrabold text-blue-900">{calMonthSessions.length}</strong> · {t('tuition.calTotalHours')}: <strong className="font-extrabold text-blue-900">{calTotalHours} hrs</strong> · Model: <span className="font-bold uppercase text-[10px]">{activeCalCourse?.tuitionModel.replace('_', ' ') || 'Fixed'}</span>
               </span>
-              <p className="text-xs text-blue-700">
-                Marked Sessions: <strong className="font-extrabold text-blue-900">{calMonthSessions.length}</strong> · Total Teaching Hours: <strong className="font-extrabold text-blue-900">{calTotalHours} hrs</strong> · Model: <span className="font-bold uppercase text-[10px]">{activeCalCourse?.tuitionModel.replace('_', ' ') || 'Fixed'}</span>
-              </p>
             </div>
 
             <button
@@ -1464,10 +1626,10 @@ export const TuitionView: React.FC = () => {
                 setCalcPeriod(calMonthName);
                 setShowCalcModal(true);
               }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center space-x-1.5"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center space-x-1.5 whitespace-nowrap shrink-0"
             >
               <DollarSign className="w-4 h-4" />
-              <span>Generate Statement for {calMonthName} &rarr;</span>
+              <span>{t('tuition.calGenerateMonth', { month: calMonthName })} &rarr;</span>
             </button>
           </div>
 
@@ -1475,13 +1637,13 @@ export const TuitionView: React.FC = () => {
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4">
             {/* Weekday Header */}
             <div className="grid grid-cols-7 gap-2 mb-2 text-center text-[11px] font-bold uppercase text-slate-400 tracking-wider">
-              <div>Mon</div>
-              <div>Tue</div>
-              <div>Wed</div>
-              <div>Thu</div>
-              <div>Fri</div>
-              <div>Sat</div>
-              <div>Sun</div>
+              <div>{t('tuition.calDaysMon')}</div>
+              <div>{t('tuition.calDaysTue')}</div>
+              <div>{t('tuition.calDaysWed')}</div>
+              <div>{t('tuition.calDaysThu')}</div>
+              <div>{t('tuition.calDaysFri')}</div>
+              <div>{t('tuition.calDaysSat')}</div>
+              <div>{t('tuition.calDaysSun')}</div>
             </div>
 
             {/* Date Cells */}
@@ -1552,10 +1714,10 @@ export const TuitionView: React.FC = () => {
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
                 <Building className="w-5 h-5 text-blue-600" />
-                <span>Teacher Bank Transfer Details</span>
+                <span>{t('tuition.bankDetailsTitle')}</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                These banking instructions will be automatically displayed on student tuition statements and printable bilingual PDF receipts.
+                {t('tuition.bankDetailsDesc')}
               </p>
             </div>
 
@@ -1572,7 +1734,7 @@ export const TuitionView: React.FC = () => {
 
             <form onSubmit={handleSaveBankInfo} className="space-y-3 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Bank Name</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('settings.bankName')}</label>
                 <input
                   type="text"
                   required
@@ -1584,7 +1746,7 @@ export const TuitionView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Account Holder Name</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('settings.accountHolder')}</label>
                 <input
                   type="text"
                   required
@@ -1596,7 +1758,7 @@ export const TuitionView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Account Number</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('settings.accountNumber')}</label>
                 <input
                   type="text"
                   required
@@ -1608,7 +1770,7 @@ export const TuitionView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Branch (Optional)</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('tuition.branchOptional')}</label>
                 <input
                   type="text"
                   value={branch}
@@ -1619,7 +1781,7 @@ export const TuitionView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Transfer Description / Message Prefix</label>
+                <label className="block font-semibold text-slate-700 mb-1">{t('tuition.transferDescPrefix')}</label>
                 <input
                   type="text"
                   value={transferDesc}
@@ -1627,9 +1789,6 @@ export const TuitionView: React.FC = () => {
                   placeholder="e.g. IELTS {STUDENT_NAME} {STATEMENT_NO}"
                   className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden font-mono"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Students will be instructed to include this exact message when sending mobile banking payments.
-                </p>
               </div>
 
               <div className="pt-2">
@@ -1639,7 +1798,7 @@ export const TuitionView: React.FC = () => {
                   className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs transition-colors flex items-center justify-center space-x-1.5"
                 >
                   <Building className="w-4 h-4" />
-                  <span>{isSavingBank ? 'Saving...' : 'Save Banking Details'}</span>
+                  <span>{isSavingBank ? t('common.loading') : t('tuition.saveBankBtn')}</span>
                 </button>
               </div>
             </form>
@@ -1651,10 +1810,10 @@ export const TuitionView: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
                   <QrCode className="w-5 h-5 text-blue-600" />
-                  <span>Teacher Payment QR Code</span>
+                  <span>{t('tuition.uploadQrTitle')}</span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Upload your VietQR, banking QR code, or payment gateway image (PNG, JPG, WEBP, SVG ≤ 5MB).
+                  {t('tuition.bankDetailsDesc')}
                 </p>
               </div>
 
@@ -1686,9 +1845,9 @@ export const TuitionView: React.FC = () => {
                 ) : (
                   <div className="text-center space-y-2 text-slate-400 py-6">
                     <QrCode className="w-12 h-12 mx-auto stroke-1 text-slate-300" />
-                    <p className="text-xs font-medium">No QR code uploaded yet</p>
+                    <p className="text-xs font-medium">{t('tuition.noCoursesYet') || 'No QR code uploaded yet'}</p>
                     <p className="text-[11px] text-slate-400">
-                      Upload your QR image below to enable scan-to-pay for students.
+                      {t('tuition.qrNote')}
                     </p>
                   </div>
                 )}
@@ -1707,10 +1866,10 @@ export const TuitionView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex-1 py-2 px-3 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-2xs"
+                  className="flex-1 py-2 px-3 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-2xs whitespace-nowrap"
                 >
                   <Upload className="w-4 h-4 text-slate-500" />
-                  <span>{currentUser.paymentQrUrl ? 'Select Replacement QR' : 'Select QR Image'}</span>
+                  <span>{currentUser.paymentQrUrl ? t('tuition.replaceQrBtn') : t('tuition.selectQrBtn')}</span>
                 </button>
 
                 {qrFile && (
@@ -1718,9 +1877,9 @@ export const TuitionView: React.FC = () => {
                     type="button"
                     disabled={isUploadingQr}
                     onClick={handleUploadQr}
-                    className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                    className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs whitespace-nowrap"
                   >
-                    {isUploadingQr ? 'Uploading...' : 'Save QR'}
+                    {isUploadingQr ? t('common.loading') : t('tuition.saveQrBtn')}
                   </button>
                 )}
 
@@ -1729,11 +1888,11 @@ export const TuitionView: React.FC = () => {
                     type="button"
                     disabled={isUploadingQr}
                     onClick={handleRemoveQr}
-                    className="py-2 px-3 border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1"
-                    title="Remove QR code"
+                    className="py-2 px-3 border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 whitespace-nowrap"
+                    title={t('tuition.removeQrBtn')}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Remove</span>
+                    <span>{t('tuition.removeQrBtn')}</span>
                   </button>
                 )}
               </div>
@@ -1741,7 +1900,7 @@ export const TuitionView: React.FC = () => {
 
             <div className="pt-4 border-t border-slate-100 text-[11px] text-slate-400">
               <span className="font-semibold text-slate-600">Note: </span>
-              If no QR code is uploaded, tuition statements will cleanly omit the QR code section and provide clear text instructions for manual bank transfer.
+              {t('tuition.qrNote')}
             </div>
           </div>
         </div>
@@ -1754,10 +1913,10 @@ export const TuitionView: React.FC = () => {
             <div>
               <h2 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
                 <CreditCard className="w-4 h-4 text-blue-600" />
-                <span>Course Tuition Policies & Settings</span>
+                <span>{t('tuition.policiesTitle')}</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Configured fee schedules, rates, and due policies synchronized across courses
+                {t('tuition.policiesDesc')}
               </p>
             </div>
             <button
@@ -1765,17 +1924,17 @@ export const TuitionView: React.FC = () => {
                 if (courses.length > 0) setCfgCourseId(courses[0].id);
                 setShowConfigModal(true);
               }}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center space-x-1 whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Configure Course</span>
+              <span>{t('tuition.configureCourseBtn')}</span>
             </button>
           </div>
 
           <div className="divide-y divide-slate-100">
             {courses.filter((c) => c.teacherId === currentUser.id).length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-400">
-                No courses created yet. Create a course first to set up tuition policies.
+                {t('tuition.noCoursesYet')}
               </div>
             ) : (
               courses
@@ -1810,13 +1969,13 @@ export const TuitionView: React.FC = () => {
                         </div>
                         <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
                           <span>
-                            Rate: <strong className="text-slate-800">{cfg.currency} {cfg.amount.toLocaleString()}</strong>
+                            {t('tuition.rateLabel')}: <strong className="text-slate-800">{cfg.currency} {cfg.amount.toLocaleString()}</strong>
                             {cfg.model === 'per_session' ? ' / session' : cfg.model === 'hourly' ? ' / hour' : cfg.model === 'fixed_monthly' ? ' / month' : ' (package)'}
                           </span>
-                          <span>Due window: <strong>{cfg.dueDays || 15} days</strong></span>
+                          <span>{t('tuition.dueWindowLabel')}: <strong>{cfg.dueDays || 15} days</strong></span>
                           {cfg.earlyPaymentDiscountPercent ? (
                             <span className="text-emerald-600 font-semibold">
-                              Early discount: {cfg.earlyPaymentDiscountPercent}%
+                              {t('tuition.earlyDiscountLabel')}: {cfg.earlyPaymentDiscountPercent}%
                             </span>
                           ) : null}
                         </div>
@@ -1824,10 +1983,10 @@ export const TuitionView: React.FC = () => {
 
                       <button
                         onClick={() => openEditCourseFee(cfg as FeeConfiguration)}
-                        className="self-start sm:self-center px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors flex items-center space-x-1.5"
+                        className="self-start sm:self-center px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors flex items-center space-x-1.5 whitespace-nowrap shrink-0"
                       >
                         <Edit className="w-3.5 h-3.5" />
-                        <span>Edit Policy</span>
+                        <span>{t('tuition.editPolicyBtn')}</span>
                       </button>
                     </div>
                   );

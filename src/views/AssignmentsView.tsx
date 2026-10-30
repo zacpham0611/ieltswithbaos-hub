@@ -1232,12 +1232,12 @@ export const AssignmentsView: React.FC = () => {
 
                 <div className="flex items-center space-x-3">
                   <div className="text-right">
-                    <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider">Calculated Band</span>
+                    <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider">{t('assignments.calculatedBand')}</span>
                     <span className="text-xl font-black text-blue-700">Band {(currentSubmission.score || calculatedReadingBand).toFixed(1)}</span>
                   </div>
                   <div className="h-8 w-px bg-blue-200" />
                   <div className="text-right">
-                    <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider">Correct Answers</span>
+                    <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider">{t('assignments.correctAnswersCount')}</span>
                     <span className="text-xl font-black text-emerald-700">{correctCount} / {totalQuestionsCount}</span>
                   </div>
                 </div>
@@ -1246,7 +1246,7 @@ export const AssignmentsView: React.FC = () => {
               {/* Question-by-Question Review */}
               <div className="space-y-4 pt-2">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Detailed Question Breakdown & Error Analysis
+                  {t('assignments.detailedBreakdown')}
                 </h4>
 
                 {readingQuestionsList.length === 0 ? (
@@ -1308,23 +1308,23 @@ export const AssignmentsView: React.FC = () => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
                           <div className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-0.5">
-                            <span className="text-slate-500 font-semibold block">Student's Answer:</span>
+                            <span className="text-slate-500 font-semibold block">{t('assignments.studentsAnswer')}:</span>
                             <span className={`font-mono font-bold text-sm ${studentAns ? (isCorrect ? 'text-emerald-700' : 'text-red-700') : 'text-slate-400 italic'}`}>
-                              {studentAns || '(No response submitted)'}
+                              {studentAns || t('assignments.noResponseSubmitted')}
                             </span>
                           </div>
 
                           <div className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-0.5">
-                            <span className="text-slate-500 font-semibold block">Official Answer Key:</span>
+                            <span className="text-slate-500 font-semibold block">{t('assignments.officialAnswerKeyLabel')}:</span>
                             <span className="font-mono font-bold text-sm text-emerald-800">
-                              {correctAns || '(Answer key not set)'}
+                              {correctAns || t('assignments.answerKeyNotSet')}
                             </span>
                           </div>
                         </div>
 
                         {q.explanation && (
                           <div className="mt-2 p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-900">
-                            <span className="font-bold block mb-0.5">Explanation & Passage Citation:</span>
+                            <span className="font-bold block mb-0.5">{t('assignments.explanationPassageCitation')}:</span>
                             <p className="leading-relaxed">{q.explanation}</p>
                           </div>
                         )}
@@ -1344,7 +1344,7 @@ export const AssignmentsView: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
                       <ImageIcon className="w-4 h-4 text-blue-600" />
-                      <span>Task 1 Chart / Graph Diagram</span>
+                      <span>{t('assignments.task1Diagram')}</span>
                     </span>
                     <button
                       type="button"
@@ -1352,7 +1352,7 @@ export const AssignmentsView: React.FC = () => {
                       className="text-xs text-blue-600 font-semibold hover:underline flex items-center space-x-1"
                     >
                       <ZoomIn className="w-3.5 h-3.5" />
-                      <span>Zoom Diagram</span>
+                      <span>{t('assignments.zoomDiagram')}</span>
                     </button>
                   </div>
                   <img
@@ -2034,7 +2034,7 @@ export const AssignmentsView: React.FC = () => {
 
                   <div className="flex items-center space-x-3">
                     <div className="text-right">
-                      <span className="text-xs text-slate-500 font-semibold block">Official Estimated Band</span>
+                      <span className="text-xs text-slate-500 font-semibold block">{t('assignments.officialEstimatedBand')}</span>
                       <span className="text-3xl font-extrabold text-emerald-700">
                         Band {mySub.readingScore.estimatedBand?.toFixed(1) || 'N/A'}
                       </span>
@@ -2056,7 +2056,7 @@ export const AssignmentsView: React.FC = () => {
                 className="fixed z-50 bg-slate-900 text-white shadow-xl rounded-xl px-2.5 py-1.5 flex items-center space-x-2 text-xs -translate-x-1/2 -translate-y-full border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
                 style={{ left: floatingToolbarPos.x, top: floatingToolbarPos.y }}
               >
-                <span className="text-[11px] text-slate-400 font-semibold">Highlight:</span>
+                <span className="text-[11px] text-slate-400 font-semibold">{t('assignments.highlightText')}:</span>
                 <button
                   type="button"
                   onClick={() => handleApplyHighlight('yellow')}
