@@ -480,14 +480,32 @@ export interface QuestionRenderGroup {
   questions: Array<{ q: ReadingQuestion; idx: number }>;
 }
 
-export function buildQuestionRenderGroups(questions: ReadingQuestion[]): QuestionRenderGroup[] {
+export type QuestionInputItem =
+  | ReadingQuestion
+  | { q: ReadingQuestion; idx?: number; absoluteIdx?: number; [key: string]: any };
+
+export function buildQuestionRenderGroups(
+  questions: QuestionInputItem[]
+): QuestionRenderGroup[] {
   if (!questions || questions.length === 0) return [];
 
   const groups: QuestionRenderGroup[] = [];
   let currentGroup: QuestionRenderGroup | null = null;
 
-  for (let idx = 0; idx < questions.length; idx++) {
-    const q = questions[idx];
+  for (let i = 0; i < questions.length; i++) {
+    const rawItem = questions[i];
+    const q: ReadingQuestion =
+      rawItem && typeof rawItem === 'object' && 'q' in rawItem && (rawItem as any).q
+        ? (rawItem as any).q
+        : (rawItem as ReadingQuestion);
+
+    const idx =
+      rawItem && typeof rawItem === 'object' && typeof (rawItem as any).absoluteIdx === 'number'
+        ? (rawItem as any).absoluteIdx
+        : rawItem && typeof rawItem === 'object' && typeof (rawItem as any).idx === 'number'
+        ? (rawItem as any).idx
+        : i;
+
     const headingsKey = q.headingsList && q.headingsList.length > 0 ? q.headingsList.join('|') : '';
     const featuresKey = q.featuresList && q.featuresList.length > 0 ? q.featuresList.join('|') : '';
     const qWordList = (q.type === 'summary_completion' && q.options && q.options.length > 0)

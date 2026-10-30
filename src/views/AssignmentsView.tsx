@@ -85,7 +85,74 @@ import {
   ArrowUp,
   ArrowDown,
   CheckSquare,
+  Eraser,
 } from 'lucide-react';
+
+export type PastelMarkerColor =
+  | 'pastel_pink'
+  | 'pastel_orange'
+  | 'pastel_yellow'
+  | 'pastel_green'
+  | 'pastel_blue'
+  | 'pastel_purple';
+
+export interface ReadingMarkerItem {
+  id: string;
+  passageIndex: number;
+  text: string;
+  color: PastelMarkerColor;
+}
+
+export const PASTEL_MARKER_COLORS: Array<{
+  id: PastelMarkerColor;
+  label: string;
+  bgHex: string;
+  markClass: string;
+  dotClass: string;
+}> = [
+  {
+    id: 'pastel_pink',
+    label: 'Pastel Pink / Red',
+    bgHex: '#ffd1dc',
+    markClass: 'bg-[#ffd1dc]/90 text-rose-950 hover:bg-[#ffb6c1]',
+    dotClass: 'bg-[#ffd1dc] border-[#f48fb1]',
+  },
+  {
+    id: 'pastel_orange',
+    label: 'Pastel Orange',
+    bgHex: '#ffe0b2',
+    markClass: 'bg-[#ffe0b2]/90 text-amber-950 hover:bg-[#ffcc80]',
+    dotClass: 'bg-[#ffe0b2] border-[#ffb74d]',
+  },
+  {
+    id: 'pastel_yellow',
+    label: 'Pastel Yellow',
+    bgHex: '#fff9c4',
+    markClass: 'bg-[#fff9c4]/90 text-yellow-950 hover:bg-[#fff59d]',
+    dotClass: 'bg-[#fff9c4] border-[#fff176]',
+  },
+  {
+    id: 'pastel_green',
+    label: 'Pastel Green',
+    bgHex: '#c8e6c9',
+    markClass: 'bg-[#c8e6c9]/90 text-emerald-950 hover:bg-[#a5d6a7]',
+    dotClass: 'bg-[#c8e6c9] border-[#81c784]',
+  },
+  {
+    id: 'pastel_blue',
+    label: 'Pastel Blue',
+    bgHex: '#bbdefb',
+    markClass: 'bg-[#bbdefb]/90 text-sky-950 hover:bg-[#90caf9]',
+    dotClass: 'bg-[#bbdefb] border-[#64b5f6]',
+  },
+  {
+    id: 'pastel_purple',
+    label: 'Pastel Purple',
+    bgHex: '#e1bee7',
+    markClass: 'bg-[#e1bee7]/90 text-purple-950 hover:bg-[#ce93d8]',
+    dotClass: 'bg-[#e1bee7] border-[#ba68c8]',
+  },
+];
 
 export const AssignmentsView: React.FC = () => {
   const {
@@ -181,13 +248,9 @@ export const AssignmentsView: React.FC = () => {
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
-  // Passage Highlighting state
-  interface TextHighlight {
-    id: string;
-    text: string;
-    color: 'yellow' | 'green' | 'pink';
-  }
-  const [passageHighlights, setPassageHighlights] = useState<TextHighlight[]>([]);
+  // IELTS Reading Marker state
+  const [selectedMarkerColor, setSelectedMarkerColor] = useState<PastelMarkerColor | null>('pastel_yellow');
+  const [readingMarkers, setReadingMarkers] = useState<ReadingMarkerItem[]>([]);
   const [floatingToolbarPos, setFloatingToolbarPos] = useState<{ x: number; y: number; text: string } | null>(null);
 
   // Multi-Passage Tab state
@@ -327,16 +390,35 @@ export const AssignmentsView: React.FC = () => {
         setReadingAnswers(currentSubmission.readingAnswers);
       }
 
-      // Load highlights
-      const hlKey = `ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`;
-      const savedHl = localStorage.getItem(hlKey);
-      if (savedHl) {
+      // Load Reading Markers
+      const markerKey = `ielts_reading_markers_${currentUser.id}_${activeAssignment.id}`;
+      const legacyHlKey = `ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`;
+      const savedMarkers = localStorage.getItem(markerKey) || localStorage.getItem(legacyHlKey);
+      if (savedMarkers) {
         try {
-          const parsedHl = JSON.parse(savedHl);
-          if (Array.isArray(parsedHl)) setPassageHighlights(parsedHl);
+          const parsedMarkers = JSON.parse(savedMarkers);
+          if (Array.isArray(parsedMarkers)) {
+            // Normalize markers to ensure pastel colors and passageIndex
+            const normalizedMarkers: ReadingMarkerItem[] = parsedMarkers.map((m: any) => ({
+              id: m.id || `mark_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              passageIndex: typeof m.passageIndex === 'number' ? m.passageIndex : 0,
+              text: m.text || '',
+              color:
+                m.color === 'green'
+                  ? 'pastel_green'
+                  : m.color === 'pink'
+                  ? 'pastel_pink'
+                  : m.color === 'yellow'
+                  ? 'pastel_yellow'
+                  : PASTEL_MARKER_COLORS.some((c) => c.id === m.color)
+                  ? m.color
+                  : 'pastel_yellow',
+            }));
+            setReadingMarkers(normalizedMarkers);
+          }
         } catch {}
       } else {
-        setPassageHighlights([]);
+        setReadingMarkers([]);
       }
     } else if (activeAssignment.skill === 'writing') {
       const storageKey = `ielts_writing_draft_${activeAssignment.id}_${currentUser.id}`;
@@ -409,7 +491,53 @@ export const AssignmentsView: React.FC = () => {
     };
   }, [isDraggingSplit]);
 
-  // Passage Highlighting Handlers
+  // IELTS Reading Marker Handlers & Storage
+  const saveReadingMarkers = (updated: ReadingMarkerItem[]) => {
+    setReadingMarkers(updated);
+    if (activeAssignment && currentUser) {
+      localStorage.setItem(
+        `ielts_reading_markers_${currentUser.id}_${activeAssignment.id}`,
+        JSON.stringify(updated)
+      );
+    }
+  };
+
+  const handleApplyMarker = (text: string, color: PastelMarkerColor) => {
+    const trimmed = text.trim();
+    if (!trimmed || !activeAssignment) return;
+    const currentPIdx =
+      activeAssignment.passages && activeAssignment.passages.length > 0
+        ? Math.min(activePassageTab, activeAssignment.passages.length - 1)
+        : 0;
+
+    const newMarker: ReadingMarkerItem = {
+      id: `mark_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      passageIndex: currentPIdx,
+      text: trimmed,
+      color,
+    };
+    const updated = [...readingMarkers, newMarker];
+    saveReadingMarkers(updated);
+    setFloatingToolbarPos(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const handleRemoveMarker = (id: string) => {
+    const updated = readingMarkers.filter((m) => m.id !== id);
+    saveReadingMarkers(updated);
+  };
+
+  const handleClearPassageMarkers = (pIdx?: number) => {
+    const currentPIdx =
+      pIdx !== undefined
+        ? pIdx
+        : activeAssignment?.passages && activeAssignment.passages.length > 0
+        ? Math.min(activePassageTab, activeAssignment.passages.length - 1)
+        : 0;
+    const updated = readingMarkers.filter((m) => m.passageIndex !== currentPIdx);
+    saveReadingMarkers(updated);
+  };
+
   const handlePassageMouseUp = () => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
@@ -421,59 +549,36 @@ export const AssignmentsView: React.FC = () => {
       setFloatingToolbarPos(null);
       return;
     }
-    const range = selection.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
-    setFloatingToolbarPos({
-      x: rect.left + rect.width / 2,
-      y: Math.max(10, rect.top - 42),
-      text,
-    });
+
+    if (selectedMarkerColor) {
+      // Highlight immediately with selected marker color
+      handleApplyMarker(text, selectedMarkerColor);
+    } else {
+      // Display floating palette with 6 pastel colors
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setFloatingToolbarPos({
+        x: rect.left + rect.width / 2,
+        y: Math.max(10, rect.top - 42),
+        text,
+      });
+    }
   };
 
-  const handleApplyHighlight = (color: 'yellow' | 'green' | 'pink') => {
-    if (!floatingToolbarPos || !activeAssignment) return;
-    const newHighlight: TextHighlight = {
-      id: `hl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      text: floatingToolbarPos.text,
-      color,
-    };
-    const updated = [...passageHighlights, newHighlight];
-    setPassageHighlights(updated);
-    localStorage.setItem(
-      `ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`,
-      JSON.stringify(updated)
-    );
-    setFloatingToolbarPos(null);
-    window.getSelection()?.removeAllRanges();
-  };
-
-  const handleRemoveHighlight = (id: string) => {
-    if (!activeAssignment) return;
-    const updated = passageHighlights.filter((h) => h.id !== id);
-    setPassageHighlights(updated);
-    localStorage.setItem(
-      `ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`,
-      JSON.stringify(updated)
-    );
-  };
-
-  const handleClearAllHighlights = () => {
-    if (!activeAssignment) return;
-    setPassageHighlights([]);
-    localStorage.removeItem(`ielts_reading_highlights_${activeAssignment.id}_${currentUser.id}`);
-  };
-
-  // Safe highlighted passage text renderer
-  const renderHighlightedPassage = (text: string) => {
-    if (!passageHighlights || passageHighlights.length === 0) {
+  // Safe highlighted passage text renderer with 6 pastel colors
+  const renderHighlightedPassage = (text: string, passageIndex: number = 0) => {
+    const activeMarkers = readingMarkers.filter((m) => m.passageIndex === passageIndex);
+    if (!activeMarkers || activeMarkers.length === 0) {
       return text;
     }
 
-    const sorted = [...passageHighlights].sort((a, b) => b.text.length - a.text.length);
+    const sorted = [...activeMarkers].sort((a, b) => b.text.length - a.text.length);
     let parts: (string | React.ReactNode)[] = [text];
 
     sorted.forEach((hl) => {
       const nextParts: (string | React.ReactNode)[] = [];
+      const colDef = PASTEL_MARKER_COLORS.find((c) => c.id === hl.color) || PASTEL_MARKER_COLORS[2];
+
       parts.forEach((p) => {
         if (typeof p !== 'string') {
           nextParts.push(p);
@@ -487,21 +592,15 @@ export const AssignmentsView: React.FC = () => {
           const match = p.slice(idx, idx + hl.text.length);
           const after = p.slice(idx + hl.text.length);
           if (before) nextParts.push(before);
-          const colorClass =
-            hl.color === 'green'
-              ? 'bg-emerald-200 text-emerald-950 hover:bg-emerald-300'
-              : hl.color === 'pink'
-              ? 'bg-pink-200 text-pink-950 hover:bg-pink-300'
-              : 'bg-amber-200 text-amber-950 hover:bg-amber-300';
           nextParts.push(
             <mark
               key={`${hl.id}_${idx}`}
               onClick={(e) => {
                 e.stopPropagation();
-                handleRemoveHighlight(hl.id);
+                handleRemoveMarker(hl.id);
               }}
-              className={`${colorClass} rounded-xs px-0.5 cursor-pointer transition-colors font-medium`}
-              title="Click to remove highlight"
+              className={`${colDef.markClass} rounded-xs px-0.5 cursor-pointer transition-colors font-sans font-medium`}
+              title="Click để xóa marker này"
             >
               {match}
             </mark>
@@ -2136,7 +2235,25 @@ export const AssignmentsView: React.FC = () => {
       }, 4000);
     };
 
-    const questionRenderGroups = buildQuestionRenderGroups(questions);
+    // Indexed questions with dynamic passage assignment
+    const allQuestionsIndexed = questions.map((q, absoluteIdx) => ({
+      q,
+      absoluteIdx,
+      passageIndex: passageMap[q.id] !== undefined ? passageMap[q.id] : ((q as any).passageIndex ?? 0),
+    }));
+
+    const hasMultiPassages = Boolean(activeAssignment.passages && activeAssignment.passages.length > 1);
+
+    const currentPassageQuestionsWithIndex = hasMultiPassages
+      ? allQuestionsIndexed.filter((item) => item.passageIndex === safePassageIndex)
+      : allQuestionsIndexed;
+
+    const activePassageQuestions =
+      currentPassageQuestionsWithIndex.length > 0
+        ? currentPassageQuestionsWithIndex
+        : allQuestionsIndexed;
+
+    const questionRenderGroups = buildQuestionRenderGroups(activePassageQuestions);
 
     return (
       <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
@@ -2272,35 +2389,33 @@ export const AssignmentsView: React.FC = () => {
               </div>
             )}
 
-            {/* Floating Highlight Toolbar */}
+            {/* Floating Highlight Toolbar with 6 Pastel Rainbow Colors */}
             {floatingToolbarPos && (
               <div
-                className="fixed z-50 bg-slate-900 text-white shadow-xl rounded-xl px-2.5 py-1.5 flex items-center space-x-2 text-xs -translate-x-1/2 -translate-y-full border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
+                className="fixed z-50 bg-slate-900 text-white shadow-xl rounded-xl px-3 py-2 flex items-center space-x-2 text-xs -translate-x-1/2 -translate-y-full border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
                 style={{ left: floatingToolbarPos.x, top: floatingToolbarPos.y }}
               >
-                <span className="text-[11px] text-slate-400 font-semibold">{t('assignments.highlightText')}:</span>
-                <button
-                  type="button"
-                  onClick={() => handleApplyHighlight('yellow')}
-                  className="w-5 h-5 rounded-full bg-amber-300 hover:ring-2 hover:ring-amber-500 shadow-xs transition-transform hover:scale-110"
-                  title="Yellow highlight"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleApplyHighlight('green')}
-                  className="w-5 h-5 rounded-full bg-emerald-400 hover:ring-2 hover:ring-emerald-600 shadow-xs transition-transform hover:scale-110"
-                  title="Green highlight"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleApplyHighlight('pink')}
-                  className="w-5 h-5 rounded-full bg-pink-400 hover:ring-2 hover:ring-pink-600 shadow-xs transition-transform hover:scale-110"
-                  title="Pink highlight"
-                />
+                <span className="text-[11px] text-slate-300 font-semibold flex items-center space-x-1">
+                  <Highlighter className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Highlight:</span>
+                </span>
+                <div className="flex items-center space-x-1.5">
+                  {PASTEL_MARKER_COLORS.map((col) => (
+                    <button
+                      key={col.id}
+                      type="button"
+                      onClick={() => handleApplyMarker(floatingToolbarPos.text, col.id)}
+                      style={{ backgroundColor: col.bgHex }}
+                      className="w-5 h-5 rounded-full border border-slate-400/80 hover:ring-2 hover:ring-white shadow-xs transition-transform hover:scale-115"
+                      title={col.label}
+                    />
+                  ))}
+                </div>
+                <div className="h-4 w-px bg-slate-700 mx-0.5" />
                 <button
                   type="button"
                   onClick={() => setFloatingToolbarPos(null)}
-                  className="p-0.5 text-slate-400 hover:text-white rounded ml-1"
+                  className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800"
                   title="Dismiss"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -2330,25 +2445,51 @@ export const AssignmentsView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    {passageHighlights.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleClearAllHighlights}
-                        className="text-xs text-red-600 hover:text-red-800 font-semibold px-2 py-1 bg-red-50 hover:bg-red-100 rounded"
-                      >
-                        Clear Highlights ({passageHighlights.length})
-                      </button>
-                    )}
+                    {/* IELTS Marker Toolbar with 6 Pastel Rainbow Colors */}
+                    <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl shadow-2xs">
+                      <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center space-x-1">
+                        <Highlighter className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="hidden md:inline">Marker:</span>
+                      </span>
+                      {PASTEL_MARKER_COLORS.map((col) => {
+                        const isActive = selectedMarkerColor === col.id;
+                        return (
+                          <button
+                            key={col.id}
+                            type="button"
+                            onClick={() => setSelectedMarkerColor(isActive ? null : col.id)}
+                            style={{ backgroundColor: col.bgHex }}
+                            className={`w-5 h-5 rounded-full border transition-all ${
+                              isActive
+                                ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 border-slate-700 shadow-xs'
+                                : 'border-slate-300 hover:scale-105 opacity-85 hover:opacity-100'
+                            }`}
+                            title={`${col.label}${isActive ? ' (Click to deactivate marker)' : ' (Click to activate marker)'}`}
+                          />
+                        );
+                      })}
+                      {readingMarkers.some((m) => (m.passageIndex ?? 0) === safePassageIndex) && (
+                        <button
+                          type="button"
+                          onClick={() => handleClearPassageMarkers(safePassageIndex)}
+                          className="ml-1 px-1.5 py-0.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded text-xs flex items-center space-x-1 transition-colors"
+                          title="Clear all highlights in this passage"
+                        >
+                          <Eraser className="w-3.5 h-3.5" />
+                          <span className="hidden lg:inline text-[11px] font-semibold">Clear</span>
+                        </button>
+                      )}
+                    </div>
 
                     <button
                       type="button"
                       onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
-                      className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded"
+                      className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                     >
                       Font: {passageFontSize === 'normal' ? '17px' : '19px'}
                     </button>
 
-                    <span className="text-xs text-slate-400 font-mono">
+                    <span className="text-xs text-slate-400 font-mono hidden sm:inline">
                       {((activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) || activeAssignment.readingPassage || '')
                         .split(/\s+/)
                         .filter(Boolean).length}{' '}
@@ -2396,7 +2537,8 @@ export const AssignmentsView: React.FC = () => {
                   {renderHighlightedPassage(
                     (activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) ||
                       activeAssignment.readingPassage ||
-                      'No reading passage text provided.'
+                      'No reading passage text provided.',
+                    safePassageIndex
                   )}
                 </div>
               </div>
@@ -2429,7 +2571,7 @@ export const AssignmentsView: React.FC = () => {
                   </div>
 
                   <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                    {questions.map((q, idx) => {
+                    {activePassageQuestions.map(({ q, absoluteIdx }) => {
                       const isAns = Boolean(readingAnswers[q.id]?.trim());
                       const isFlag = Boolean(flaggedQuestions[q.id]);
                       return (
@@ -2437,9 +2579,6 @@ export const AssignmentsView: React.FC = () => {
                           key={q.id}
                           type="button"
                           onClick={() => {
-                            if (passageMap[q.id] !== undefined && passageMap[q.id] !== activePassageTab) {
-                              setActivePassageTab(passageMap[q.id]);
-                            }
                             const el = document.getElementById(`q_${q.id}`);
                             el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                           }}
@@ -2450,9 +2589,9 @@ export const AssignmentsView: React.FC = () => {
                               ? 'bg-blue-600 text-white shadow-xs'
                               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                           }`}
-                          title={`Question ${idx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
+                          title={`Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
                         >
-                          {idx + 1}
+                          {absoluteIdx + 1}
                         </button>
                       );
                     })}
@@ -2479,7 +2618,233 @@ export const AssignmentsView: React.FC = () => {
                   ) : (
                     /* Interactive Questions Grouped */
                     <div className="space-y-8">
-                      {questionRenderGroups.map((group) => (
+                      {questionRenderGroups.map((group) => {
+                        const isSummaryGroup = Boolean(
+                          (group.wordList && group.wordList.length > 0) ||
+                          (group.questions.length > 0 && group.questions.every(({ q }) => q.type === 'summary_completion' || q.type === 'note_completion')) ||
+                          (group.questions.length > 0 && group.questions.some(({ q }) => q.type === 'summary_completion' && q.options && q.options.length > 0))
+                        );
+
+                        const effectiveWordList =
+                          group.wordList && group.wordList.length > 0
+                            ? group.wordList
+                            : group.questions.find(({ q }) => q.options && q.options.length > 0)?.q.options;
+
+                        if (isSummaryGroup) {
+                          return (
+                            <div key={group.id} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
+                              {/* Group Header: Range Title & Instruction */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-extrabold text-xs uppercase tracking-wider text-blue-900 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200">
+                                    {group.rangeTitle}
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-700">Summary Completion</span>
+                                </div>
+                                {group.wordLimit && (
+                                  <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                                    {group.wordLimit}
+                                  </span>
+                                )}
+                              </div>
+
+                              {group.instructions && (
+                                <p className="text-xs text-slate-700 font-medium italic leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                  {group.instructions}
+                                </p>
+                              )}
+
+                              {/* Complete Word List Box (rendered ONCE at top with no text truncation) */}
+                              {effectiveWordList && effectiveWordList.length > 0 && (
+                                <div className="p-4 bg-gradient-to-br from-blue-50/80 to-indigo-50/60 border border-blue-200 rounded-xl space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-blue-900 uppercase text-xs flex items-center space-x-1.5">
+                                      <BookOpen className="w-4 h-4 text-blue-700" />
+                                      <span>List of Words / Options (A–{String.fromCharCode(64 + effectiveWordList.length)}):</span>
+                                    </span>
+                                    <span className="text-[11px] font-semibold text-blue-700">
+                                      Choose from the options below
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                                    {effectiveWordList.map((opt) => {
+                                      const letter = opt.match(/^([A-Za-z])[\.\:\s]/)?.[1]?.toUpperCase() || '';
+                                      const text = opt.replace(/^[A-Za-z][\.\:\s]\s*/, '');
+                                      return (
+                                        <div
+                                          key={opt}
+                                          className="p-2.5 bg-white rounded-lg border border-blue-200 shadow-2xs flex items-center space-x-2.5 text-xs hover:border-blue-400 transition-colors"
+                                        >
+                                          {letter && (
+                                            <span className="w-5 h-5 rounded-md bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                                              {letter}
+                                            </span>
+                                          )}
+                                          <span className="text-slate-800 font-medium leading-snug break-words">
+                                            {text || opt}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Unified Continuous Summary Text / Blanks */}
+                              <div className="space-y-3 pt-1">
+                                {group.questions.map(({ q, idx }) => {
+                                  const answer = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
+                                  const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
+                                  const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
+                                  const isFlag = Boolean(flaggedQuestions[q.id]);
+                                  const displayPrompt = resolveQuestionPrompt(q, idx + 1);
+
+                                  const promptParts = displayPrompt.split(/(?:\(?\b\d+\)?\s*)?(?:[\.]{3,}|_{3,}|\[\s*\])/);
+                                  const hasBlankMatch = promptParts.length > 1;
+
+                                  return (
+                                    <div
+                                      key={q.id}
+                                      id={`q_${q.id}`}
+                                      className={`p-3.5 rounded-xl border transition-all scroll-mt-6 ${
+                                        result
+                                          ? result.isCorrect
+                                            ? 'border-emerald-300 bg-emerald-50/20'
+                                            : 'border-red-300 bg-red-50/20'
+                                          : 'border-slate-200 bg-slate-50/50 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <div className="flex items-start justify-between gap-2 mb-2">
+                                        <span className="text-xs font-extrabold uppercase px-2 py-0.5 rounded-md bg-slate-200 text-slate-800 font-mono">
+                                          Question {idx + 1}
+                                        </span>
+                                        <div className="flex items-center space-x-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })}
+                                            className={`p-1 rounded text-xs flex items-center space-x-1 ${
+                                              isFlag ? 'text-amber-600 bg-amber-50 font-semibold' : 'text-slate-400 hover:text-slate-600'
+                                            }`}
+                                            title="Flag for review"
+                                          >
+                                            <Flag className="w-3.5 h-3.5" />
+                                            <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
+                                          </button>
+                                          {result && canSeeAnswers && (
+                                            <span
+                                              className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
+                                                result.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                              }`}
+                                            >
+                                              {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Inline Sentence with Embedded Blank */}
+                                      <div className="text-sm font-medium text-slate-800 leading-relaxed">
+                                        {hasBlankMatch ? (
+                                          <span>
+                                            {promptParts[0]}
+                                            <span className="inline-flex items-center mx-1.5 align-middle">
+                                              <span className="font-mono text-xs font-extrabold text-blue-700 bg-blue-100 border border-blue-200 px-1.5 py-1 rounded-l-md">
+                                                [{idx + 1}]
+                                              </span>
+                                              {effectiveWordList && effectiveWordList.length > 0 ? (
+                                                <select
+                                                  disabled={isReadOnly}
+                                                  value={answer}
+                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-bold bg-white text-blue-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                                >
+                                                  <option value="">-- Select A–{String.fromCharCode(64 + effectiveWordList.length)} --</option>
+                                                  {effectiveWordList.map((opt) => {
+                                                    const letterMatch = opt.match(/^([A-Za-z])[\.\:\s]/);
+                                                    const letter = letterMatch ? letterMatch[1].toUpperCase() : opt;
+                                                    return (
+                                                      <option key={opt} value={letter}>
+                                                        {opt}
+                                                      </option>
+                                                    );
+                                                  })}
+                                                </select>
+                                              ) : (
+                                                <input
+                                                  type="text"
+                                                  disabled={isReadOnly}
+                                                  value={answer}
+                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                  placeholder="Type answer..."
+                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 w-32 shadow-2xs"
+                                                />
+                                              )}
+                                            </span>
+                                            {promptParts.slice(1).join('')}
+                                          </span>
+                                        ) : (
+                                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                            <span>{displayPrompt}</span>
+                                            <div className="inline-flex items-center shrink-0">
+                                              <span className="font-mono text-xs font-extrabold text-blue-700 bg-blue-100 border border-blue-200 px-1.5 py-1 rounded-l-md">
+                                                [{idx + 1}]
+                                              </span>
+                                              {effectiveWordList && effectiveWordList.length > 0 ? (
+                                                <select
+                                                  disabled={isReadOnly}
+                                                  value={answer}
+                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-bold bg-white text-blue-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                                >
+                                                  <option value="">-- Select A–{String.fromCharCode(64 + effectiveWordList.length)} --</option>
+                                                  {effectiveWordList.map((opt) => {
+                                                    const letterMatch = opt.match(/^([A-Za-z])[\.\:\s]/);
+                                                    const letter = letterMatch ? letterMatch[1].toUpperCase() : opt;
+                                                    return (
+                                                      <option key={opt} value={letter}>
+                                                        {opt}
+                                                      </option>
+                                                    );
+                                                  })}
+                                                </select>
+                                              ) : (
+                                                <input
+                                                  type="text"
+                                                  disabled={isReadOnly}
+                                                  value={answer}
+                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                  placeholder="Type answer..."
+                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 w-32 shadow-2xs"
+                                                />
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Explanation & Answer Key if Graded */}
+                                      {canSeeAnswers && (
+                                        <div className="mt-2 pt-2 border-t border-slate-200 text-xs flex flex-wrap items-center gap-3">
+                                          <span className="text-slate-600">
+                                            <strong>Answer Key:</strong>{' '}
+                                            <span className="font-mono font-bold text-emerald-700">{q.correctAnswer || 'N/A'}</span>
+                                          </span>
+                                          {q.explanation && (
+                                            <span className="text-slate-500 italic">
+                                              <strong>Citation:</strong> {q.explanation}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return (
                         <div key={group.id} className="space-y-4 pt-1">
                           {/* Group Instruction & Reference Box Banner (Rendered ONCE per question group) */}
                           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
@@ -2704,25 +3069,6 @@ export const AssignmentsView: React.FC = () => {
                                               );
                                             })}
                                           </div>
-
-                                          <div className="pt-1">
-                                            <select
-                                              disabled={isReadOnly}
-                                              value={answer}
-                                              onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                              className="w-full sm:w-72 p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                                            >
-                                              <option value="">-- Or select paragraph from dropdown --</option>
-                                              {matchInfoParagraphs.map((label) => {
-                                                const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
-                                                return (
-                                                  <option key={label} value={letter}>
-                                                    Paragraph {letter}
-                                                  </option>
-                                                );
-                                              })}
-                                            </select>
-                                          </div>
                                         </div>
                                       );
                                     })()
@@ -2942,7 +3288,8 @@ export const AssignmentsView: React.FC = () => {
                             })}
                           </div>
                         </div>
-                      ))}
+                      );
+                    })}
                     </div>
                   )}
                 </div>

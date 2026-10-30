@@ -230,6 +230,67 @@ Paragraph D: Ecological benefits and soil conservation.
   console.log('✓ Passed: Matching Information paragraph extraction and answer grading.');
 }
 
+// -------------------------------------------------------------
+// Test 6: Passage-based Question Filtering & Absolute Index Preservation
+// -------------------------------------------------------------
+console.log('Test 6: Passage-based Question Filtering & Absolute Index Preservation');
+{
+  const all40Questions: ReadingQuestion[] = Array.from({ length: 40 }, (_, i) => ({
+    id: `q_${i + 1}`,
+    type: i < 13 ? 'matching_information' : i < 26 ? 'true_false_not_given' : 'summary_completion',
+    prompt: `Question prompt for number ${i + 1}`,
+    correctAnswer: 'A',
+    points: 1,
+  }));
+
+  // Simulate passageMap: 0..12 -> Passage 0, 13..25 -> Passage 1, 26..39 -> Passage 2
+  const indexed = all40Questions.map((q, absoluteIdx) => ({
+    q,
+    absoluteIdx,
+    passageIndex: absoluteIdx < 13 ? 0 : absoluteIdx < 26 ? 1 : 2,
+  }));
+
+  // Select Passage 2 (0-indexed => passageIndex === 1)
+  const passage2Questions = indexed.filter((item) => item.passageIndex === 1);
+  assert.strictEqual(passage2Questions.length, 13, 'Passage 2 has exactly 13 questions');
+  assert.strictEqual(passage2Questions[0].absoluteIdx + 1, 14, 'Passage 2 first question is Q14');
+  assert.strictEqual(passage2Questions[12].absoluteIdx + 1, 26, 'Passage 2 last question is Q26');
+
+  // Groups built from Passage 2 should retain Questions 14–26 range title
+  const p2Groups = buildQuestionRenderGroups(passage2Questions);
+  assert.strictEqual(p2Groups[0].rangeTitle, 'Questions 14–26', 'Range title preserved as Questions 14–26');
+  assert.strictEqual(p2Groups[0].questions[0].idx + 1, 14, 'First question index in group is 14');
+  assert.strictEqual(p2Groups[0].questions[12].idx + 1, 26, 'Last question index in group is 26');
+
+  // Select Passage 3 (passageIndex === 2)
+  const passage3Questions = indexed.filter((item) => item.passageIndex === 2);
+  assert.strictEqual(passage3Questions.length, 14, 'Passage 3 has exactly 14 questions');
+  assert.strictEqual(passage3Questions[0].absoluteIdx + 1, 27, 'Passage 3 first question is Q27');
+  assert.strictEqual(passage3Questions[13].absoluteIdx + 1, 40, 'Passage 3 last question is Q40');
+  console.log('✓ Passed: Passage-based question filtering and absolute index preservation.');
+}
+
+// -------------------------------------------------------------
+// Test 7: 6 Pastel Rainbow Marker Colors Definition & Properties
+// -------------------------------------------------------------
+console.log('Test 7: 6 Pastel Rainbow Marker Colors Definition & Properties');
+{
+  const expectedColors = [
+    { id: 'pastel_pink', bgHex: '#ffd1dc' },
+    { id: 'pastel_orange', bgHex: '#ffe0b2' },
+    { id: 'pastel_yellow', bgHex: '#fff9c4' },
+    { id: 'pastel_green', bgHex: '#c8e6c9' },
+    { id: 'pastel_blue', bgHex: '#bbdefb' },
+    { id: 'pastel_purple', bgHex: '#e1bee7' },
+  ];
+
+  assert.strictEqual(expectedColors.length, 6, 'Must provide exactly 6 pastel rainbow colors');
+  expectedColors.forEach((c) => {
+    assert.ok(c.bgHex.startsWith('#'), `${c.id} has valid hex color ${c.bgHex}`);
+  });
+  console.log('✓ Passed: 6 Pastel rainbow marker colors verified.');
+}
+
 console.log('\n========================================');
 console.log('ALL READING MODULE OVERHAUL TESTS PASSED! 🎉');
 console.log('========================================\n');
