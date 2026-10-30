@@ -143,9 +143,11 @@ export interface ReadingQuestion {
   correctAnswer: string;
   explanation: string;
   points?: number;
-  source?: 'extracted_from_doc' | 'ai_generated';
+  source?: 'extracted_from_doc' | 'ai_generated' | 'answer_key_extracted' | 'source_extracted' | string;
   answerKeyConfidence?: 'high' | 'medium' | 'needs_teacher_review';
   needsReview?: boolean;
+  citation?: string;
+  isTeacherEdited?: boolean;
 }
 
 export interface QuestionGroup {

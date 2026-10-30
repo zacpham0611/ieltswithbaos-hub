@@ -39,6 +39,8 @@ import {
   Layers,
   GraduationCap,
   HelpCircle,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 
 interface SmartDocumentImportModalProps {
@@ -544,19 +546,44 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         setTeacherNotes(data.teacherNotes || '');
 
         if (Array.isArray(data.questions)) {
-          questions = data.questions.map((q: any, idx: number) => ({
-            id: q.id || `q_${idx + 1}`,
-            type: q.type || 'multiple_choice',
-            prompt: q.prompt || `Question ${idx + 1}`,
-            options: Array.isArray(q.options) ? q.options : undefined,
-            matchingPairs: Array.isArray(q.matchingPairs) ? q.matchingPairs : undefined,
-            correctAnswer: q.correctAnswer || '',
-            explanation: q.explanation || 'Verified from source document.',
-            points: Number(q.points) || 1,
-            source: q.source || (assignConversionMode === 'generate_new' ? 'ai_generated' : 'extracted_from_doc'),
-            answerKeyConfidence: q.answerKeyConfidence || 'needs_teacher_review',
-            needsReview: q.answerKeyConfidence === 'needs_teacher_review' || !q.correctAnswer,
-          }));
+          questions = data.questions.map((q: any, idx: number) => {
+            const prevTeacherEdited =
+              reviewedQuestions.find((r, rIdx) => (r.id === q.id || rIdx === idx) && r.isTeacherEdited) ||
+              editableQuestions.find((r, rIdx) => (r.id === q.id || rIdx === idx) && r.isTeacherEdited);
+
+            if (prevTeacherEdited) {
+              return {
+                id: q.id || `q_${idx + 1}`,
+                type: q.type || 'multiple_choice',
+                prompt: q.prompt || `Question ${idx + 1}`,
+                options: Array.isArray(q.options) ? q.options : undefined,
+                matchingPairs: Array.isArray(q.matchingPairs) ? q.matchingPairs : undefined,
+                correctAnswer: prevTeacherEdited.correctAnswer,
+                citation: prevTeacherEdited.citation || q.citation,
+                explanation: prevTeacherEdited.explanation || q.explanation || 'Teacher edited answer.',
+                points: Number(q.points) || 1,
+                source: prevTeacherEdited.source || 'answer_key_extracted',
+                answerKeyConfidence: 'high',
+                needsReview: false,
+                isTeacherEdited: true,
+              };
+            }
+
+            return {
+              id: q.id || `q_${idx + 1}`,
+              type: q.type || 'multiple_choice',
+              prompt: q.prompt || `Question ${idx + 1}`,
+              options: Array.isArray(q.options) ? q.options : undefined,
+              matchingPairs: Array.isArray(q.matchingPairs) ? q.matchingPairs : undefined,
+              correctAnswer: q.correctAnswer || '',
+              citation: q.citation,
+              explanation: q.explanation || 'Verified from source document.',
+              points: Number(q.points) || 1,
+              source: q.source || (assignConversionMode === 'generate_new' ? 'ai_generated' : 'extracted_from_doc'),
+              answerKeyConfidence: q.answerKeyConfidence || (q.correctAnswer ? 'high' : 'needs_teacher_review'),
+              needsReview: q.answerKeyConfidence === 'needs_teacher_review' || !q.correctAnswer,
+            };
+          });
         }
       } else {
         // Fallback to local heuristic questions
@@ -564,7 +591,24 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         const match = selectedCandidateTestId !== 'combined'
           ? activeDoc.detectedStructure?.candidateTests?.find((t) => t.id === selectedCandidateTestId)
           : null;
-        questions = match ? match.questions : (activeDoc.detectedStructure?.questions || []);
+        const candidateBase = match ? match.questions : (activeDoc.detectedStructure?.questions || []);
+        // Preserve any teacher manual edits if user re-triggered
+        questions = candidateBase.map((q, idx) => {
+          const prev =
+            reviewedQuestions.find((r, rIdx) => (r.id === q.id || rIdx === idx) && r.isTeacherEdited) ||
+            editableQuestions.find((r, rIdx) => (r.id === q.id || rIdx === idx) && r.isTeacherEdited);
+          if (prev) {
+            return {
+              ...q,
+              correctAnswer: prev.correctAnswer,
+              explanation: prev.explanation || q.explanation,
+              isTeacherEdited: true,
+              answerKeyConfidence: 'high',
+              needsReview: false,
+            };
+          }
+          return q;
+        });
       }
 
       setReviewedTitle(title);
@@ -1203,6 +1247,27 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                   <option value="table_completion">Table Completion</option>
                                   <option value="short_answer">Short Answer</option>
                                 </select>
+
+                                {/* Answer Status Badge */}
+                                {q.isTeacherEdited ? (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">
+                                    Teacher Edited
+                                  </span>
+                                ) : q.source === 'source_extracted' ? (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
+                                    Source Extracted
+                                  </span>
+                                ) : q.correctAnswer && (q.source === 'answer_key_extracted' || q.answerKeyConfidence === 'high') ? (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center space-x-1">
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                    <span>Answer Key Extracted</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 flex items-center space-x-1">
+                                    <AlertCircle className="w-3 h-3 text-amber-600" />
+                                    <span>Review Key Needed</span>
+                                  </span>
+                                )}
                               </div>
 
                               <div className="flex items-center space-x-2">
@@ -1212,10 +1277,16 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                   value={q.correctAnswer || ''}
                                   onChange={(e) => {
                                     const updated = [...editableQuestions];
-                                    updated[idx] = { ...updated[idx], correctAnswer: e.target.value };
+                                    updated[idx] = {
+                                      ...updated[idx],
+                                      correctAnswer: e.target.value,
+                                      isTeacherEdited: true,
+                                      answerKeyConfidence: 'high',
+                                      needsReview: false,
+                                    };
                                     setEditableQuestions(updated);
                                   }}
-                                  className="p-1 border border-emerald-300 rounded text-xs font-mono font-bold text-emerald-800 w-28 bg-emerald-50/40"
+                                  className="p-1 border border-emerald-300 rounded text-xs font-mono font-bold text-emerald-800 w-32 bg-emerald-50/40"
                                 />
                                 <button
                                   type="button"
@@ -1229,6 +1300,10 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                 </button>
                               </div>
                             </div>
+
+                            {q.citation && (
+                              <p className="text-[10px] text-slate-500 italic">Citation: {q.citation}</p>
+                            )}
 
                             <input
                               type="text"
@@ -1929,23 +2004,33 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                     {reviewedQuestions.map((q, idx) => (
                       <div key={q.id} className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-2 flex-wrap gap-1">
                             <span className="font-bold text-xs text-slate-900">Q{idx + 1}</span>
                             <span className="text-[10px] font-semibold bg-slate-100 px-2 py-0.5 rounded text-slate-700 uppercase">
                               {q.type.replace(/_/g, ' ')}
                             </span>
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                q.source === 'extracted_from_doc'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-indigo-100 text-indigo-800'
-                              }`}
-                            >
-                              {q.source === 'extracted_from_doc' ? 'Source Extracted' : 'AI Generated'}
-                            </span>
-                            {q.needsReview && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
-                                Review Key Needed
+                            {q.isTeacherEdited ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-700">
+                                Teacher Edited
+                              </span>
+                            ) : q.source === 'source_extracted' ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                                Source Extracted
+                              </span>
+                            ) : q.correctAnswer && (q.source === 'answer_key_extracted' || q.answerKeyConfidence === 'high') ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 flex items-center space-x-1">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>Answer Key Extracted</span>
+                              </span>
+                            ) : q.source === 'ai_generated' ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                                AI Generated
+                              </span>
+                            ) : null}
+                            {(!q.correctAnswer || q.answerKeyConfidence === 'needs_teacher_review' || q.needsReview) && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 flex items-center space-x-1">
+                                <AlertCircle className="w-3 h-3 text-amber-600" />
+                                <span>Review Key Needed</span>
                               </span>
                             )}
                           </div>
@@ -2005,11 +2090,15 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                   correctAnswer: e.target.value,
                                   needsReview: false,
                                   answerKeyConfidence: 'high',
+                                  isTeacherEdited: true,
                                 })
                               }
                               placeholder="e.g. A, TRUE, or answer phrase"
                               className="w-full p-1.5 border border-slate-300 rounded text-xs font-bold text-emerald-700 bg-emerald-50/20"
                             />
+                            {q.citation && (
+                              <p className="text-[10px] text-slate-500 italic mt-1">Citation: {q.citation}</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">

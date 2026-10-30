@@ -113,6 +113,7 @@ interface AppContextType {
   approveTuitionStatement: (id: string) => Promise<void>;
   publishTuitionStatement: (id: string) => Promise<void>;
   voidTuitionStatement: (id: string) => Promise<void>;
+  deleteTuitionStatement: (id: string) => Promise<void>;
   recordPayment: (statementId: string, payment: Omit<PaymentRecord, 'id' | 'statementId'>) => Promise<void>;
   uploadTeacherPaymentQr: (file: File) => Promise<string>;
   removeTeacherPaymentQr: () => Promise<void>;
@@ -1814,27 +1815,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
     };
 
-    const { data: newAssign, error } = await supabase
+    const insertPayload: any = {
+      course_id: assignmentData.courseId,
+      title: assignmentData.title,
+      instructions: assignmentData.instructions,
+      skill: assignmentData.skill,
+      objectives: assignmentData.objectives,
+      due_date: assignmentData.dueDate,
+      status: assignmentData.status,
+      reading_passage: assignmentData.readingPassage || null,
+      reading_questions: packedQuestions,
+      score_visibility: assignmentData.scoreVisibility || 'private',
+      writing_task_type: assignmentData.writingTaskType || null,
+      writing_prompt: assignmentData.writingPrompt || null,
+      writing_min_words: assignmentData.writingMinWords || (assignmentData.writingTaskCategory === 'task2' ? 250 : 150),
+      speaking_part: assignmentData.speakingPart || null,
+      speaking_cue_card: assignmentData.speakingCueCard || null,
+    };
+
+    let { data: newAssign, error } = await supabase
       .from('assignments')
-      .insert({
-        course_id: assignmentData.courseId,
-        title: assignmentData.title,
-        instructions: assignmentData.instructions,
-        skill: assignmentData.skill,
-        objectives: assignmentData.objectives,
-        due_date: assignmentData.dueDate,
-        status: assignmentData.status,
-        reading_passage: assignmentData.readingPassage || null,
-        reading_questions: packedQuestions,
-        score_visibility: assignmentData.scoreVisibility || 'private',
-        writing_task_type: assignmentData.writingTaskType || null,
-        writing_prompt: assignmentData.writingPrompt || null,
-        writing_min_words: assignmentData.writingMinWords || (assignmentData.writingTaskCategory === 'task2' ? 250 : 150),
-        speaking_part: assignmentData.speakingPart || null,
-        speaking_cue_card: assignmentData.speakingCueCard || null,
-      })
+      .insert(insertPayload)
       .select()
       .single();
+
+    // If PostgREST schema cache hasn't loaded score_visibility yet on remote database
+    if (error && error.message && error.message.includes('score_visibility')) {
+      console.warn(
+        '[Database Migration Notice] The score_visibility column is missing from remote PostgREST schema cache. ' +
+        'Please apply migration: supabase/migrations/20261030000000_add_assignments_score_visibility.sql. ' +
+        'Preserving scoreVisibility in reading_questions metadata.',
+        error
+      );
+      const retryPayload = { ...insertPayload };
+      delete retryPayload.score_visibility;
+      const retryRes = await supabase
+        .from('assignments')
+        .insert(retryPayload)
+        .select()
+        .single();
+      if (!retryRes.error) {
+        newAssign = retryRes.data;
+        error = null;
+      }
+    }
 
     if (error) {
       console.error('Create assignment error:', error);
@@ -1911,10 +1935,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updates.speakingPart !== undefined) rowUpdates.speaking_part = updates.speakingPart;
     if (updates.speakingCueCard !== undefined) rowUpdates.speaking_cue_card = updates.speakingCueCard;
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('assignments')
       .update(rowUpdates)
       .eq('id', id);
+
+    if (error && error.message && error.message.includes('score_visibility')) {
+      console.warn(
+        '[Database Migration Notice] The score_visibility column is missing from remote PostgREST schema cache on update. ' +
+        'Retrying update while preserving scoreVisibility in metadata.',
+        error
+      );
+      const retryUpdates = { ...rowUpdates };
+      delete retryUpdates.score_visibility;
+      const retryRes = await supabase
+        .from('assignments')
+        .update(retryUpdates)
+        .eq('id', id);
+      if (!retryRes.error) {
+        error = null;
+      }
+    }
 
     if (error) {
       console.error('Update assignment error:', error);
@@ -2651,6 +2692,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTuitionStatements((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'void' } : s)));
   };
 
+  const deleteTuitionStatement = async (id: string): Promise<void> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const stmt = tuitionStatements.find((s) => s.id === id);
+    if (!stmt) throw new Error('Phiếu học phí không tồn tại');
+
+    // 1. Delete associated payment_records first to guarantee no orphan records
+    const { error: payErr } = await supabase
+      .from('payment_records')
+      .delete()
+      .eq('statement_id', id);
+
+    if (payErr) {
+      console.error('Error deleting statement payment records:', payErr);
+      throw new Error(`Không thể xóa bản ghi thanh toán liên quan: ${payErr.message}`);
+    }
+
+    // 2. Delete the statement itself (scoped to teacher)
+    const { error: stmtErr } = await supabase
+      .from('tuition_statements')
+      .delete()
+      .eq('id', id)
+      .eq('teacher_id', currentUser.id);
+
+    if (stmtErr) {
+      console.error('Error deleting tuition statement:', stmtErr);
+      throw new Error(`Không thể xóa phiếu học phí: ${stmtErr.message}`);
+    }
+
+    // 3. Update local state only after DB deletion confirmed
+    setTuitionStatements((prev) => prev.filter((s) => s.id !== id));
+  };
+
   const recordPayment = async (
     statementId: string,
     paymentData: Omit<PaymentRecord, 'id' | 'statementId'>
@@ -2779,6 +2853,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveTuitionStatement,
         publishTuitionStatement,
         voidTuitionStatement,
+        deleteTuitionStatement,
         recordPayment,
         uploadTeacherPaymentQr,
         removeTeacherPaymentQr,

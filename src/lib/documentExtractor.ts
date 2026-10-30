@@ -11,6 +11,13 @@ export interface ParsedTest {
   questionCount: number;
 }
 
+export interface ExtractedAnswerItem {
+  qNum: string;
+  answer: string;
+  citation?: string;
+  raw?: string;
+}
+
 export interface CandidateTest {
   id: string;
   testIndex: number;
@@ -20,6 +27,7 @@ export interface CandidateTest {
   questions: ReadingQuestion[];
   questionGroups?: QuestionGroup[];
   detectedAnswerKey: Record<string, string>;
+  detectedAnswerDetails?: Record<string, ExtractedAnswerItem>;
   hasAnswerKeys: boolean;
   questionCount: number;
   recognizedTypes: QuestionType[];
@@ -33,6 +41,7 @@ export interface DocumentStructure {
   instructions: string;
   questions: ReadingQuestion[];
   detectedAnswerKey: Record<string, string>;
+  detectedAnswerDetails?: Record<string, ExtractedAnswerItem>;
   hasExistingQuestions: boolean;
   candidateTests: CandidateTest[];
   tests?: ParsedTest[];
@@ -458,6 +467,99 @@ export function detectQuestionType(
 }
 
 /**
+ * Robustly parses multi-format answer keys from IELTS reading documents:
+ * - Single item per line ("1. A", "2. TRUE", "3. NOT GIVEN")
+ * - Multiple items per line ("1. FALSE 2. TRUE 3. NOT GIVEN", "1-B, 2-C, 3-A")
+ * - Roman numerals for Matching Headings ("1. iv", "2. vii")
+ * - Words, phrases, and slash alternatives for completion ("solar radiation / solar energy")
+ * - Inline citations and explanations in brackets/parentheses or after dashes ("1. FALSE (Paragraph 2: ...)")
+ */
+export function parseAnswerText(text: string): Record<string, ExtractedAnswerItem> {
+  const results: Record<string, ExtractedAnswerItem> = {};
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    // Mask parentheses and brackets so numbers inside them are not matched as question markers
+    const maskedChars = line.split('');
+    let depth = 0;
+    for (let ci = 0; ci < maskedChars.length; ci++) {
+      if (maskedChars[ci] === '(' || maskedChars[ci] === '[') {
+        depth++;
+      } else if (maskedChars[ci] === ')' || maskedChars[ci] === ']') {
+        depth = Math.max(0, depth - 1);
+      } else if (depth > 0) {
+        maskedChars[ci] = '_';
+      }
+    }
+    const maskedLine = maskedChars.join('');
+
+    // Scan markers on maskedLine
+    const markerRegex = /(?:^|\s+|,\s*)(?:(?:Question|Q)\s*)?(\d{1,2})[\.\:\)\-\s]+/gi;
+    const markers: { qNum: string; index: number; markerEnd: number }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = markerRegex.exec(maskedLine)) !== null) {
+      const qNum = parseInt(match[1], 10);
+      if (qNum >= 1 && qNum <= 40) {
+        const markerStartIndex = match.index + match[0].indexOf(match[1]);
+        markers.push({
+          qNum: match[1],
+          index: markerStartIndex,
+          markerEnd: match.index + match[0].length,
+        });
+      }
+    }
+
+    if (markers.length === 0) continue;
+
+    for (let i = 0; i < markers.length; i++) {
+      const current = markers[i];
+      const next = markers[i + 1];
+      const rawSegment = next
+        ? line.substring(current.markerEnd, next.index).trim()
+        : line.substring(current.markerEnd).trim();
+
+      const cleanSegment = rawSegment.replace(/[,;]+$/, '').trim();
+      if (!cleanSegment) continue;
+
+      let answer = cleanSegment;
+      let citation = '';
+
+      // Pattern 1: Answer (Citation) or Answer [Citation]
+      const bracketMatch = cleanSegment.match(/^([^\(\[\–\-]+?)\s*[\(\[]([^\)\]]+)[\)\]]$/);
+      if (bracketMatch) {
+        answer = bracketMatch[1].trim();
+        citation = bracketMatch[2].trim();
+      } else {
+        // Pattern 2: Answer - Citation (if answer is concise, e.g. A, TRUE, etc.)
+        const dashMatch = cleanSegment.match(/^([A-Za-z0-9\s\/\%]+?)\s+[\-\–]\s+(.*)$/);
+        if (dashMatch && !['not given', 'true', 'false', 'yes', 'no'].includes(cleanSegment.toLowerCase())) {
+          answer = dashMatch[1].trim();
+          citation = dashMatch[2].trim();
+        }
+      }
+
+      // Normalization of common IELTS answer formats
+      const lower = answer.toLowerCase();
+      if (lower === 't' || lower === 'true') answer = 'TRUE';
+      else if (lower === 'f' || lower === 'false') answer = 'FALSE';
+      else if (lower === 'ng' || lower === 'not given') answer = 'NOT GIVEN';
+      else if (lower === 'y' || lower === 'yes') answer = 'YES';
+      else if (lower === 'n' || lower === 'no') answer = 'NO';
+      else if (/^[a-h]$/i.test(answer)) answer = answer.toUpperCase();
+
+      results[current.qNum] = {
+        qNum: current.qNum,
+        answer,
+        citation: citation || undefined,
+        raw: cleanSegment,
+      };
+    }
+  }
+
+  return results;
+}
+
+/**
  * Parses candidate test segments and builds hierarchical structure:
  * Document -> Test[] -> Passage[] -> QuestionGroup[] -> Question[]
  */
@@ -478,12 +580,21 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
   }
 
   // 1. Detect and parse Global / Per-test Answer Keys if present
+  const detectedAnswerDetails: Record<string, ExtractedAnswerItem> = {};
   const detectedAnswerKey: Record<string, string> = {};
   let answerKeyStartIndex = -1;
-  const answerKeyRegex = /^(?:answer\s*key|answers|dap\s*an|đáp\s*án)[:\s]*$/i;
+  const answerKeyHeaderRegex =
+    /^(?:#+\s*)?(?:(?:ielts\s+)?reading\s+)?(?:answer\s*keys?|answers?|correct\s*answers?|dap\s*an|đáp\s*án|key\s*\/?\s*answers?)(?:\s*(?:&|and|\+)\s*(?:explanations?|giải\s*thích|citations?))?[:\s]*$/i;
 
   for (let i = 0; i < lines.length; i++) {
-    if (answerKeyRegex.test(lines[i]) || lines[i].toLowerCase().startsWith('answer key:')) {
+    const l = lines[i].trim();
+    if (
+      answerKeyHeaderRegex.test(l) ||
+      l.toLowerCase().startsWith('answer key:') ||
+      l.toLowerCase().startsWith('đáp án:') ||
+      l.toLowerCase().startsWith('answers:') ||
+      l.toLowerCase().startsWith('correct answers:')
+    ) {
       answerKeyStartIndex = i;
       break;
     }
@@ -491,13 +602,10 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
 
   if (answerKeyStartIndex !== -1) {
     const keyLines = lines.slice(answerKeyStartIndex + 1);
-    for (const kl of keyLines) {
-      const match = kl.match(/^(\d+)[\.\:\-\s]+([A-Za-z0-9\s\/\-_]+)/);
-      if (match) {
-        const qNum = match[1];
-        const val = match[2].trim();
-        detectedAnswerKey[qNum] = val;
-      }
+    const parsedKeyItems = parseAnswerText(keyLines.join('\n'));
+    Object.assign(detectedAnswerDetails, parsedKeyItems);
+    for (const [qNum, item] of Object.entries(parsedKeyItems)) {
+      detectedAnswerKey[qNum] = item.answer;
     }
   }
 
@@ -538,7 +646,8 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
       const { passageTitle, passageContent, questionGroups, questions } = parseSinglePassage(
         pChunk,
         passageIndex,
-        detectedAnswerKey
+        detectedAnswerKey,
+        detectedAnswerDetails
       );
 
       // Skip empty fragments that have neither substantial content nor questions
@@ -618,6 +727,45 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
     }
   });
 
+  // Handle Answer-Key-Only files where no reading passage text was present
+  if (candidateTests.length === 0 && Object.keys(detectedAnswerDetails).length > 0) {
+    const synthQuestions: ReadingQuestion[] = Object.values(detectedAnswerDetails).map((item) => ({
+      id: `q_${item.qNum}`,
+      type: /^(TRUE|FALSE|NOT GIVEN)$/i.test(item.answer)
+        ? 'true_false_not_given'
+        : /^(YES|NO)$/i.test(item.answer)
+        ? 'yes_no_not_given'
+        : /^[A-H]$/i.test(item.answer)
+        ? 'multiple_choice'
+        : /^(?:[ivx]+)$/i.test(item.answer)
+        ? 'matching_headings'
+        : 'sentence_completion',
+      prompt: `Question ${item.qNum}`,
+      correctAnswer: item.answer,
+      citation: item.citation,
+      explanation: item.citation ? `Citation: ${item.citation}` : 'Extracted from Answer Key.',
+      points: 1,
+      source: 'answer_key_extracted',
+      answerKeyConfidence: 'high',
+      needsReview: false,
+    }));
+
+    candidateTests.push({
+      id: 'candidate_answer_key_only',
+      testIndex: 1,
+      title: `${title} (Answer Key)`,
+      passageText: 'Answer Key Document: No reading passage text detected.',
+      instructions: 'Review extracted answer keys below.',
+      questions: synthQuestions,
+      detectedAnswerKey,
+      detectedAnswerDetails,
+      hasAnswerKeys: true,
+      questionCount: synthQuestions.length,
+      recognizedTypes: Array.from(new Set(synthQuestions.map((q) => q.type))),
+      warnings: ['Document contains answer key data.'],
+    });
+  }
+
   const primaryPassage = candidateTests.map((c) => c.passageText).filter(Boolean).join('\n\n---\n\n');
   const allQuestions = candidateTests.flatMap((c) => c.questions);
 
@@ -628,6 +776,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
     instructions: candidateTests[0]?.instructions || 'Read the text and answer the questions that follow.',
     questions: allQuestions,
     detectedAnswerKey,
+    detectedAnswerDetails,
     hasExistingQuestions: allQuestions.length > 0,
     candidateTests,
     tests: parsedTests,
@@ -715,7 +864,8 @@ export function formatPassageParagraphs(lines: string[]): { formattedText: strin
 function parseSinglePassage(
   passageChunk: string,
   passageIndex: number,
-  globalAnswerKeys: Record<string, string>
+  globalAnswerKeys: Record<string, string>,
+  globalAnswerDetails?: Record<string, ExtractedAnswerItem>
 ): {
   passageTitle: string;
   passageContent: string;
@@ -758,14 +908,44 @@ function parseSinglePassage(
     contentStartIndex = 1;
   }
 
+  // 1.5. Detect if passage has its own localized answer key block at end of passage
+  const passageAnswerDetails: Record<string, ExtractedAnswerItem> = {};
+  const passageKeyHeaderRegex =
+    /^(?:#+\s*)?(?:(?:reading\s+)?passage\s+\d+\s+)?(?:answer\s*keys?|answers?|correct\s*answers?|dap\s*an|đáp\s*án)(?:\s*for\s+(?:reading\s+)?passage\s+\d+)?[:\s]*$/i;
+
+  let passageKeyStartIdx = -1;
+  for (let i = contentStartIndex; i < pLines.length; i++) {
+    if (passageKeyHeaderRegex.test(pLines[i])) {
+      passageKeyStartIdx = i;
+      break;
+    }
+  }
+
+  const effectivePassageLines = passageKeyStartIdx !== -1 ? pLines.slice(0, passageKeyStartIdx) : pLines;
+  if (passageKeyStartIdx !== -1) {
+    const keyLines = pLines.slice(passageKeyStartIdx + 1);
+    Object.assign(passageAnswerDetails, parseAnswerText(keyLines.join('\n')));
+  }
+
+  const effectiveDetails: Record<string, ExtractedAnswerItem> = {
+    ...(globalAnswerDetails || {}),
+    ...passageAnswerDetails,
+  };
+  const effectiveAnswerKeys: Record<string, string> = {
+    ...globalAnswerKeys,
+  };
+  for (const [k, item] of Object.entries(effectiveDetails)) {
+    effectiveAnswerKeys[k] = item.answer;
+  }
+
   // 2. Separate Passage Body from Questions Section
   // Questions start at first "Questions X-Y" or "Question 1."
   const passageBodyLines: string[] = [];
   const questionLines: string[] = [];
   let isInQuestionsSection = false;
 
-  for (let i = contentStartIndex; i < pLines.length; i++) {
-    const line = pLines[i];
+  for (let i = contentStartIndex; i < effectivePassageLines.length; i++) {
+    const line = effectivePassageLines[i];
     if (line.startsWith('[--- Page') || line.endsWith('---]')) {
       continue;
     }
@@ -891,6 +1071,7 @@ function parseSinglePassage(
       // Check for Question Number
       let qNum: string | null = null;
       let qPrompt = '';
+      let embeddedAnswer: string | null = null;
 
       const stdMatch = line.match(stdQRegex);
       if (stdMatch) {
@@ -910,13 +1091,37 @@ function parseSinglePassage(
         }
       }
 
+      // Check for embedded answers in prompt line, e.g. "The research began in 1990. [FALSE]"
       if (qNum) {
+        const embeddedMatch =
+          qPrompt.match(/\[(?:answer|ans|đáp án)?\s*[:\=]?\s*([A-Za-z0-9\s\/\-_%]+)\]/i) ||
+          qPrompt.match(/\((?:answer|ans|đáp án)\s*[:\=]\s*([A-Za-z0-9\s\/\-_%]+)\)/i);
+        if (embeddedMatch) {
+          embeddedAnswer = embeddedMatch[1].trim();
+          qPrompt = qPrompt.replace(embeddedMatch[0], '').trim();
+        }
+
         if (currentQ && currentQ.prompt) {
-          finalizeQuestion(currentQ, groupQuestions, globalAnswerKeys, groupInstructions.join(' '), wordLimitInfo);
+          finalizeQuestion(
+            currentQ,
+            groupQuestions,
+            effectiveAnswerKeys,
+            groupInstructions.join(' '),
+            wordLimitInfo,
+            effectiveDetails
+          );
         }
 
         const inlineWl = extractWordLimitInfo(qPrompt);
         const effectiveWl = inlineWl.limitStr ? inlineWl : wordLimitInfo;
+
+        const detailItem = effectiveDetails[qNum];
+        const assignedKey = embeddedAnswer || detailItem?.answer || effectiveAnswerKeys[qNum] || '';
+        const assignedSource = embeddedAnswer
+          ? 'source_extracted'
+          : detailItem || effectiveAnswerKeys[qNum]
+          ? 'answer_key_extracted'
+          : 'extracted_from_doc';
 
         currentQ = {
           id: `q_${qNum}`,
@@ -924,10 +1129,11 @@ function parseSinglePassage(
           options: [],
           wordLimit: effectiveWl.limitStr,
           maxWords: effectiveWl.maxWords,
-          correctAnswer: globalAnswerKeys[qNum] || '',
+          correctAnswer: assignedKey,
+          citation: detailItem?.citation,
           points: 1,
-          source: 'extracted_from_doc',
-          answerKeyConfidence: globalAnswerKeys[qNum] ? 'high' : 'needs_teacher_review',
+          source: assignedSource,
+          answerKeyConfidence: assignedKey ? 'high' : 'needs_teacher_review',
         };
         continue;
       }
@@ -958,7 +1164,14 @@ function parseSinglePassage(
     }
 
     if (currentQ && currentQ.prompt) {
-      finalizeQuestion(currentQ, groupQuestions, globalAnswerKeys, groupInstructions.join(' '), wordLimitInfo);
+      finalizeQuestion(
+        currentQ,
+        groupQuestions,
+        effectiveAnswerKeys,
+        groupInstructions.join(' '),
+        wordLimitInfo,
+        effectiveDetails
+      );
     }
 
     const fullInstruction =
@@ -1026,6 +1239,32 @@ function parseSinglePassage(
     allQuestions.push(...groupQuestions);
   });
 
+  // Sequential fallback mapping (e.g. Passage 2 questions 14-26, but answer key is numbered 1-13)
+  const unkeyed = allQuestions.filter((q) => !q.correctAnswer);
+  if (unkeyed.length > 0 && effectiveDetails) {
+    const numericKeys = Object.keys(effectiveDetails)
+      .map((k) => parseInt(k, 10))
+      .filter((n) => !isNaN(n))
+      .sort((a, b) => a - b);
+    if (numericKeys.length >= allQuestions.length && numericKeys[0] === 1) {
+      allQuestions.forEach((q, idx) => {
+        if (!q.correctAnswer) {
+          const item = effectiveDetails[String(idx + 1)];
+          if (item) {
+            q.correctAnswer = item.answer;
+            q.citation = item.citation;
+            q.source = 'answer_key_extracted';
+            q.answerKeyConfidence = 'high';
+            q.needsReview = false;
+            if (item.citation && !q.explanation.includes('Citation:')) {
+              q.explanation = `Citation: ${item.citation}`;
+            }
+          }
+        }
+      });
+    }
+  }
+
   return {
     passageTitle,
     passageContent,
@@ -1039,15 +1278,39 @@ function finalizeQuestion(
   questions: ReadingQuestion[],
   detectedAnswerKey: Record<string, string>,
   instructionContext: string,
-  wordLimitInfo: { limitStr?: string; maxWords?: number }
+  wordLimitInfo: { limitStr?: string; maxWords?: number },
+  detectedAnswerDetails?: Record<string, ExtractedAnswerItem>
 ) {
   const qNum = q.id?.replace('q_', '') || `${questions.length + 1}`;
   const options = q.options && q.options.length > 0 ? q.options : undefined;
   const qType = q.type || detectQuestionType(q.prompt || '', instructionContext, options);
 
-  const key = (q.correctAnswer || detectedAnswerKey[qNum] || '').trim();
-  const confidence = key ? 'high' : 'needs_teacher_review';
-  const requiresReview = !key || qType === 'short_answer' || confidence === 'needs_teacher_review';
+  const detailItem = detectedAnswerDetails ? detectedAnswerDetails[qNum] : undefined;
+  const key = (q.correctAnswer || detailItem?.answer || detectedAnswerKey[qNum] || '').trim();
+  const citation = q.citation || detailItem?.citation || undefined;
+
+  let source: ReadingQuestion['source'] = q.source || 'extracted_from_doc';
+  if (!q.source) {
+    if (detailItem || detectedAnswerKey[qNum]) {
+      source = 'answer_key_extracted';
+    } else if (key) {
+      source = 'source_extracted';
+    }
+  }
+
+  const confidence: 'high' | 'needs_teacher_review' = key ? 'high' : 'needs_teacher_review';
+  const requiresReview = !key || confidence === 'needs_teacher_review';
+
+  let explanation = q.explanation;
+  if (!explanation) {
+    if (citation) {
+      explanation = `Citation: ${citation}`;
+    } else if (key) {
+      explanation = source === 'answer_key_extracted' ? 'Extracted from Answer Key.' : 'Extracted from source document.';
+    } else {
+      explanation = 'Ungrounded answer key: requires teacher review.';
+    }
+  }
 
   questions.push({
     id: q.id || `q_${questions.length + 1}`,
@@ -1057,10 +1320,12 @@ function finalizeQuestion(
     wordLimit: q.wordLimit || wordLimitInfo.limitStr,
     maxWords: q.maxWords || wordLimitInfo.maxWords,
     correctAnswer: key,
-    explanation: q.explanation || (key ? 'Extracted from source document.' : 'Ungrounded answer key: requires teacher review.'),
+    citation,
+    explanation,
     points: q.points || 1,
-    source: 'extracted_from_doc',
+    source,
     answerKeyConfidence: confidence,
     needsReview: requiresReview,
+    isTeacherEdited: q.isTeacherEdited || false,
   });
 }

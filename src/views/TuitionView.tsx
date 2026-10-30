@@ -56,6 +56,7 @@ export const TuitionView: React.FC = () => {
     approveTuitionStatement,
     publishTuitionStatement,
     voidTuitionStatement,
+    deleteTuitionStatement,
     recordPayment,
     selectedStatementId,
     setSelectedStatementId,
@@ -398,6 +399,126 @@ export const TuitionView: React.FC = () => {
     return `${enText} / ${viText}`;
   };
 
+  // Deletion state
+  const [statementToDelete, setStatementToDelete] = useState<TuitionStatement | null>(null);
+  const [isDeletingStatement, setIsDeletingStatement] = useState<boolean>(false);
+  const [confirmPaidDeleteChecked, setConfirmPaidDeleteChecked] = useState<boolean>(false);
+
+  const handleDeleteStatement = async () => {
+    if (!statementToDelete) return;
+    setIsDeletingStatement(true);
+    try {
+      await deleteTuitionStatement(statementToDelete.id);
+      if (selectedStatementId === statementToDelete.id) {
+        setSelectedStatementId(null);
+      }
+      setStatementToDelete(null);
+      setConfirmPaidDeleteChecked(false);
+    } catch (err: any) {
+      alert(err?.message || 'Có lỗi xảy ra khi xóa phiếu học phí.');
+    } finally {
+      setIsDeletingStatement(false);
+    }
+  };
+
+  const renderDeleteModal = () => {
+    if (!statementToDelete) return null;
+    const isPaidOrHasPayments = statementToDelete.status === 'paid' || statementToDelete.amountPaid > 0;
+    return (
+      <Portal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+            <div className="flex items-center space-x-3 text-red-600 mb-3">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">
+                {getPdfLabel('Confirm Delete Tuition Statement', 'Xác nhận xóa phiếu học phí')}
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+              {getPdfLabel('Are you sure you want to permanently delete statement', 'Bạn có chắc chắn muốn xóa vĩnh viễn phiếu học phí')}{' '}
+              <strong className="text-slate-900 font-mono">{statementToDelete.statementNumber}</strong> {getPdfLabel('for student', 'của học viên')}{' '}
+              <strong className="text-slate-900">{statementToDelete.studentName}</strong> ({statementToDelete.courseName} - {statementToDelete.billingPeriod})?
+            </p>
+
+            {isPaidOrHasPayments ? (
+              <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800 mb-4 space-y-2">
+                <div className="flex items-center space-x-1.5 font-bold text-rose-900">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{getPdfLabel('Warning: Statement Has Payments Recorded!', 'Cảnh báo: Phiếu đã được thanh toán / có lịch sử thanh toán!')}</span>
+                </div>
+                <p>
+                  {getPdfLabel(
+                    `This statement has recorded payments (${formatTuitionCurrency(statementToDelete.amountPaid, statementToDelete.currency)}). Deleting it will permanently remove all associated payment transaction records and reset the student billing status for this period.`,
+                    `Phiếu này đã ghi nhận thanh toán (${formatTuitionCurrency(statementToDelete.amountPaid, statementToDelete.currency)}). Việc xóa phiếu sẽ xóa toàn bộ lịch sử thanh toán liên quan và khôi phục lại trạng thái học phí của kỳ này.`
+                  )}
+                </p>
+                <label className="flex items-start space-x-2 pt-2 border-t border-rose-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={confirmPaidDeleteChecked}
+                    onChange={(e) => setConfirmPaidDeleteChecked(e.target.checked)}
+                    className="mt-0.5 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
+                  />
+                  <span className="font-semibold text-rose-900">
+                    {getPdfLabel(
+                      'I confirm that I want to delete this paid statement and all its payment history.',
+                      'Tôi hiểu và xác nhận muốn xóa phiếu học phí đã thanh toán này cùng toàn bộ lịch sử giao dịch.'
+                    )}
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 mb-4">
+                <p className="font-semibold mb-1">{getPdfLabel('Important Notice:', 'Lưu ý quan trọng:')}</p>
+                <p>
+                  {getPdfLabel(
+                    'This action will permanently delete this tuition statement. Attendance records and teaching calendar logs will remain intact.',
+                    'Thao tác này sẽ xóa vĩnh viễn phiếu học phí. Lịch sử điểm danh và buổi dạy của học viên vẫn được giữ nguyên an toàn.'
+                  )}
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingStatement}
+                onClick={() => {
+                  setStatementToDelete(null);
+                  setConfirmPaidDeleteChecked(false);
+                }}
+                className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold rounded-lg transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingStatement || (isPaidOrHasPayments && !confirmPaidDeleteChecked)}
+                onClick={handleDeleteStatement}
+                className={`px-4 py-2 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center space-x-1.5 ${
+                  isDeletingStatement || (isPaidOrHasPayments && !confirmPaidDeleteChecked)
+                    ? 'bg-red-400 cursor-not-allowed opacity-60'
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {isDeletingStatement ? (
+                  <span>{t('common.loading')}</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{getPdfLabel('Delete Statement', 'Xóa phiếu học phí')}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Portal>
+    );
+  };
+
   // If a statement is selected, show Statement Detail / Printable View
   if (activeStatement) {
     return (
@@ -510,6 +631,20 @@ export const TuitionView: React.FC = () => {
               >
                 <DollarSign className="w-4 h-4" />
                 <span>{t('tuition.recordPaymentBtn')}</span>
+              </button>
+            )}
+
+            {isTeacher && (
+              <button
+                onClick={() => {
+                  setConfirmPaidDeleteChecked(false);
+                  setStatementToDelete(activeStatement);
+                }}
+                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"
+                title={getPdfLabel('Delete statement', 'Xóa phiếu học phí')}
+              >
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <span>{getPdfLabel('Delete', 'Xóa')}</span>
               </button>
             )}
           </div>
@@ -935,6 +1070,8 @@ export const TuitionView: React.FC = () => {
             </div>
           </Portal>
         )}
+        {/* Modal: Confirm Delete Statement */}
+        {renderDeleteModal()}
       </div>
     );
   }
@@ -1191,12 +1328,27 @@ export const TuitionView: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => setSelectedStatementId(stmt.id)}
-                          className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-                        >
-                          {t('tuition.viewStatement')} &rarr;
-                        </button>
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            onClick={() => setSelectedStatementId(stmt.id)}
+                            className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                          >
+                            {t('tuition.viewStatement')} &rarr;
+                          </button>
+                          {isTeacher && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmPaidDeleteChecked(false);
+                                setStatementToDelete(stmt);
+                              }}
+                              title={getPdfLabel('Delete statement', 'Xóa phiếu học phí')}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1979,6 +2131,9 @@ export const TuitionView: React.FC = () => {
           </div>
         </Portal>
       )}
+
+      {/* Modal: Confirm Delete Statement */}
+      {renderDeleteModal()}
     </div>
   );
 };
