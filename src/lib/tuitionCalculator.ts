@@ -127,10 +127,10 @@ export function getEligibleSessionsForMonth(
  */
 export function formatCurrency(amount: number, currency: 'VND' | 'USD' = 'VND'): string {
   const num = Math.max(0, Number(amount) || 0);
-  if (currency === 'VND') {
-    return `${Math.round(num).toLocaleString('vi-VN')} ₫`;
+  if (currency === 'USD') {
+    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
-  return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${Math.round(num).toLocaleString('vi-VN')} ₫`;
 }
 
 /**

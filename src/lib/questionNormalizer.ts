@@ -465,3 +465,73 @@ export function sanitizeQuestionsForStudent(
     };
   });
 }
+
+export interface QuestionRenderGroup {
+  id: string;
+  rangeTitle: string;
+  instructions?: string;
+  headingsList?: string[];
+  featuresList?: string[];
+  wordLimit?: string;
+  questions: Array<{ q: ReadingQuestion; idx: number }>;
+}
+
+export function buildQuestionRenderGroups(questions: ReadingQuestion[]): QuestionRenderGroup[] {
+  if (!questions || questions.length === 0) return [];
+
+  const groups: QuestionRenderGroup[] = [];
+  let currentGroup: QuestionRenderGroup | null = null;
+
+  for (let idx = 0; idx < questions.length; idx++) {
+    const q = questions[idx];
+    const headingsKey = q.headingsList && q.headingsList.length > 0 ? q.headingsList.join('|') : '';
+    const featuresKey = q.featuresList && q.featuresList.length > 0 ? q.featuresList.join('|') : '';
+    const wordLimit = q.wordLimit || (q.maxWords ? `NO MORE THAN ${q.maxWords} WORD${q.maxWords > 1 ? 'S' : ''}` : undefined);
+    const instruction = (q as any).instruction || (q as any).groupInstruction || (q as any).instructions || '';
+
+    const sameHeadings = (currentGroup?.headingsList?.join('|') || '') === headingsKey;
+    const sameFeatures = (currentGroup?.featuresList?.join('|') || '') === featuresKey;
+    const sameInstruction = (currentGroup?.instructions || '') === instruction;
+    const sameWordLimit = (currentGroup?.wordLimit || '') === (wordLimit || '');
+
+    const shouldContinueGroup = Boolean(
+      currentGroup &&
+      (headingsKey ? sameHeadings : true) &&
+      (featuresKey ? sameFeatures : true) &&
+      (instruction ? sameInstruction : true) &&
+      (!headingsKey && !featuresKey && !instruction ? sameWordLimit : true)
+    );
+
+    if (shouldContinueGroup && currentGroup) {
+      currentGroup.questions.push({ q, idx });
+    } else {
+      if (currentGroup) {
+        const firstIdx = currentGroup.questions[0].idx + 1;
+        const lastIdx = currentGroup.questions[currentGroup.questions.length - 1].idx + 1;
+        currentGroup.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
+        groups.push(currentGroup);
+      }
+
+      currentGroup = {
+        id: `g_${idx}`,
+        rangeTitle: `Question ${idx + 1}`,
+        instructions: instruction || undefined,
+        headingsList: q.headingsList && q.headingsList.length > 0 ? q.headingsList : undefined,
+        featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
+        wordLimit,
+        questions: [{ q, idx }],
+      };
+    }
+  }
+
+  if (currentGroup) {
+    const cg: QuestionRenderGroup = currentGroup;
+    const firstIdx = cg.questions[0].idx + 1;
+    const lastIdx = cg.questions[cg.questions.length - 1].idx + 1;
+    cg.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
+    groups.push(cg);
+  }
+
+  return groups;
+}
+

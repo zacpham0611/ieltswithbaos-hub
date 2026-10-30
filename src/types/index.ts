@@ -171,6 +171,7 @@ export interface ParsedPassage {
   content: string;
   questionGroups?: QuestionGroup[];
   questions?: ReadingQuestion[];
+  labeledParagraphs?: { label: string; text: string }[];
 }
 
 export interface AiReadingTestConfig {

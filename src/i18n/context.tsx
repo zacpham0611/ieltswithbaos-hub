@@ -86,16 +86,11 @@ export const I18nProvider: React.FC<{ children: React.ReactNode; userLanguage?: 
   };
 
   const formatCurrency = (amount: number, currency: 'VND' | 'USD' = 'VND'): string => {
+    const num = Math.max(0, Number(amount) || 0);
     if (currency === 'USD') {
-      return new Intl.NumberFormat(language === 'vi' ? 'vi-VN' : 'en-US', {
-        style: 'currency',
-        currency: 'USD',
-      }).format(amount);
+      return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
-    return new Intl.NumberFormat(language === 'vi' ? 'vi-VN' : 'en-US', {
-      style: 'currency',
-      currency: 'VND',
-    }).format(amount);
+    return `${Math.round(num).toLocaleString('vi-VN')} ₫`;
   };
 
   const formatDate = (dateStr: string): string => {

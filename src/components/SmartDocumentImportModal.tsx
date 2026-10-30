@@ -193,6 +193,94 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
   };
 
+
+  // Multi-Passage Test Builder Actions
+  const handleMovePassage = (testId: string, pIdx: number, direction: 'up' | 'down') => {
+    if (!activeDoc?.detectedStructure?.tests) return;
+    const targetIdx = direction === 'up' ? pIdx - 1 : pIdx + 1;
+    const tests = [...activeDoc.detectedStructure.tests];
+    const test = tests.find((t) => t.id === testId);
+    if (!test || targetIdx < 0 || targetIdx >= test.passages.length) return;
+
+    const passages = [...test.passages];
+    const temp = passages[pIdx];
+    passages[pIdx] = passages[targetIdx];
+    passages[targetIdx] = temp;
+
+    // Update passage indices
+    passages.forEach((p, idx) => {
+      p.passageIndex = idx + 1;
+    });
+
+    test.passages = passages;
+    activeDoc.detectedStructure.tests = tests;
+    setUploadedFiles([...uploadedFiles]);
+  };
+
+  const handleRenumberTestContinuous = (testId: string) => {
+    if (!activeDoc?.detectedStructure?.tests) return;
+    const test = activeDoc.detectedStructure.tests.find((t) => t.id === testId);
+    if (!test) return;
+
+    let counter = 1;
+    test.passages.forEach((p) => {
+      if (p.questions) {
+        p.questions.forEach((q) => {
+          q.id = `q_${counter}`;
+          // Update prompt if starts with old question number
+          q.prompt = q.prompt.replace(/^(?:Question|Q|Câu)?\s*\d{1,2}[.:\)\-\s]+/i, `${counter}. `);
+          counter++;
+        });
+      }
+    });
+
+    test.allQuestions = test.passages.flatMap((p) => p.questions || []);
+    test.questionCount = test.allQuestions.length;
+
+    // Refresh currently open passage view if affected
+    if (selectedTestId === testId && selectedPassageId) {
+      const currentPassage = test.passages.find((p) => p.id === selectedPassageId);
+      if (currentPassage) {
+        setEditableQuestions([...(currentPassage.questions || [])]);
+      }
+    }
+    setUploadedFiles([...uploadedFiles]);
+    alert(`Đã đánh số liên tục thành công cho ${counter - 1} câu hỏi (Passages 1–${test.passages.length})!`);
+  };
+
+  const handleGroupCandidateTestsIntoFullTest = () => {
+    if (!activeDoc?.detectedStructure?.candidateTests?.length) return;
+    const cTests = activeDoc.detectedStructure.candidateTests;
+    const fullTestPassages = cTests.map((ct, idx) => ({
+      id: `passage_${idx + 1}`,
+      passageIndex: idx + 1,
+      title: ct.title || `Passage ${idx + 1}`,
+      content: ct.passageText,
+      questionGroups: ct.questionGroups || [],
+      questions: ct.questions || [],
+    }));
+
+    const fullTest = {
+      id: `test_${Date.now()}`,
+      testIndex: 1,
+      title: editedTitle || `Full IELTS Reading Test (3 Passages)`,
+      passages: fullTestPassages,
+      allQuestions: fullTestPassages.flatMap((p) => p.questions || []),
+      questionCount: fullTestPassages.reduce((sum, p) => sum + (p.questions?.length || 0), 0),
+    };
+
+    activeDoc.detectedStructure.tests = [fullTest];
+    (activeDoc.detectedStructure as any).candidateTests = undefined;
+    setSelectedTestId(fullTest.id);
+    setSelectedPassageId(fullTestPassages[0].id);
+    setEditedTitle(fullTestPassages[0].title);
+    setEditedPassage(fullTestPassages[0].content);
+    setEditableQuestions(fullTestPassages[0].questions || []);
+    setExpandedTestIds({ [fullTest.id]: true });
+    setUploadedFiles([...uploadedFiles]);
+    alert('Đã gộp tất cả các đoạn văn thành 1 bài kiểm tra IELTS Reading hoàn chỉnh!');
+  };
+
   const handleToggleExpandTest = (testId: string) => {
     setExpandedTestIds((prev) => ({ ...prev, [testId]: !prev[testId] }));
   };
@@ -262,34 +350,40 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     }
   };
 
-  const handleBatchSaveAllTestsToLibrary = async () => {
-    if (!activeDoc || !currentUser) return;
+  const handleBatchSaveAllTestsToLibrary = async (): Promise<boolean> => {
+    if (!activeDoc || !currentUser || isPublishingAssignment) return false;
     setIsPublishingAssignment(true);
     try {
       const tests = activeDoc.detectedStructure?.tests || [];
       if (tests.length > 0) {
         for (const t of tests) {
-          for (const p of t.passages) {
-            const structuredPayload = {
-              title: `${t.title}: ${p.title}`,
-              skill: 'reading',
-              readingPassage: p.content,
-              content: p.content,
-              passages: [p],
-              questionGroups: p.questionGroups || [],
-              questions: p.questions || [],
-            };
-            await addResource({
-              title: `${t.title}: ${p.title}`,
-              type: 'doc',
-              content: JSON.stringify(structuredPayload),
-              tags: ['smart-import', 'reading', t.title],
-              skill: 'reading',
-              folder: t.title,
-              courseId: assignCourseId || null,
-              isPublished: true,
-            });
-          }
+          // Save combined multi-passage full test
+          const allQs = t.allQuestions?.length ? t.allQuestions : t.passages.flatMap((p) => p.questions || []);
+          const structuredPayload = {
+            title: t.title,
+            skill: 'reading',
+            readingPassage: t.passages[0]?.content || '',
+            content: t.passages[0]?.content || '',
+            passages: t.passages,
+            questionGroups: t.passages.flatMap((p) => p.questionGroups || []),
+            questions: allQs,
+            readingTestType: 'academic',
+            metadata: {
+              sourceDocumentName: activeDoc.name,
+              passageCount: t.passages.length,
+              questionCount: allQs.length,
+            },
+          };
+          await addResource({
+            title: t.title,
+            type: 'doc',
+            content: JSON.stringify(structuredPayload),
+            tags: ['smart-import', 'reading', 'full-test', t.title],
+            skill: 'reading',
+            folder: 'IELTS Full Tests',
+            courseId: assignCourseId || null,
+            isPublished: true,
+          });
         }
       } else {
         const cTests = activeDoc.detectedStructure?.candidateTests || [];
@@ -314,36 +408,44 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           });
         }
       }
-      alert('All tests saved to Resource Library with full structured questions!');
+      alert('Tất cả các bài kiểm tra đã được lưu vào Thư viện tài nguyên thành công!');
       onResourceCreated?.();
+      return true;
     } catch (err: any) {
-      alert(`Failed to save to library: ${err.message}`);
+      alert(`Lỗi khi lưu vào thư viện: ${err.message || 'Vui lòng thử lại.'}`);
+      return false;
     } finally {
       setIsPublishingAssignment(false);
     }
   };
 
-  const handleSaveCurrentTestToLibrary = async () => {
-    if (!activeDoc || !currentUser) return;
+  const handleSaveCurrentTestToLibrary = async (): Promise<boolean> => {
+    if (!activeDoc || !currentUser || isPublishingAssignment) return false;
     setIsPublishingAssignment(true);
     try {
       const struct = activeDoc.detectedStructure as any;
       const questionsToSave =
-        reviewedQuestions.length > 0
+        editableQuestions.length > 0
+          ? editableQuestions
+          : reviewedQuestions.length > 0
           ? reviewedQuestions
           : struct?.questions || [];
       const questionGroupsToSave = struct?.questionGroups || [];
       const passageToSave =
-        reviewedPassage || editedPassage || struct?.passageText || editedRawText;
+        editedPassage || reviewedPassage || struct?.passageText || editedRawText;
       const titleToSave = (
-        reviewedTitle ||
         editedTitle ||
+        reviewedTitle ||
         struct?.title ||
         activeDoc.name
       ).trim();
 
       const passagesToSave = struct?.passages?.length
-        ? struct.passages
+        ? struct.passages.map((p: any) =>
+            p.id === selectedPassageId
+              ? { ...p, title: titleToSave, content: passageToSave, questions: questionsToSave }
+              : p
+          )
         : [
             {
               id: 'p_1',
@@ -383,22 +485,27 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
       alert('Đã lưu bài tập vào Thư viện tài nguyên với đầy đủ câu hỏi, đáp án và cấu trúc!');
       onResourceCreated?.();
-      onClose();
+      return true;
     } catch (err: any) {
-      alert(`Lỗi khi lưu vào thư viện: ${err.message}`);
+      alert(`Lỗi khi lưu vào thư viện: ${err.message || 'Vui lòng thử lại.'}`);
+      return false;
     } finally {
       setIsPublishingAssignment(false);
     }
   };
 
   const handleStep3SaveToLibrary = async () => {
+    if (isPublishingAssignment) return;
     const tests = activeDoc?.detectedStructure?.tests || [];
     const cTests = activeDoc?.detectedStructure?.candidateTests || [];
+    let success = false;
     if (tests.length > 0 || cTests.length > 1) {
-      await handleBatchSaveAllTestsToLibrary();
-      onClose();
+      success = await handleBatchSaveAllTestsToLibrary();
     } else {
-      await handleSaveCurrentTestToLibrary();
+      success = await handleSaveCurrentTestToLibrary();
+    }
+    if (success) {
+      onClose();
     }
   };
 
@@ -1049,19 +1156,29 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                   {/* Hierarchical Document Tree View */}
                   {activeDoc.detectedStructure?.tests && activeDoc.detectedStructure.tests.length > 0 ? (
                     <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-100 gap-2">
                         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
                           <Layers className="w-4 h-4 text-blue-600" />
-                          <span>Hierarchical Document Structure (Click passage to edit/assign)</span>
+                          <span>Multi-Passage Test Builder ({activeDoc.detectedStructure.tests.length} Test, {activeDoc.detectedStructure.tests[0]?.passages.length || 0} Passages)</span>
                         </span>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 flex-wrap">
+                          {activeDoc.detectedStructure?.tests?.[0] && (
+                            <button
+                              type="button"
+                              onClick={() => activeDoc.detectedStructure?.tests?.[0] && handleRenumberTestContinuous(activeDoc.detectedStructure.tests[0].id)}
+                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-xs font-bold border border-amber-200 transition-colors flex items-center space-x-1"
+                              title="Đánh số lại câu hỏi liên tục 1–40 trên toàn bộ các passage"
+                            >
+                              <span>Đánh số liên tục 1–40</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={handleBatchSaveAllTestsToLibrary}
                             disabled={isPublishingAssignment}
                             className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors"
                           >
-                            Save All to Library
+                            Save Full Test to Library
                           </button>
                         </div>
                       </div>
@@ -1090,7 +1207,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
                               {isExpanded && (
                                 <div className="p-2 pt-0 space-y-1.5 pl-6 bg-white border-t border-slate-100">
-                                  {test.passages.map((p) => {
+                                  {test.passages.map((p, pIdx) => {
                                     const isSelected = selectedPassageId === p.id;
                                     return (
                                       <div
@@ -1107,6 +1224,33 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                           <span className="truncate">{p.title}</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
+                                          {/* Passage Reordering Controls */}
+                                          <div className="flex items-center space-x-0.5 bg-slate-100 rounded px-1">
+                                            <button
+                                              type="button"
+                                              disabled={pIdx === 0}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleMovePassage(test.id, pIdx, 'up');
+                                              }}
+                                              className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30"
+                                              title="Move passage up"
+                                            >
+                                              ▲
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={pIdx === test.passages.length - 1}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleMovePassage(test.id, pIdx, 'down');
+                                              }}
+                                              className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30"
+                                              title="Move passage down"
+                                            >
+                                              ▼
+                                            </button>
+                                          </div>
                                           {p.questionGroups && p.questionGroups.length > 0 && (
                                             <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono">
                                               {p.questionGroups.length} Groups
@@ -1128,14 +1272,22 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                     </div>
                   ) : activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 ? (
                     <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5">
                           <Layers className="w-4 h-4 text-blue-600" />
                           <span>
-                            Multiple Candidate Tests Detected ({activeDoc.detectedStructure.candidateTests.length} sections)
+                            Detected {activeDoc.detectedStructure.candidateTests.length} Reading Passages
                           </span>
                         </span>
-                        <span className="text-[11px] text-blue-700 font-medium">Select a section to preview/edit:</span>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={handleGroupCandidateTestsIntoFullTest}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                          >
+                            Gộp thành 1 đề Full Test (Passages 1–{activeDoc.detectedStructure.candidateTests.length})
+                          </button>
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-2 pt-1">
                         {activeDoc.detectedStructure.candidateTests.map((ct) => (
@@ -1238,6 +1390,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                   <option value="multiple_select">Multiple Select</option>
                                   <option value="true_false_not_given">True / False / Not Given</option>
                                   <option value="yes_no_not_given">Yes / No / Not Given</option>
+                                  <option value="matching_information">Matching Information</option>
+                                  <option value="matching_information">Matching Information</option>
                                   <option value="matching_headings">Matching Headings</option>
                                   <option value="matching_features">Matching Features</option>
                                   <option value="matching_sentence_endings">Matching Sentence Endings</option>

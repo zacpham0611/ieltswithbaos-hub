@@ -111,7 +111,7 @@ export const TuitionView: React.FC = () => {
   // Fee Config Form
   const [cfgCourseId, setCfgCourseId] = useState('');
   const [cfgModel, setCfgModel] = useState<TuitionModel>('fixed_monthly');
-  const [cfgCurrency, setCfgCurrency] = useState<'VND' | 'USD'>('USD');
+  const [cfgCurrency, setCfgCurrency] = useState<'VND' | 'USD'>('VND');
   const [cfgAmount, setCfgAmount] = useState(60);
   const [cfgDueDays, setCfgDueDays] = useState(15);
   const [cfgDiscountPercent, setCfgDiscountPercent] = useState(5);
@@ -778,10 +778,10 @@ export const TuitionView: React.FC = () => {
                         <td className="py-2 px-3.5 font-medium text-slate-800">{item.description}</td>
                         <td className="py-2 px-3.5 text-center text-slate-600">{item.quantity ?? '—'}</td>
                         <td className="py-2 px-3.5 text-right text-slate-600">
-                          {item.unitPrice ? `${activeStatement.currency} ${item.unitPrice.toLocaleString()}` : '—'}
+                          {item.unitPrice ? formatTuitionCurrency(item.unitPrice, activeStatement.currency || 'VND') : '—'}
                         </td>
                         <td className="py-2 px-3.5 text-right font-bold text-slate-900">
-                          {item.amount > 0 ? `${activeStatement.currency} ${item.amount.toLocaleString()}` : '—'}
+                          {item.amount > 0 ? formatTuitionCurrency(item.amount, activeStatement.currency || 'VND') : '—'}
                         </td>
                       </tr>
                     ))}
@@ -795,7 +795,7 @@ export const TuitionView: React.FC = () => {
                         <td className="py-2 px-3.5 text-center text-slate-600">—</td>
                         <td className="py-2 px-3.5 text-right text-slate-600">—</td>
                         <td className="py-2 px-3.5 text-right font-bold text-emerald-700">
-                          − {activeStatement.currency} {activeStatement.discountAmount.toLocaleString()}
+                          − {formatTuitionCurrency(activeStatement.discountAmount, activeStatement.currency || 'VND')}
                         </td>
                       </tr>
                     )}
@@ -808,7 +808,7 @@ export const TuitionView: React.FC = () => {
                       <td className="py-1.5 px-3.5 text-center text-slate-400">—</td>
                       <td className="py-1.5 px-3.5 text-right text-slate-400">—</td>
                       <td className="py-1.5 px-3.5 text-right font-medium text-slate-600">
-                        {activeStatement.currency} {activeStatement.previousBalance.toLocaleString()}
+                        {formatTuitionCurrency(activeStatement.previousBalance, activeStatement.currency || 'VND')}
                       </td>
                     </tr>
                   </tbody>
@@ -820,7 +820,7 @@ export const TuitionView: React.FC = () => {
                     {getPdfLabel('TOTAL AMOUNT DUE', 'TỔNG TIỀN PHẢI THANH TOÁN')}
                   </span>
                   <span className="font-extrabold text-lg text-blue-900">
-                    {activeStatement.currency} {activeStatement.totalAmountDue.toLocaleString()}
+                    {formatTuitionCurrency(activeStatement.totalAmountDue, activeStatement.currency || 'VND')}
                   </span>
                 </div>
 
@@ -834,11 +834,11 @@ export const TuitionView: React.FC = () => {
                   </div>
                   <div className="flex items-center space-x-3 text-xs">
                     <span>
-                      {getPdfLabel('Amount paid', 'Đã thanh toán')}: <strong className="text-slate-900">{activeStatement.currency} {activeStatement.amountPaid.toLocaleString()}</strong>
+                      {getPdfLabel('Amount paid', 'Đã thanh toán')}: <strong className="text-slate-900">{formatTuitionCurrency(activeStatement.amountPaid, activeStatement.currency || 'VND')}</strong>
                     </span>
                     <span>•</span>
                     <span>
-                      {getPdfLabel('Remaining', 'Còn lại')}: <strong className="text-rose-700 font-bold">{activeStatement.currency} {activeStatement.remainingBalance.toLocaleString()}</strong>
+                      {getPdfLabel('Remaining', 'Còn lại')}: <strong className="text-rose-700 font-bold">{formatTuitionCurrency(activeStatement.remainingBalance, activeStatement.currency || 'VND')}</strong>
                     </span>
                   </div>
                 </div>
@@ -870,7 +870,7 @@ export const TuitionView: React.FC = () => {
                           <td className="py-1.5 px-3 text-slate-700">{p.paymentMethod}</td>
                           <td className="py-1.5 px-3 font-mono text-slate-600">{p.transactionReference}</td>
                           <td className="py-1.5 px-3 text-right font-bold text-emerald-700">
-                            {activeStatement.currency} {p.amount.toLocaleString()}
+                            {formatTuitionCurrency(p.amount, activeStatement.currency || 'VND')}
                           </td>
                         </tr>
                       ))}
@@ -1107,7 +1107,7 @@ export const TuitionView: React.FC = () => {
                     <span className="font-mono">{activeStatement.statementNumber}</span>
                     <span>•</span>
                     <span className="font-bold text-blue-800">
-                      {activeStatement.currency} {activeStatement.totalAmountDue.toLocaleString()}
+                      {formatTuitionCurrency(activeStatement.totalAmountDue, activeStatement.currency || 'VND')}
                     </span>
                   </div>
                 </div>
@@ -1147,7 +1147,7 @@ export const TuitionView: React.FC = () => {
                   <span className="text-slate-500">{t('tuition.tableStudent')}: </span>
                   <strong className="text-slate-800">{activeStatement.studentName}</strong>
                   <span className="block text-slate-500 mt-1">
-                    {t('tuition.remainingLabel')}: <strong>{activeStatement.currency} {activeStatement.remainingBalance.toLocaleString()}</strong>
+                    {t('tuition.remainingLabel')}: <strong>{formatTuitionCurrency(activeStatement.remainingBalance, activeStatement.currency || 'VND')}</strong>
                   </span>
                 </div>
 
@@ -1382,7 +1382,7 @@ export const TuitionView: React.FC = () => {
                 {t('tuition.totalBilled')}
               </span>
               <div className="text-2xl font-extrabold text-slate-900 mt-1">
-                ${totalRevenue.toLocaleString()}
+                {formatTuitionCurrency(totalRevenue, 'VND')}
               </div>
               <span className="text-[11px] text-slate-400">{t('tuition.acrossStatements')}</span>
             </div>
@@ -1392,7 +1392,7 @@ export const TuitionView: React.FC = () => {
                 {t('tuition.outstandingBalance')}
               </span>
               <div className="text-2xl font-extrabold text-amber-600 mt-1">
-                ${totalOutstanding.toLocaleString()}
+                {formatTuitionCurrency(totalOutstanding, 'VND')}
               </div>
               <span className="text-[11px] text-amber-600 font-semibold">{t('tuition.uncollected')}</span>
             </div>
@@ -1402,7 +1402,7 @@ export const TuitionView: React.FC = () => {
                 {t('tuition.collected')}
               </span>
               <div className="text-2xl font-extrabold text-emerald-600 mt-1">
-                ${totalCollected.toLocaleString()}
+                {formatTuitionCurrency(totalCollected, 'VND')}
               </div>
               <span className="text-[11px] text-emerald-600 font-semibold">{t('tuition.settled')}</span>
             </div>
@@ -1473,7 +1473,7 @@ export const TuitionView: React.FC = () => {
                       <td className="py-3 px-4 text-slate-600">{stmt.courseName}</td>
                       <td className="py-3 px-4 text-slate-600">{stmt.billingPeriod}</td>
                       <td className="py-3 px-4 font-bold text-slate-900">
-                        {stmt.currency} {stmt.totalAmountDue.toLocaleString()}
+                        {formatTuitionCurrency(stmt.totalAmountDue, stmt.currency || 'VND')}
                       </td>
                       <td className="py-3 px-4">
                         <span
@@ -1969,7 +1969,7 @@ export const TuitionView: React.FC = () => {
                         </div>
                         <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
                           <span>
-                            {t('tuition.rateLabel')}: <strong className="text-slate-800">{cfg.currency} {cfg.amount.toLocaleString()}</strong>
+                            {t('tuition.rateLabel')}: <strong className="text-slate-800">{formatTuitionCurrency(cfg.amount, cfg.currency || 'VND')}</strong>
                             {cfg.model === 'per_session' ? ' / session' : cfg.model === 'hourly' ? ' / hour' : cfg.model === 'fixed_monthly' ? ' / month' : ' (package)'}
                           </span>
                           <span>{t('tuition.dueWindowLabel')}: <strong>{cfg.dueDays || 15} days</strong></span>
@@ -2111,7 +2111,7 @@ export const TuitionView: React.FC = () => {
                         <span>Live Calculation Breakdown ({calcPreview.model.replace('_', ' ')})</span>
                       </span>
                       <span className="text-blue-700 font-mono">
-                        {calcPreview.currency} {calcPreview.baseRate.toLocaleString()} / unit
+                        {formatTuitionCurrency(calcPreview.baseRate, calcPreview.currency || 'VND')} / unit
                       </span>
                     </div>
 
@@ -2138,19 +2138,19 @@ export const TuitionView: React.FC = () => {
                       <div className="flex justify-between">
                         <span>Subtotal ({calcPreview.billableUnits} {calcPreview.unitLabel}):</span>
                         <span className="font-semibold text-slate-800 font-mono">
-                          {calcPreview.currency} {calcPreview.subtotal.toLocaleString()}
+                          {formatTuitionCurrency(calcPreview.subtotal, calcPreview.currency || 'VND')}
                         </span>
                       </div>
                       {calcPreview.discountAmount > 0 && (
                         <div className="flex justify-between text-emerald-700 font-semibold">
                           <span>Discount:</span>
-                          <span className="font-mono">− {calcPreview.currency} {calcPreview.discountAmount.toLocaleString()}</span>
+                          <span className="font-mono">− {formatTuitionCurrency(calcPreview.discountAmount, calcPreview.currency || 'VND')}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm font-extrabold text-blue-800 pt-1 border-t border-slate-200">
                         <span>Total Amount Due:</span>
                         <span className="font-mono text-base">
-                          {calcPreview.currency} {calcPreview.totalAmountDue.toLocaleString()}
+                          {formatTuitionCurrency(calcPreview.totalAmountDue, calcPreview.currency || 'VND')}
                         </span>
                       </div>
                     </div>
@@ -2230,10 +2230,10 @@ export const TuitionView: React.FC = () => {
                     <select
                       value={cfgCurrency}
                       onChange={(e) => setCfgCurrency(e.target.value as any)}
-                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white"
+                      className="w-full p-2 border border-slate-300 rounded-lg outline-hidden bg-white font-medium"
                     >
+                      <option value="VND">VND (₫)</option>
                       <option value="USD">USD ($)</option>
-                      <option value="VND">VND (đ)</option>
                     </select>
                   </div>
                 </div>

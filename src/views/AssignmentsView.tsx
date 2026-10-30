@@ -20,6 +20,8 @@ import {
   extractAllNormalizedQuestions,
   resolveQuestionPrompt,
   extractParagraphLabelsFromPassage,
+  buildQuestionRenderGroups,
+  type QuestionRenderGroup,
 } from '../lib/questionNormalizer';
 import {
   calculateIeltsOverallBand,
@@ -178,6 +180,16 @@ export const AssignmentsView: React.FC = () => {
 
   // Multi-Passage Tab state
   const [activePassageTab, setActivePassageTab] = useState<number>(0);
+
+  // Reset active passage tab when switching assignments
+  useEffect(() => {
+    setActivePassageTab(0);
+  }, [selectedAssignmentId]);
+
+  // Reset active passage tab when switching assignments
+  useEffect(() => {
+    setActivePassageTab(0);
+  }, [selectedAssignmentId]);
 
   // Teacher "Import from Library" state
   const [showImportLibraryModal, setShowImportLibraryModal] = useState(false);
@@ -1842,8 +1854,13 @@ export const AssignmentsView: React.FC = () => {
     const questions = extractedData.questions;
     const passageMap = extractedData.passageMap;
 
+    const safePassageIndex =
+      activeAssignment.passages && activeAssignment.passages.length > 0
+        ? Math.min(activePassageTab, activeAssignment.passages.length - 1)
+        : 0;
+
     const currentPassageContent =
-      (activeAssignment.passages && activeAssignment.passages[activePassageTab]?.content) ||
+      (activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) ||
       activeAssignment.readingPassage ||
       '';
     const paragraphLabels = extractParagraphLabelsFromPassage(currentPassageContent);
@@ -1868,74 +1885,7 @@ export const AssignmentsView: React.FC = () => {
       }, 4000);
     };
 
-    const questionRenderGroups = useMemo(() => {
-      if (questions.length === 0) return [];
-
-      interface QuestionRenderGroup {
-        id: string;
-        rangeTitle: string;
-        instructions?: string;
-        headingsList?: string[];
-        featuresList?: string[];
-        wordLimit?: string;
-        questions: Array<{ q: ReadingQuestion; idx: number }>;
-      }
-
-      const groups: QuestionRenderGroup[] = [];
-      let currentGroup: QuestionRenderGroup | null = null;
-
-      for (let idx = 0; idx < questions.length; idx++) {
-        const q = questions[idx];
-        const headingsKey = q.headingsList && q.headingsList.length > 0 ? q.headingsList.join('|') : '';
-        const featuresKey = q.featuresList && q.featuresList.length > 0 ? q.featuresList.join('|') : '';
-        const wordLimit = q.wordLimit || (q.maxWords ? `NO MORE THAN ${q.maxWords} WORD${q.maxWords > 1 ? 'S' : ''}` : undefined);
-        const instruction = (q as any).instruction || (q as any).groupInstruction || (q as any).instructions || '';
-
-        const sameHeadings = (currentGroup?.headingsList?.join('|') || '') === headingsKey;
-        const sameFeatures = (currentGroup?.featuresList?.join('|') || '') === featuresKey;
-        const sameInstruction = (currentGroup?.instructions || '') === instruction;
-        const sameWordLimit = (currentGroup?.wordLimit || '') === (wordLimit || '');
-
-        const shouldContinueGroup = Boolean(
-          currentGroup &&
-          (headingsKey ? sameHeadings : true) &&
-          (featuresKey ? sameFeatures : true) &&
-          (instruction ? sameInstruction : true) &&
-          (!headingsKey && !featuresKey && !instruction ? sameWordLimit : true)
-        );
-
-        if (shouldContinueGroup && currentGroup) {
-          currentGroup.questions.push({ q, idx });
-        } else {
-          if (currentGroup) {
-            const firstIdx = currentGroup.questions[0].idx + 1;
-            const lastIdx = currentGroup.questions[currentGroup.questions.length - 1].idx + 1;
-            currentGroup.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
-            groups.push(currentGroup);
-          }
-
-          currentGroup = {
-            id: `g_${idx}`,
-            rangeTitle: `Question ${idx + 1}`,
-            instructions: instruction || undefined,
-            headingsList: q.headingsList && q.headingsList.length > 0 ? q.headingsList : undefined,
-            featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
-            wordLimit,
-            questions: [{ q, idx }],
-          };
-        }
-      }
-
-      if (currentGroup) {
-        const cg: QuestionRenderGroup = currentGroup;
-        const firstIdx = cg.questions[0].idx + 1;
-        const lastIdx = cg.questions[cg.questions.length - 1].idx + 1;
-        cg.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
-        groups.push(cg);
-      }
-
-      return groups;
-    }, [questions]);
+    const questionRenderGroups = buildQuestionRenderGroups(questions);
 
     return (
       <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
@@ -2102,7 +2052,7 @@ export const AssignmentsView: React.FC = () => {
                     <BookOpen className="w-5 h-5 text-blue-600" />
                     <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
                       {activeAssignment.passages && activeAssignment.passages.length > 1
-                        ? activeAssignment.passages[activePassageTab]?.title || `Passage ${activePassageTab + 1}`
+                        ? activeAssignment.passages[safePassageIndex]?.title || `Passage ${safePassageIndex + 1}`
                         : t('assignments.readingPassageTitle')}
                     </span>
                   </div>
@@ -2127,7 +2077,7 @@ export const AssignmentsView: React.FC = () => {
                     </button>
 
                     <span className="text-xs text-slate-400 font-mono">
-                      {((activeAssignment.passages && activeAssignment.passages[activePassageTab]?.content) || activeAssignment.readingPassage || '')
+                      {((activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) || activeAssignment.readingPassage || '')
                         .split(/\s+/)
                         .filter(Boolean).length}{' '}
                       words
@@ -2172,7 +2122,7 @@ export const AssignmentsView: React.FC = () => {
                   }`}
                 >
                   {renderHighlightedPassage(
-                    (activeAssignment.passages && activeAssignment.passages[activePassageTab]?.content) ||
+                    (activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) ||
                       activeAssignment.readingPassage ||
                       'No reading passage text provided.'
                   )}
@@ -2314,7 +2264,8 @@ export const AssignmentsView: React.FC = () => {
                           {/* Questions in this group */}
                           <div className="space-y-4">
                             {group.questions.map(({ q, idx }) => {
-                              const answer = readingAnswers[q.id] || '';
+                              const answer = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
+                              const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
                               const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
                               const isFlag = Boolean(flaggedQuestions[q.id]);
                               const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
@@ -2395,7 +2346,7 @@ export const AssignmentsView: React.FC = () => {
                                         <button
                                           key={choice}
                                           type="button"
-                                          disabled={mySub?.status === 'graded'}
+                                          disabled={isReadOnly}
                                           onClick={() => handleAnswerChange(q.id, choice)}
                                           className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
                                             answer.toUpperCase() === choice
@@ -2425,7 +2376,7 @@ export const AssignmentsView: React.FC = () => {
                                             <button
                                               key={label}
                                               type="button"
-                                              disabled={mySub?.status === 'graded'}
+                                              disabled={isReadOnly}
                                               onClick={() => handleAnswerChange(q.id, letter)}
                                               className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                                                 isSelected
@@ -2441,7 +2392,7 @@ export const AssignmentsView: React.FC = () => {
 
                                       <div className="pt-1">
                                         <select
-                                          disabled={mySub?.status === 'graded'}
+                                          disabled={isReadOnly}
                                           value={answer}
                                           onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                           className="w-full sm:w-72 p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -2461,7 +2412,7 @@ export const AssignmentsView: React.FC = () => {
                                   ) : q.type === 'matching_headings' && (group.headingsList || q.headingsList) && (group.headingsList || q.headingsList)!.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
-                                        disabled={mySub?.status === 'graded'}
+                                        disabled={isReadOnly}
                                         value={answer}
                                         onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                         className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -2481,7 +2432,7 @@ export const AssignmentsView: React.FC = () => {
                                   ) : q.type === 'matching_features' && (group.featuresList || q.featuresList) && (group.featuresList || q.featuresList)!.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
-                                        disabled={mySub?.status === 'graded'}
+                                        disabled={isReadOnly}
                                         value={answer}
                                         onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                         className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -2501,7 +2452,7 @@ export const AssignmentsView: React.FC = () => {
                                   ) : q.type === 'matching_sentence_endings' && q.options && q.options.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
-                                        disabled={mySub?.status === 'graded'}
+                                        disabled={isReadOnly}
                                         value={answer}
                                         onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                         className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -2530,7 +2481,7 @@ export const AssignmentsView: React.FC = () => {
                                           >
                                             <input
                                               type="checkbox"
-                                              disabled={mySub?.status === 'graded'}
+                                              disabled={isReadOnly}
                                               checked={isChecked}
                                               onChange={(e) => {
                                                 let updated = [...selectedList];
@@ -2562,7 +2513,7 @@ export const AssignmentsView: React.FC = () => {
                                           <input
                                             type="radio"
                                             name={`q_${q.id}`}
-                                            disabled={mySub?.status === 'graded'}
+                                            disabled={isReadOnly}
                                             checked={answer === opt}
                                             onChange={() => handleAnswerChange(q.id, opt)}
                                             className="text-blue-600"
@@ -2588,7 +2539,7 @@ export const AssignmentsView: React.FC = () => {
                                           >
                                             <span className="font-semibold text-slate-800">{pair.left}</span>
                                             <select
-                                              disabled={mySub?.status === 'graded'}
+                                              disabled={isReadOnly}
                                               value={currentMap[pair.left] || ''}
                                               onChange={(e) => {
                                                 const updated = { ...currentMap, [pair.left]: e.target.value };
@@ -2611,7 +2562,7 @@ export const AssignmentsView: React.FC = () => {
                                     <div className="space-y-1">
                                       <input
                                         type="text"
-                                        disabled={mySub?.status === 'graded'}
+                                        disabled={isReadOnly}
                                         value={answer}
                                         onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                         placeholder={
@@ -2658,7 +2609,7 @@ export const AssignmentsView: React.FC = () => {
                 </div>
 
                 {/* Submission footer: Pinned at bottom of right column */}
-                {!isTeacher && mySub?.status !== 'graded' && (
+                {!isTeacher && (!mySub || mySub.status === 'returned') ? (
                   <div className="shrink-0 px-6 py-3.5 border-t border-slate-200 bg-slate-50/90 flex justify-end z-10">
                     <button
                       onClick={initiateReadingSubmit}
@@ -2670,7 +2621,15 @@ export const AssignmentsView: React.FC = () => {
                       </span>
                     </button>
                   </div>
-                )}
+                ) : !isTeacher && mySub && mySub.status !== 'returned' ? (
+                  <div className="shrink-0 px-6 py-3.5 border-t border-slate-200 bg-emerald-50/90 flex items-center justify-between z-10">
+                    <div className="flex items-center space-x-2 text-xs font-bold text-emerald-800">
+                      <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      <span>{mySub.status === 'graded' ? 'Bài làm đã được chấm điểm' : 'Bài làm đã được nộp thành công'}</span>
+                    </div>
+                    <span className="text-xs text-slate-500 font-mono">Đã nộp: {mySub.submittedAt}</span>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -2681,6 +2640,35 @@ export const AssignmentsView: React.FC = () => {
         ========================================================================= */}
         {isWriting && (
           <div className="space-y-6">
+            {isTeacher && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center space-x-2.5 text-blue-900">
+                  <Eye className="w-5 h-5 text-blue-600 shrink-0" />
+                  <div>
+                    <h4 className="text-sm font-bold">Chế độ xem trước của Giáo viên (Teacher Preview Mode)</h4>
+                    <p className="text-xs text-blue-700">Xem trước đề bài, hình ảnh sơ đồ và bài luận mẫu Band 8.5–9.0.</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAssignmentForRoster(activeAssignment)}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center space-x-1.5"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Xem danh sách nộp bài ({submissions.filter((s) => s.assignmentId === activeAssignment.id).length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEditModal(activeAssignment)}
+                    className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold flex items-center space-x-1"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Chỉnh sửa</span>
+                  </button>
+                </div>
+              </div>
+            )}
             {/* If Graded or Returned, Show Full Writing Assessment Report Card */}
             {mySub && (mySub.status === 'graded' || mySub.status === 'returned') && (
               <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-indigo-200 rounded-2xl p-6 shadow-xs space-y-5">
@@ -3026,6 +3014,27 @@ export const AssignmentsView: React.FC = () => {
         ========================================================================= */}
         {isSpeaking && (
           <div className="space-y-6">
+            {isTeacher && (
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center space-x-2.5 text-purple-900">
+                  <Eye className="w-5 h-5 text-purple-600 shrink-0" />
+                  <div>
+                    <h4 className="text-sm font-bold">Chế độ xem trước của Giáo viên (Speaking Preview Mode)</h4>
+                    <p className="text-xs text-purple-700">Xem trước chủ đề và các câu hỏi speaking cue card được giao cho học viên.</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAssignmentForRoster(activeAssignment)}
+                    className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center space-x-1.5"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Xem danh sách nộp bài ({submissions.filter((s) => s.assignmentId === activeAssignment.id).length})</span>
+                  </button>
+                </div>
+              </div>
+            )}
             {/* If Graded or Returned, Show Full Speaking Assessment Report Card */}
             {mySub && (mySub.status === 'graded' || mySub.status === 'returned') && (
               <div className="bg-gradient-to-r from-blue-50 via-teal-50 to-slate-50 border border-teal-200 rounded-2xl p-6 shadow-xs space-y-5">
@@ -3178,6 +3187,77 @@ export const AssignmentsView: React.FC = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+                {/* =========================================================================
+            4. GENERAL ASSIGNMENT FALLBACK WORKFLOW
+        ========================================================================= */}
+        {!isReading && !isWriting && !isSpeaking && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                  <FileText className="w-4 h-4 text-purple-600" />
+                  <span>Chi tiết bài tập</span>
+                </h3>
+                <span className="text-xs bg-purple-100 text-purple-800 font-bold px-2.5 py-0.5 rounded-full uppercase">
+                  {activeAssignment.skill || 'General'}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm font-medium text-slate-800 leading-relaxed whitespace-pre-wrap">
+                {activeAssignment.instructions || 'Không có hướng dẫn chi tiết.'}
+              </div>
+
+              {activeAssignment.objectives && (
+                <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 text-xs text-blue-900">
+                  <strong>Mục tiêu:</strong> {activeAssignment.objectives}
+                </div>
+              )}
+
+              {isTeacher ? (
+                <div className="pt-2 flex items-center justify-between">
+                  <span className="text-xs text-slate-500 font-medium">Chế độ xem trước dành cho Giáo viên</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAssignmentForRoster(activeAssignment)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-xs"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Xem danh sách nộp bài ({submissions.filter((s) => s.assignmentId === activeAssignment.id).length})</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-4 border-t border-slate-100 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase">Trạng thái làm bài</h4>
+                  {mySub ? (
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900">
+                      <div className="flex items-center space-x-2 font-bold">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>Bạn đã nộp bài thành công (Thời gian: {mySub.submittedAt})</span>
+                      </div>
+                      <span className="px-2 py-0.5 bg-emerald-200/80 rounded uppercase font-bold text-[10px]">
+                        {mySub.status}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                      <p className="text-xs text-amber-900">Vui lòng hoàn thành theo hướng dẫn và gửi xác nhận cho giáo viên.</p>
+                      <button
+                        type="button"
+                        onClick={handleWritingSubmit}
+                        disabled={isSubmittingStudentWork}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-xs"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Xác nhận hoàn thành bài tập</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3371,35 +3451,51 @@ export const AssignmentsView: React.FC = () => {
             const studentSub = submissions.find(
               (s) => s.assignmentId === a.id && s.studentId === currentUser.id
             );
+            const subCount = submissions.filter((s) => s.assignmentId === a.id).length;
+            const enrolledCount = courseMembers.filter((m) => m.courseId === a.courseId && m.status === 'enrolled').length || subCount;
 
             return (
               <div
                 key={a.id}
                 onClick={() => setSelectedAssignmentId(a.id)}
-                className="bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer p-5 flex flex-col justify-between group"
+                className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer p-5 flex flex-col justify-between h-full min-h-[230px] group"
               >
                 <div>
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <div className="flex items-center space-x-1.5">
+                  {/* Top Badges & Due Date (Standardized & Non-overlapping) */}
+                  <div className="flex items-center justify-between text-xs mb-3 gap-2">
+                    <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                       <span
-                        className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${
+                        className={`text-[11px] uppercase font-extrabold px-2 py-0.5 rounded-md tracking-wider ${
                           a.skill === 'reading'
                             ? 'bg-emerald-100 text-emerald-800'
                             : a.skill === 'writing'
                             ? 'bg-amber-100 text-amber-800'
-                            : 'bg-purple-100 text-purple-800'
+                            : a.skill === 'speaking'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-blue-100 text-blue-800'
                         }`}
                       >
                         {a.skill}
-                        {a.writingTaskCategory && ` (${a.writingTaskCategory.replace('_', ' ').toUpperCase()})`}
                       </span>
+
+                      {a.writingTaskCategory && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 uppercase">
+                          {a.writingTaskCategory === 'task1_academic' ? 'Task 1' : 'Task 2'}
+                        </span>
+                      )}
+
+                      {a.readingTestType && a.skill === 'reading' && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 uppercase">
+                          {a.readingTestType === 'academic' ? 'Academic' : 'General'}
+                        </span>
+                      )}
 
                       {isTeacher && (
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 ${
                             a.scoreVisibility === 'public'
-                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-slate-100 text-slate-600 border border-slate-200'
                           }`}
                         >
                           {a.scoreVisibility === 'public' ? (
@@ -3416,90 +3512,92 @@ export const AssignmentsView: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-slate-400 flex items-center space-x-1">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Due: {a.dueDate || 'Open'}</span>
+
+                    <span className="text-[11px] text-slate-500 font-medium flex items-center space-x-1 shrink-0 whitespace-nowrap bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      <span>{a.dueDate || 'No limit'}</span>
                     </span>
                   </div>
 
                   <h3 className="font-bold text-slate-900 text-base group-hover:text-blue-600 transition-colors line-clamp-1">
                     {a.title}
                   </h3>
-                  <p className="text-sm text-slate-500 line-clamp-2 mt-1 leading-relaxed">
-                    {a.instructions}
+                  <p className="text-xs text-slate-500 line-clamp-2 mt-1.5 leading-relaxed">
+                    {a.instructions || 'No specific instructions provided.'}
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 mt-4 flex items-center justify-between text-xs">
-                  {!isTeacher && studentSub ? (
-                    <span
-                      className={`font-semibold capitalize text-xs ${
-                        studentSub.status === 'graded'
-                          ? a.scoreVisibility === 'public' && studentSub.score
-                            ? 'text-emerald-600'
-                            : 'text-slate-600'
-                          : studentSub.status === 'returned'
-                          ? 'text-red-600'
-                          : 'text-amber-600'
-                      }`}
-                    >
-                      {studentSub.status === 'graded'
-                        ? a.scoreVisibility === 'public' && studentSub.score
-                          ? `Graded: Band ${studentSub.score}`
-                          : 'Graded (Private Score)'
-                        : studentSub.status}
-                    </span>
+                {/* Footer Action Toolbar */}
+                <div className="pt-3.5 border-t border-slate-100 mt-4 flex items-center justify-between text-xs gap-2">
+                  {!isTeacher ? (
+                    studentSub ? (
+                      <span
+                        className={`font-bold text-xs px-2.5 py-1 rounded-md flex items-center space-x-1.5 ${
+                          studentSub.status === 'graded'
+                            ? a.scoreVisibility === 'public' && studentSub.score
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            : studentSub.status === 'returned'
+                            ? 'bg-red-50 text-red-700 border border-red-200'
+                            : 'bg-blue-50 text-blue-700 border border-blue-200'
+                        }`}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>
+                          {studentSub.status === 'graded'
+                            ? a.scoreVisibility === 'public' && studentSub.score
+                              ? `Band ${studentSub.score}`
+                              : 'Đã chấm điểm'
+                            : studentSub.status === 'returned'
+                            ? 'Cần làm lại'
+                            : 'Đã nộp bài'}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 text-xs font-medium italic">{t('status.notSubmitted')}</span>
+                    )
                   ) : (
-                    <div className="flex items-center space-x-2">
-                      {isTeacher ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedAssignmentForRoster(a);
-                            }}
-                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded font-bold flex items-center space-x-1"
-                            title="Xem danh sách bài làm của học viên"
-                          >
-                            <Users className="w-3.5 h-3.5" />
-                            <span>
-                              Xem bài làm ({submissions.filter((s) => s.assignmentId === a.id).length}/
-                              {courseMembers.filter((m) => m.courseId === a.courseId && m.status === 'enrolled').length ||
-                                submissions.filter((s) => s.assignmentId === a.id).length})
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditModal(a);
-                            }}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold flex items-center space-x-1"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeletingAssignment(a);
-                            }}
-                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded font-semibold flex items-center space-x-1"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Delete</span>
-                          </button>
-                        </>
-                      ) : (
-                        <span className="text-slate-400 text-xs">{t('status.notSubmitted')}</span>
-                      )}
+                    <div className="flex items-center space-x-1.5 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedAssignmentForRoster(a);
+                        }}
+                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold flex items-center space-x-1 text-[11px] whitespace-nowrap shrink-0 transition-colors"
+                        title="Xem danh sách bài làm của học viên"
+                      >
+                        <Users className="w-3 h-3" />
+                        <span>Bài làm ({subCount}/{enrolledCount})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditModal(a);
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center space-x-1 text-[11px] whitespace-nowrap shrink-0 transition-colors"
+                        title="Chỉnh sửa bài tập"
+                      >
+                        <Edit className="w-3 h-3" />
+                        <span>Sửa</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingAssignment(a);
+                        }}
+                        className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors shrink-0"
+                        title="Xóa bài tập"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
 
-                  <span className="font-semibold text-blue-600 group-hover:translate-x-1 transition-transform flex items-center text-xs">
-                    <span>{t('common.enter')}</span>
+                  <span className="font-bold text-blue-600 group-hover:translate-x-0.5 transition-transform flex items-center space-x-1 text-xs shrink-0 whitespace-nowrap bg-blue-50 group-hover:bg-blue-600 group-hover:text-white px-3 py-1 rounded-lg">
+                    <span>{isTeacher ? 'Xem đề' : studentSub ? 'Xem lại' : 'Làm bài'}</span>
                     <ChevronRight className="w-3.5 h-3.5" />
                   </span>
                 </div>

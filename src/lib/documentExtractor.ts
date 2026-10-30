@@ -32,6 +32,7 @@ export interface CandidateTest {
   questionCount: number;
   recognizedTypes: QuestionType[];
   warnings: string[];
+  labeledParagraphs?: { label: string; text: string }[];
 }
 
 export interface DocumentStructure {
@@ -314,7 +315,7 @@ export async function processDocumentFile(file: File): Promise<ExtractedDocument
       };
     }
 
-    const detectedStructure = parseDocumentStructure(rawText, file.name);
+    const detectedStructure = parseDocumentStructure(rawText, file.name, htmlContent);
 
     return {
       id,
@@ -373,20 +374,42 @@ export function detectQuestionType(
 ): QuestionType {
   const combined = `${instructionContext} ${prompt}`.toLowerCase();
 
-  // True / False / Not Given vs Yes / No / Not Given
-  if (
-    (combined.includes('true') && combined.includes('false')) ||
-    combined.includes('agree with the information') ||
-    combined.includes('agree with the statement')
-  ) {
-    return 'true_false_not_given';
-  }
+  // Yes / No / Not Given vs True / False / Not Given
   if (
     (combined.includes('yes') && combined.includes('no')) ||
     combined.includes('claims of the writer') ||
-    combined.includes('views of the writer')
+    combined.includes('views of the writer') ||
+    combined.includes('yes / no / not given') ||
+    combined.includes('yes/no/not given')
   ) {
     return 'yes_no_not_given';
+  }
+  if (
+    (combined.includes('true') && combined.includes('false')) ||
+    combined.includes('agree with the information') ||
+    combined.includes('agree with the statement') ||
+    combined.includes('true / false / not given') ||
+    combined.includes('true/false/not given')
+  ) {
+    return 'true_false_not_given';
+  }
+
+  // Multiple Select & Multiple Choice (evaluated early if explicit MCQ indicators or options exist)
+  if (
+    combined.includes('choose two') ||
+    combined.includes('choose three') ||
+    combined.includes('which two') ||
+    combined.includes('which three')
+  ) {
+    return 'multiple_select';
+  }
+
+  if (
+    combined.includes('multiple choice') ||
+    (combined.includes('choose the correct letter') && (combined.includes('a, b') || combined.includes('a–d') || combined.includes('a-d') || combined.includes('a, b, c') || combined.includes('a, b, c or d'))) ||
+    (options && options.length >= 2)
+  ) {
+    return 'multiple_choice';
   }
 
   // Matching variations
@@ -394,32 +417,38 @@ export function detectQuestionType(
     return 'matching_headings';
   }
   if (
+    combined.includes('matching features') ||
+    combined.includes('match each statement with the correct person') ||
+    combined.includes('match each statement with the correct company') ||
+    combined.includes('match each statement with the correct') ||
+    combined.includes('list of researchers') ||
+    combined.includes('list of people') ||
+    combined.includes('list of companies') ||
+    combined.includes('nối nhận định với')
+  ) {
+    return 'matching_features';
+  }
+  if (
     combined.includes('which paragraph contains') ||
+    combined.includes('which section contains') ||
     combined.includes('which paragraph mentions') ||
     combined.includes('which paragraph gives') ||
     combined.includes('information to paragraph') ||
     combined.includes('paragraphs a-') ||
     combined.includes('paragraph a-') ||
     combined.includes('paragraphs a–') ||
+    combined.includes('sections, a–') ||
+    combined.includes('sections, a-') ||
     combined.includes('write the correct letter, a-') ||
     combined.includes('write the correct letter a-') ||
     combined.includes('write the correct letter, a–') ||
-    combined.includes('write the correct letter in boxes') ||
     (combined.includes('in boxes') && combined.includes('on your answer sheet') && (combined.includes('a-') || combined.includes('a–'))) ||
     combined.includes('nb you may use any letter more than once') ||
     combined.includes('you may use any letter more than once') ||
-    combined.includes('matching information')
+    combined.includes('matching information') ||
+    combined.includes('nối thông tin với đoạn văn')
   ) {
     return 'matching_information';
-  }
-  if (
-    combined.includes('match each statement with the correct person') ||
-    combined.includes('match each statement with the correct') ||
-    combined.includes('list of researchers') ||
-    combined.includes('list of people') ||
-    combined.includes('matching features')
-  ) {
-    return 'matching_features';
   }
   if (combined.includes('sentence ending') || combined.includes('correct ending') || combined.includes('complete each sentence with the correct ending')) {
     return 'matching_sentence_endings';
@@ -443,20 +472,6 @@ export function detectQuestionType(
   }
   if (combined.includes('complete the sentence') || combined.includes('sentences below')) {
     return 'sentence_completion';
-  }
-
-  // Multiple Select vs Multiple Choice
-  if (
-    combined.includes('choose two') ||
-    combined.includes('choose three') ||
-    combined.includes('which two') ||
-    combined.includes('which three')
-  ) {
-    return 'multiple_select';
-  }
-
-  if (options && options.length >= 2) {
-    return 'multiple_choice';
   }
 
   if (combined.includes('fill in the blank') || combined.includes('blank')) {
@@ -563,7 +578,125 @@ export function parseAnswerText(text: string): Record<string, ExtractedAnswerIte
  * Parses candidate test segments and builds hierarchical structure:
  * Document -> Test[] -> Passage[] -> QuestionGroup[] -> Question[]
  */
-export function parseDocumentStructure(rawText: string, fallbackName: string): DocumentStructure {
+/**
+ * Extracts tables from HTML (e.g. from Mammoth DOCX output)
+ */
+export function extractTablesFromHtml(html: string): Array<{ headers: string[]; rows: string[][] }> {
+  if (!html) return [];
+  const tables: Array<{ headers: string[]; rows: string[][] }> = [];
+  const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+  let tableMatch: RegExpExecArray | null;
+
+  while ((tableMatch = tableRegex.exec(html)) !== null) {
+    const tableBody = tableMatch[1];
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rowMatch: RegExpExecArray | null;
+    const allRows: string[][] = [];
+
+    while ((rowMatch = rowRegex.exec(tableBody)) !== null) {
+      const rowContent = rowMatch[1];
+      const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      let cellMatch: RegExpExecArray | null;
+      const cells: string[] = [];
+
+      while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
+        const text = cellMatch[1]
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/\s+/g, ' ')
+          .trim();
+        cells.push(text);
+      }
+      if (cells.some((c) => c.length > 0)) {
+        allRows.push(cells);
+      }
+    }
+
+    if (allRows.length > 0) {
+      tables.push({ headers: allRows[0], rows: allRows.slice(1) });
+    }
+  }
+
+  return tables;
+}
+
+/**
+ * Parses table rows into answer items if the table represents an IELTS Answer Key
+ */
+export function parseAnswerTable(headers: string[], rows: string[][]): Record<string, ExtractedAnswerItem> {
+  const results: Record<string, ExtractedAnswerItem> = {};
+  if (!rows || rows.length === 0) return results;
+
+  const combinedAll = [headers, ...rows];
+  let qCol = -1;
+  let ansCol = -1;
+  let expCol = -1;
+
+  headers.forEach((h, idx) => {
+    const hl = h.toLowerCase();
+    if (hl.includes('question') || hl.includes('câu') || hl.includes('no.') || hl === 'no' || hl === 'q') qCol = idx;
+    if (hl.includes('answer') || hl.includes('đáp án') || hl.includes('key') || hl.includes('correct')) ansCol = idx;
+    if (hl.includes('explanation') || hl.includes('giải thích') || hl.includes('citation') || hl.includes('location') || hl.includes('vị trí')) expCol = idx;
+  });
+
+  const dataRows = (qCol !== -1 && ansCol !== -1) ? rows : combinedAll;
+
+  for (const row of dataRows) {
+    if (row.length < 2) continue;
+    let qNum = '';
+    let answer = '';
+    let explanation = '';
+
+    if (qCol !== -1 && ansCol !== -1) {
+      const qText = row[qCol] || '';
+      const m = qText.match(/(?:^|\b)(?:Question|Q|Câu)?\s*(\d{1,2})\b/i);
+      if (m) qNum = m[1];
+      answer = row[ansCol] || '';
+      if (expCol !== -1 && row[expCol]) {
+        explanation = row[expCol];
+      }
+    } else {
+      const cell0 = row[0] || '';
+      const m = cell0.match(/(?:^|\b)(?:Question|Q|Câu)?\s*(\d{1,2})\b/i);
+      if (m) {
+        const num = parseInt(m[1], 10);
+        if (num >= 1 && num <= 40) {
+          qNum = String(num);
+          answer = row[1] || '';
+          if (row.length >= 3) {
+            explanation = row.slice(2).join(' - ');
+          }
+        }
+      }
+    }
+
+    if (qNum && answer) {
+      let cleanAnswer = answer.replace(/^[–\-:\s]+/, '').trim();
+      // Handle composite answers like "B – Valerie Kapos" or "D – polar regions" -> primary key is "B" or "D"
+      const compositeMatch = cleanAnswer.match(/^([A-G])\s*[–\-]\s*(.+)$/i);
+      if (compositeMatch) {
+        cleanAnswer = compositeMatch[1].toUpperCase();
+        if (!explanation) {
+          explanation = compositeMatch[2].trim();
+        }
+      }
+
+      results[qNum] = {
+        qNum,
+        answer: cleanAnswer,
+        citation: explanation ? explanation.trim() : undefined,
+        raw: row.join(' | '),
+      };
+    }
+  }
+
+  return results;
+}
+
+export function parseDocumentStructure(rawText: string, fallbackName: string, htmlContent?: string): DocumentStructure {
   const cleanRaw = rawText.replace(/\r\n/g, '\n');
   const lines = cleanRaw.split('\n').map((l) => l.trim()).filter(Boolean);
 
@@ -582,6 +715,20 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
   // 1. Detect and parse Global / Per-test Answer Keys if present
   const detectedAnswerDetails: Record<string, ExtractedAnswerItem> = {};
   const detectedAnswerKey: Record<string, string> = {};
+
+  // Extract from HTML tables if present (e.g. Word .docx answer tables)
+  if (htmlContent) {
+    const tables = extractTablesFromHtml(htmlContent);
+    for (const table of tables) {
+      const tableAnswers = parseAnswerTable(table.headers, table.rows);
+      if (Object.keys(tableAnswers).length > 0) {
+        Object.assign(detectedAnswerDetails, tableAnswers);
+        for (const [qNum, item] of Object.entries(tableAnswers)) {
+          detectedAnswerKey[qNum] = item.answer;
+        }
+      }
+    }
+  }
   let answerKeyStartIndex = -1;
   const answerKeyHeaderRegex =
     /^(?:#+\s*)?(?:(?:ielts\s+)?reading\s+)?(?:answer\s*keys?|answers?|correct\s*answers?|dap\s*an|đáp\s*án|key\s*\/?\s*answers?)(?:\s*(?:&|and|\+)\s*(?:explanations?|giải\s*thích|citations?))?[:\s]*$/i;
@@ -595,17 +742,45 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
       l.toLowerCase().startsWith('answers:') ||
       l.toLowerCase().startsWith('correct answers:')
     ) {
-      answerKeyStartIndex = i;
-      break;
+      // Check if there are any subsequent reading passages or tests after this line
+      const subsequentText = lines.slice(i + 1).join('\n');
+      const hasSubsequentPassage =
+        /(?:^|\n)(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+|TEST\s+\d+)\b(?!\s+(?:has|contains|is|refers|below|do\b|statements\b|given\b))/i.test(
+          subsequentText
+        );
+      if (!hasSubsequentPassage) {
+        answerKeyStartIndex = i;
+        break;
+      } else {
+        // Intermediate answer section: only parse until the next passage header!
+        const nextPassageIndexInSlice = lines.slice(i + 1).findIndex((nl) =>
+          /(?:^|\n)(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+|TEST\s+\d+)\b(?!\s+(?:has|contains|is|refers|below|do\b|statements\b|given\b))/i.test(
+            nl.trim()
+          )
+        );
+        const intermediateLines =
+          nextPassageIndexInSlice !== -1
+            ? lines.slice(i + 1, i + 1 + nextPassageIndexInSlice)
+            : lines.slice(i + 1);
+        const intermediateKeyItems = parseAnswerText(intermediateLines.join('\n'));
+        for (const [qNum, item] of Object.entries(intermediateKeyItems)) {
+          if (!detectedAnswerKey[qNum]) {
+            detectedAnswerDetails[qNum] = item;
+            detectedAnswerKey[qNum] = item.answer;
+          }
+        }
+      }
     }
   }
 
   if (answerKeyStartIndex !== -1) {
     const keyLines = lines.slice(answerKeyStartIndex + 1);
     const parsedKeyItems = parseAnswerText(keyLines.join('\n'));
-    Object.assign(detectedAnswerDetails, parsedKeyItems);
     for (const [qNum, item] of Object.entries(parsedKeyItems)) {
-      detectedAnswerKey[qNum] = item.answer;
+      if (!detectedAnswerKey[qNum]) {
+        detectedAnswerDetails[qNum] = item;
+        detectedAnswerKey[qNum] = item.answer;
+      }
     }
   }
 
@@ -632,9 +807,9 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
       testTitle = firstLine;
     }
 
-    // Split on Passages within this Test
+    // Split on Passages within this Test (ignoring in-sentence references like "Reading Passage 2 has seven paragraphs")
     const passageSplitterRegex =
-      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b)/i;
+      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s+(?:has|contains|is|refers|below|do\b|statements\b|given\b)))/i;
     const rawPassageChunks = tChunk.split(passageSplitterRegex).filter((p) => p.trim().length > 50);
     const passageChunks = rawPassageChunks.length > 0 ? rawPassageChunks : [tChunk];
 
@@ -643,7 +818,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
 
     passageChunks.forEach((pChunk, pIdx) => {
       const passageIndex = pIdx + 1;
-      const { passageTitle, passageContent, questionGroups, questions } = parseSinglePassage(
+      const { passageTitle, passageContent, questionGroups, questions, labeledParagraphs } = parseSinglePassage(
         pChunk,
         passageIndex,
         detectedAnswerKey,
@@ -662,6 +837,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
         content: passageContent,
         questionGroups,
         questions,
+        labeledParagraphs,
       });
 
       testAllQuestions.push(...questions);
@@ -696,6 +872,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
         questionCount: questions.length,
         recognizedTypes: Array.from(new Set(questions.map((q) => q.type))),
         warnings,
+        labeledParagraphs,
       });
     });
 
@@ -790,8 +967,12 @@ export function parseDocumentStructure(rawText: string, fallbackName: string): D
  * Formats passage paragraphs strictly according to IELTS standard:
  * Labeled paragraph: label on its own line, content on next line, separated from next paragraph by exactly one empty line.
  */
-export function formatPassageParagraphs(lines: string[]): { formattedText: string; detectedParagraphLabels: string[] } {
-  if (lines.length === 0) return { formattedText: '', detectedParagraphLabels: [] };
+export function formatPassageParagraphs(lines: string[]): {
+  formattedText: string;
+  detectedParagraphLabels: string[];
+  labeledParagraphs: { label: string; text: string }[];
+} {
+  if (lines.length === 0) return { formattedText: '', detectedParagraphLabels: [], labeledParagraphs: [] };
 
   interface ParaBlock {
     label?: string;
@@ -802,8 +983,9 @@ export function formatPassageParagraphs(lines: string[]): { formattedText: strin
   let currentBlock: ParaBlock = { lines: [] };
   const detectedLabels = new Set<string>();
 
-  const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-J])[\.\:\)]?$/i;
-  const inlineLabelRegex = /^(?:(?:paragraph|section)\s+([A-J])[\.\:\)]?|\[([A-J])\]|\(([A-J])\)|([A-J])[\.\:\)])\s+(.*)$/i;
+  const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-K])[\.\:\)]?$/i;
+  const inlineLabelRegex =
+    /^(?:(?:paragraph|section)\s+([A-K])[\.\:\)]?|\[([A-K])\]|\(([A-K])\)|([A-K])(?:[\.\:\)]|\t|\s{2,}))\s*(.*)$/i;
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i].trim();
@@ -821,7 +1003,7 @@ export function formatPassageParagraphs(lines: string[]): { formattedText: strin
       continue;
     }
 
-    // Check inline label (e.g. "A. In the early 19th century...")
+    // Check inline label (e.g. "A. In the early 19th century..." or "A\tBamboo...")
     const inlineMatch = rawLine.match(inlineLabelRegex);
     if (inlineMatch) {
       const letter = (inlineMatch[1] || inlineMatch[2] || inlineMatch[3] || inlineMatch[4]).toUpperCase();
@@ -842,9 +1024,11 @@ export function formatPassageParagraphs(lines: string[]): { formattedText: strin
   }
 
   const formattedParagraphs: string[] = [];
+  const labeledParagraphs: { label: string; text: string }[] = [];
   for (const block of blocks) {
     const content = block.lines.join(' ').replace(/\s{2,}/g, ' ').trim();
     if (block.label) {
+      labeledParagraphs.push({ label: block.label, text: content });
       if (content) {
         formattedParagraphs.push(`${block.label}\n${content}`);
       } else {
@@ -858,6 +1042,7 @@ export function formatPassageParagraphs(lines: string[]): { formattedText: strin
   return {
     formattedText: formattedParagraphs.join('\n\n'),
     detectedParagraphLabels: Array.from(detectedLabels).sort(),
+    labeledParagraphs,
   };
 }
 
@@ -871,6 +1056,7 @@ function parseSinglePassage(
   passageContent: string;
   questionGroups: QuestionGroup[];
   questions: ReadingQuestion[];
+  labeledParagraphs?: { label: string; text: string }[];
 } {
   const pLines = passageChunk.split('\n').map((l) => l.trim()).filter(Boolean);
   if (pLines.length === 0) {
@@ -879,6 +1065,7 @@ function parseSinglePassage(
       passageContent: '',
       questionGroups: [],
       questions: [],
+      labeledParagraphs: [],
     };
   }
 
@@ -890,20 +1077,29 @@ function parseSinglePassage(
     /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)(?:\s*[\:\-\–]\s*(.*))?$/i
   );
   if (headerMatch) {
+    let nextIdx = 1;
+    // Skip timing or meta notes like "Questions 1–13 – You should spend about 20 minutes on questions 1–13..."
+    while (
+      nextIdx < pLines.length &&
+      (/^(?:questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend|you\s+should\s+spend\s+about\s+\d+\s+minutes)/i.test(pLines[nextIdx]))
+    ) {
+      nextIdx++;
+    }
+
     if (headerMatch[1] && headerMatch[1].trim()) {
       passageTitle = headerMatch[1].trim();
-      contentStartIndex = 1;
+      contentStartIndex = nextIdx;
     } else if (
-      pLines.length > 1 &&
-      pLines[1].length < 100 &&
-      !/^(questions?|\d+[\.\:\)]|you\s+should\s+spend)/i.test(pLines[1])
+      nextIdx < pLines.length &&
+      pLines[nextIdx].length < 120 &&
+      !/^(?:questions?|\d+[\.\:\)]|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi)/i.test(pLines[nextIdx])
     ) {
-      passageTitle = pLines[1];
-      contentStartIndex = 2;
+      passageTitle = pLines[nextIdx];
+      contentStartIndex = nextIdx + 1;
     } else {
-      contentStartIndex = 1;
+      contentStartIndex = nextIdx;
     }
-  } else if (pLines[0].length < 100) {
+  } else if (pLines[0].length < 120) {
     passageTitle = pLines[0];
     contentStartIndex = 1;
   }
@@ -911,7 +1107,7 @@ function parseSinglePassage(
   // 1.5. Detect if passage has its own localized answer key block at end of passage
   const passageAnswerDetails: Record<string, ExtractedAnswerItem> = {};
   const passageKeyHeaderRegex =
-    /^(?:#+\s*)?(?:(?:reading\s+)?passage\s+\d+\s+)?(?:answer\s*keys?|answers?|correct\s*answers?|dap\s*an|đáp\s*án)(?:\s*for\s+(?:reading\s+)?passage\s+\d+)?[:\s]*$/i;
+    /^(?:#+\s*)?(?:(?:reading\s+)?passage\s+\d+\s+)?(?:answer\s*keys?|answers?|correct\s*answers?|dap\s*an|đáp\s*án)(?:\s*[\:\-\–].*)?$/i;
 
   let passageKeyStartIdx = -1;
   for (let i = contentStartIndex; i < pLines.length; i++) {
@@ -924,7 +1120,12 @@ function parseSinglePassage(
   const effectivePassageLines = passageKeyStartIdx !== -1 ? pLines.slice(0, passageKeyStartIdx) : pLines;
   if (passageKeyStartIdx !== -1) {
     const keyLines = pLines.slice(passageKeyStartIdx + 1);
-    Object.assign(passageAnswerDetails, parseAnswerText(keyLines.join('\n')));
+    const parsedPassageKeys = parseAnswerText(keyLines.join('\n'));
+    for (const [k, item] of Object.entries(parsedPassageKeys)) {
+      if (!globalAnswerKeys[k]) {
+        passageAnswerDetails[k] = item;
+      }
+    }
   }
 
   const effectiveDetails: Record<string, ExtractedAnswerItem> = {
@@ -950,10 +1151,15 @@ function parseSinglePassage(
       continue;
     }
 
+    const isPassageTimingNote = /you\s+should\s+spend\s+about\s+\d+\s+minutes/i.test(line);
+    if (isPassageTimingNote) {
+      continue;
+    }
+
     if (
       !isInQuestionsSection &&
       (/q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+/i.test(line) ||
-        /^(?:do\s+the\s+following\s+statements|complete\s+the\s+|choose\s+(?:the\s+correct|no\s+more|one|two)|write\s+(?:the\s+correct|your\s+answers?)|look\s+at\s+the\s+following|in\s+boxes\s+\d+|matching\s+headings)/i.test(
+        /^(?:dạng\s+câu\s+hỏi|do\s+the\s+following\s+statements|complete\s+the\s+|choose\s+(?:the\s+correct|no\s+more|one|two)|write\s+(?:the\s+correct|your\s+answers?)|look\s+at\s+the\s+following|in\s+boxes\s+\d+|matching\s+headings|which\s+(?:section|paragraph)\s+contains)/i.test(
           line
         ))
     ) {
@@ -963,14 +1169,12 @@ function parseSinglePassage(
     if (isInQuestionsSection) {
       questionLines.push(line);
     } else {
-      // Filter out meta lines like "You should spend about 20 minutes on..."
-      if (!/you\s+should\s+spend\s+about\s+\d+\s+minutes/i.test(line)) {
-        passageBodyLines.push(line);
-      }
+      passageBodyLines.push(line);
     }
   }
 
-  const { formattedText: passageContent, detectedParagraphLabels } = formatPassageParagraphs(passageBodyLines);
+  const { formattedText: passageContent, detectedParagraphLabels, labeledParagraphs } =
+    formatPassageParagraphs(passageBodyLines);
 
   // 3. Parse Question Groups & Questions
   const questionGroups: QuestionGroup[] = [];
@@ -982,7 +1186,7 @@ function parseSinglePassage(
   let currentGroupLines: string[] = [];
 
   for (const qLine of questionLines) {
-    const qGroupMatch = qLine.match(/^(q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+(?:[\s\-\–to]+\d+)?)/i);
+    const qGroupMatch = qLine.match(/^(?:dạng\s+câu\s+hỏi.*)?(q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+(?:[\s\-\–to]+\d+)?)/i);
     if (qGroupMatch) {
       if (currentGroupLines.length > 0) {
         groupRanges.push({ title: currentGroupTitle, lines: currentGroupLines });
@@ -1011,12 +1215,60 @@ function parseSinglePassage(
 
     let wordLimitInfo: { limitStr?: string; maxWords?: number } = {};
     let currentQ: Partial<ReadingQuestion> | null = null;
-    let isInHeadings = false;
-    let isInFeatures = false;
-    let isInWordBox = false;
 
     const stdQRegex = /^(?:Question\s+)?(\d{1,2})(?:[\.\:\)]|\s+(?=[A-Za-z0-9\(\"\'\_\—\–\.\…]))\s*(.*)/i;
     const bulletQRegex = /(?:^|[•\-\–\*\s])(?:.*?)\b(\d{1,2})\b\s*[\.\_\–\-\…]{2,}(.*)/;
+
+    // Pre-pass to scan declarations within this question group (e.g. List of words, List of companies, List of headings)
+    let preInWordBox = false;
+    let preInFeatures = false;
+    let preInHeadings = false;
+    for (const l of gRange.lines) {
+      if (/list\s+of\s+headings/i.test(l)) {
+        preInHeadings = true;
+        preInWordBox = false;
+        preInFeatures = false;
+        const parts = l.split(/(?:list\s+of\s+headings[:\s]*|;\s*)/i);
+        const inlineHeadings = parts.filter((s) => /^[ivx\d]+[\.\s]/i.test(s.trim()));
+        inlineHeadings.forEach((h) => headingsList.push(h.trim()));
+        continue;
+      }
+      if (/list\s+of\s+(?:words|terms)|word\s+list|box\s+of\s+words/i.test(l)) {
+        preInWordBox = true;
+        preInFeatures = false;
+        preInHeadings = false;
+        continue;
+      }
+      if (/list\s+of\s+(?:researchers|people|categories|features|companies|organizations|names|places)/i.test(l)) {
+        preInFeatures = true;
+        preInWordBox = false;
+        preInHeadings = false;
+        continue;
+      }
+      if (preInWordBox) {
+        const wbMatch = l.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        if (wbMatch) {
+          optionsBox.push(`${wbMatch[1].toUpperCase()}. ${wbMatch[2].trim()}`);
+        } else if (/^(?:Questions?|\d{1,2}[\.\:\)]|Dạng\s+câu\s+hỏi)/i.test(l)) {
+          preInWordBox = false;
+        }
+      }
+      if (preInFeatures) {
+        const featMatch = l.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        if (featMatch) {
+          featuresList.push(`${featMatch[1].toUpperCase()}. ${featMatch[2].trim()}`);
+        } else if (/^(?:Questions?|\d{1,2}[\.\:\)]|Dạng\s+câu\s+hỏi)/i.test(l)) {
+          preInFeatures = false;
+        }
+      }
+      if (preInHeadings) {
+        if (/^(?:[ivx]+)[\.\:\)\s]+[\w\s\-\,\.\'\"]+$/i.test(l)) {
+          headingsList.push(l.trim());
+        } else if (/^(?:Questions?|\d{1,2}[\.\:\)]|Dạng\s+câu\s+hỏi)/i.test(l)) {
+          preInHeadings = false;
+        }
+      }
+    }
 
     for (let li = 0; li < gRange.lines.length; li++) {
       const line = gRange.lines[li];
@@ -1032,43 +1284,23 @@ function parseSinglePassage(
         continue;
       }
 
-      // Detect List of Headings header
-      if (/list\s+of\s+headings/i.test(line)) {
-        isInHeadings = true;
-        isInFeatures = false;
-        isInWordBox = false;
+      // Skip list declaration headers and items if already extracted in pre-pass
+      if (/list\s+of\s+(?:headings|words|terms|researchers|people|categories|features|companies|organizations|names|places)/i.test(line)) {
         continue;
       }
-
-      // Detect List of Researchers / People header
-      if (/list\s+of\s+(?:researchers|people|categories|features)/i.test(line)) {
-        isInFeatures = true;
-        isInHeadings = false;
-        isInWordBox = false;
-        continue;
-      }
-
-      // Collect Roman numeral headings (e.g. "i ...", "ii ...", "iv ...")
-      if (isInHeadings) {
-        if (/^(?:[ivx]+|\d+)\s+[\w\s\-\,\.\'\"]+$/i.test(line)) {
-          headingsList.push(line);
-          continue;
-        } else if (/q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+/i.test(line) || stdQRegex.test(line)) {
-          isInHeadings = false;
+      if (optionsBox.length > 0 || featuresList.length > 0) {
+        const itemMatch = line.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        if (itemMatch) {
+          const letter = itemMatch[1].toUpperCase();
+          const isBoxItem = optionsBox.some((o) => o.startsWith(letter)) || featuresList.some((f) => f.startsWith(letter));
+          // If this is a word/feature box item and not currently parsing MCQ options
+          if (isBoxItem && (!currentQ || currentQ.type !== 'multiple_choice')) {
+            continue;
+          }
         }
       }
 
-      // Collect Features (e.g. "A Dr Smith", "B Prof Miller")
-      if (isInFeatures) {
-        if (/^[A-G]\s+[\w\s\-\,\.\'\"]+$/i.test(line)) {
-          featuresList.push(line);
-          continue;
-        } else if (stdQRegex.test(line)) {
-          isInFeatures = false;
-        }
-      }
-
-      // Check for Question Number
+      // Check for Question Number at start of line
       let qNum: string | null = null;
       let qPrompt = '';
       let embeddedAnswer: string | null = null;
@@ -1089,6 +1321,58 @@ function parseSinglePassage(
             qPrompt = line;
           }
         }
+      }
+
+      // Check for inline blanks (e.g. Summary Completion: "...in the 33 ……………. Another variable...")
+      const inlineMatches = Array.from(line.matchAll(/(?:^|\s)(\d{1,2})\s*(?:[\.|\_|\…|\–|\-]{2,}|_{2,})/g));
+      if (!stdMatch && inlineMatches.length > 0) {
+        if (currentQ && currentQ.prompt) {
+          finalizeQuestion(
+            currentQ,
+            groupQuestions,
+            effectiveAnswerKeys,
+            groupInstructions.join(' '),
+            wordLimitInfo,
+            effectiveDetails
+          );
+          currentQ = null;
+        }
+
+        const sentences = line.split(/(?<=[.!?])\s+/);
+        for (const im of inlineMatches) {
+          const blankQNum = im[1];
+          const n = parseInt(blankQNum, 10);
+          if (n >= 1 && n <= 40) {
+            const matchingSentence = sentences.find((s) => s.includes(im[0])) || line;
+            const detailItem = effectiveDetails[blankQNum];
+            const assignedKey = detailItem?.answer || effectiveAnswerKeys[blankQNum] || '';
+            const assignedSource =
+              detailItem || effectiveAnswerKeys[blankQNum] ? 'answer_key_extracted' : 'extracted_from_doc';
+
+            const inlineQ: Partial<ReadingQuestion> = {
+              id: `q_${blankQNum}`,
+              prompt: matchingSentence.trim(),
+              type: optionsBox.length > 0 ? 'summary_completion' : 'sentence_completion',
+              options: optionsBox.length > 0 ? [...optionsBox] : undefined,
+              wordLimit: wordLimitInfo.limitStr,
+              maxWords: wordLimitInfo.maxWords,
+              correctAnswer: assignedKey,
+              citation: detailItem?.citation,
+              points: 1,
+              source: assignedSource,
+              answerKeyConfidence: assignedKey ? 'high' : 'needs_teacher_review',
+            };
+            finalizeQuestion(
+              inlineQ,
+              groupQuestions,
+              effectiveAnswerKeys,
+              groupInstructions.join(' '),
+              wordLimitInfo,
+              effectiveDetails
+            );
+          }
+        }
+        continue;
       }
 
       // Check for embedded answers in prompt line, e.g. "The research began in 1990. [FALSE]"
@@ -1138,12 +1422,12 @@ function parseSinglePassage(
         continue;
       }
 
-      // Option A-H for multiple choice
+      // Option A-H for multiple choice (supporting dot, colon, parenthesis, or tab)
       if (currentQ) {
-        const optMatch = line.match(/^([A-H])[\.\:\)]\s+(.*)/i);
+        const optMatch = line.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
         if (optMatch) {
           currentQ.options = currentQ.options || [];
-          currentQ.options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2]}`);
+          currentQ.options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
           continue;
         }
 
@@ -1186,6 +1470,8 @@ function parseSinglePassage(
       primaryType = 'matching_headings';
     } else if (featuresList.length > 0) {
       primaryType = 'matching_features';
+    } else if (optionsBox.length > 0) {
+      primaryType = 'summary_completion';
     }
 
     // Propagate primaryType to questions in the group that defaulted to short_answer
@@ -1202,12 +1488,24 @@ function parseSinglePassage(
       groupQuestions.forEach((q) => {
         q.headingsList = headingsList;
         q.type = 'matching_headings';
+        if (!q.options || q.options.length === 0) {
+          q.options = headingsList;
+        }
       });
     }
     if (featuresList.length > 0) {
       groupQuestions.forEach((q) => {
         q.featuresList = featuresList;
         q.type = 'matching_features';
+        if (!q.options || q.options.length === 0) {
+          q.options = featuresList;
+        }
+      });
+    }
+    if (optionsBox.length > 0) {
+      groupQuestions.forEach((q) => {
+        q.type = 'summary_completion';
+        q.options = [...optionsBox];
       });
     }
 
@@ -1270,6 +1568,7 @@ function parseSinglePassage(
     passageContent,
     questionGroups,
     questions: allQuestions,
+    labeledParagraphs,
   };
 }
 
