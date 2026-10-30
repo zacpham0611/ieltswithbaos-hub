@@ -404,10 +404,22 @@ export function detectQuestionType(
     return 'multiple_select';
   }
 
+  const hasBlanks = /(?:\d{1,2}\s*)?(?:[\.]{3,}|_{3,}|…{2,})/.test(combined);
+  const isCompletionContext =
+    hasBlanks ||
+    combined.includes('complete the summary') ||
+    combined.includes('summary completion') ||
+    combined.includes('complete the notes') ||
+    combined.includes('note completion') ||
+    combined.includes('complete the table') ||
+    combined.includes('complete the sentence') ||
+    combined.includes('sentences below');
+
   if (
-    combined.includes('multiple choice') ||
-    (combined.includes('choose the correct letter') && (combined.includes('a, b') || combined.includes('a–d') || combined.includes('a-d') || combined.includes('a, b, c') || combined.includes('a, b, c or d'))) ||
-    (options && options.length >= 2)
+    !isCompletionContext &&
+    (combined.includes('multiple choice') ||
+      (combined.includes('choose the correct letter') && (combined.includes('a, b') || combined.includes('a–d') || combined.includes('a-d') || combined.includes('a, b, c') || combined.includes('a, b, c or d'))) ||
+      (options && options.length >= 2))
   ) {
     return 'multiple_choice';
   }
@@ -474,7 +486,10 @@ export function detectQuestionType(
     return 'sentence_completion';
   }
 
-  if (combined.includes('fill in the blank') || combined.includes('blank')) {
+  if (combined.includes('fill in the blank') || combined.includes('blank') || hasBlanks) {
+    if (options && options.length >= 2) {
+      return 'summary_completion';
+    }
     return 'sentence_completion';
   }
 
@@ -1466,11 +1481,14 @@ function parseSinglePassage(
       groupQuestions.find((q) => q.type !== 'short_answer')?.type ||
       'short_answer';
 
+    const isButtonInstruction =
+      instructionType === 'yes_no_not_given' || instructionType === 'true_false_not_given';
+
     if (headingsList.length > 0) {
       primaryType = 'matching_headings';
     } else if (featuresList.length > 0) {
       primaryType = 'matching_features';
-    } else if (optionsBox.length > 0) {
+    } else if (optionsBox.length > 0 && !isButtonInstruction) {
       primaryType = 'summary_completion';
     }
 
@@ -1504,8 +1522,11 @@ function parseSinglePassage(
     }
     if (optionsBox.length > 0) {
       groupQuestions.forEach((q) => {
-        q.type = 'summary_completion';
-        q.options = [...optionsBox];
+        // Never override explicit button types with summary completion
+        if (q.type !== 'yes_no_not_given' && q.type !== 'true_false_not_given') {
+          q.type = 'summary_completion';
+          q.options = [...optionsBox];
+        }
       });
     }
 

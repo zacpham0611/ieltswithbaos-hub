@@ -23,6 +23,8 @@ import {
   extractParagraphLabelsFromPassage,
   buildQuestionRenderGroups,
   type QuestionRenderGroup,
+  COMPLETION_TYPES,
+  BUTTON_TYPES,
 } from '../lib/questionNormalizer';
 import {
   calculateIeltsOverallBand,
@@ -2619,10 +2621,11 @@ export const AssignmentsView: React.FC = () => {
                     /* Interactive Questions Grouped */
                     <div className="space-y-8">
                       {questionRenderGroups.map((group) => {
-                        const isSummaryGroup = Boolean(
-                          (group.wordList && group.wordList.length > 0) ||
-                          (group.questions.length > 0 && group.questions.every(({ q }) => q.type === 'summary_completion' || q.type === 'note_completion')) ||
-                          (group.questions.length > 0 && group.questions.some(({ q }) => q.type === 'summary_completion' && q.options && q.options.length > 0))
+                        const isCompletionGroup = Boolean(
+                          (group.groupType && COMPLETION_TYPES.has(group.groupType) && !BUTTON_TYPES.has(group.groupType)) ||
+                          (group.questions.length > 0 &&
+                            group.questions.every(({ q }) => COMPLETION_TYPES.has(q.type)) &&
+                            !group.questions.some(({ q }) => BUTTON_TYPES.has(q.type)))
                         );
 
                         const effectiveWordList =
@@ -2630,16 +2633,20 @@ export const AssignmentsView: React.FC = () => {
                             ? group.wordList
                             : group.questions.find(({ q }) => q.options && q.options.length > 0)?.q.options;
 
-                        if (isSummaryGroup) {
+                        if (isCompletionGroup) {
+                          const typeLabel = (group.groupType || 'Completion')
+                            .replace(/_/g, ' ')
+                            .replace(/\b\w/g, (c) => c.toUpperCase());
+
                           return (
                             <div key={group.id} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
-                              {/* Group Header: Range Title & Instruction */}
+                              {/* Group Header: Range Title & Type Badge */}
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                                 <div className="flex items-center space-x-2">
                                   <span className="font-extrabold text-xs uppercase tracking-wider text-blue-900 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200">
                                     {group.rangeTitle}
                                   </span>
-                                  <span className="text-xs font-bold text-slate-700">Summary Completion</span>
+                                  <span className="text-xs font-bold text-slate-700">{typeLabel}</span>
                                 </div>
                                 {group.wordLimit && (
                                   <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
@@ -2654,7 +2661,32 @@ export const AssignmentsView: React.FC = () => {
                                 </p>
                               )}
 
-                              {/* Complete Word List Box (rendered ONCE at top with no text truncation) */}
+                              {/* 1. Full Original Text with Blanks (rendered above answer fields) */}
+                              {group.groupText && (
+                                <div className="p-4 bg-slate-50/80 border border-slate-200 rounded-xl space-y-2">
+                                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                    {group.groupType === 'note_completion' ? 'Notes with Blanks' : 'Text / Summary with Blanks'}:
+                                  </div>
+                                  <div className="text-sm font-normal text-slate-800 leading-relaxed whitespace-pre-line">
+                                    {group.groupText.split(/(\[\d+\])/g).map((chunk, i) => {
+                                      const match = chunk.match(/^\[(\d+)\]$/);
+                                      if (match) {
+                                        return (
+                                          <span
+                                            key={i}
+                                            className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 mx-1 align-baseline shadow-2xs"
+                                          >
+                                            [{match[1]}]
+                                          </span>
+                                        );
+                                      }
+                                      return <span key={i}>{chunk}</span>;
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 2. Word Bank (rendered alongside/below text, before answer fields) */}
                               {effectiveWordList && effectiveWordList.length > 0 && (
                                 <div className="p-4 bg-gradient-to-br from-blue-50/80 to-indigo-50/60 border border-blue-200 rounded-xl space-y-2.5">
                                   <div className="flex items-center justify-between">
@@ -2690,155 +2722,106 @@ export const AssignmentsView: React.FC = () => {
                                 </div>
                               )}
 
-                              {/* Unified Continuous Summary Text / Blanks */}
-                              <div className="space-y-3 pt-1">
-                                {group.questions.map(({ q, idx }) => {
-                                  const answer = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
-                                  const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
-                                  const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
-                                  const isFlag = Boolean(flaggedQuestions[q.id]);
-                                  const displayPrompt = resolveQuestionPrompt(q, idx + 1);
+                              {/* 3. Compact Answer Fields (showing ONLY Question Number + Input) */}
+                              <div className="space-y-2.5 pt-1">
+                                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                  Answer Fields:
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  {group.questions.map(({ q, idx }) => {
+                                    const answer = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
+                                    const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
+                                    const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
+                                    const isFlag = Boolean(flaggedQuestions[q.id]);
 
-                                  const promptParts = displayPrompt.split(/(?:\(?\b\d+\)?\s*)?(?:[\.]{3,}|_{3,}|\[\s*\])/);
-                                  const hasBlankMatch = promptParts.length > 1;
+                                    return (
+                                      <div
+                                        key={q.id}
+                                        id={`q_${q.id}`}
+                                        className={`p-3 rounded-xl border transition-all scroll-mt-6 ${
+                                          result
+                                            ? result.isCorrect
+                                              ? 'border-emerald-300 bg-emerald-50/20'
+                                              : 'border-red-300 bg-red-50/20'
+                                            : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="flex items-center space-x-2.5 flex-1 min-w-0">
+                                            <span className="font-mono text-xs font-extrabold text-blue-900 bg-blue-50 border border-blue-200 px-2.5 py-1.5 rounded-lg shrink-0">
+                                              Question {idx + 1}
+                                            </span>
+                                            {effectiveWordList && effectiveWordList.length > 0 ? (
+                                              <select
+                                                disabled={isReadOnly}
+                                                value={answer}
+                                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                className="flex-1 min-w-0 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                              >
+                                                <option value="">-- Choose (A–{String.fromCharCode(64 + effectiveWordList.length)}) --</option>
+                                                {effectiveWordList.map((opt) => {
+                                                  const letterMatch = opt.match(/^([A-Za-z])[\.\:\s]/);
+                                                  const letter = letterMatch ? letterMatch[1].toUpperCase() : opt;
+                                                  return (
+                                                    <option key={opt} value={letter}>
+                                                      {opt}
+                                                    </option>
+                                                  );
+                                                })}
+                                              </select>
+                                            ) : (
+                                              <input
+                                                type="text"
+                                                disabled={isReadOnly}
+                                                value={answer}
+                                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                placeholder="Type answer..."
+                                                className="flex-1 min-w-0 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                              />
+                                            )}
+                                          </div>
 
-                                  return (
-                                    <div
-                                      key={q.id}
-                                      id={`q_${q.id}`}
-                                      className={`p-3.5 rounded-xl border transition-all scroll-mt-6 ${
-                                        result
-                                          ? result.isCorrect
-                                            ? 'border-emerald-300 bg-emerald-50/20'
-                                            : 'border-red-300 bg-red-50/20'
-                                          : 'border-slate-200 bg-slate-50/50 hover:bg-slate-50'
-                                      }`}
-                                    >
-                                      <div className="flex items-start justify-between gap-2 mb-2">
-                                        <span className="text-xs font-extrabold uppercase px-2 py-0.5 rounded-md bg-slate-200 text-slate-800 font-mono">
-                                          Question {idx + 1}
-                                        </span>
-                                        <div className="flex items-center space-x-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })}
-                                            className={`p-1 rounded text-xs flex items-center space-x-1 ${
-                                              isFlag ? 'text-amber-600 bg-amber-50 font-semibold' : 'text-slate-400 hover:text-slate-600'
-                                            }`}
-                                            title="Flag for review"
-                                          >
-                                            <Flag className="w-3.5 h-3.5" />
-                                            <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
-                                          </button>
-                                          {result && canSeeAnswers && (
-                                            <span
-                                              className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
-                                                result.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                          <div className="flex items-center space-x-1.5 shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })}
+                                              className={`p-1 rounded text-xs flex items-center space-x-1 ${
+                                                isFlag ? 'text-amber-600 bg-amber-50 font-semibold' : 'text-slate-400 hover:text-slate-600'
                                               }`}
+                                              title="Flag for review"
                                             >
-                                              {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
-                                            </span>
-                                          )}
+                                              <Flag className="w-3.5 h-3.5" />
+                                            </button>
+                                            {result && canSeeAnswers && (
+                                              <span
+                                                className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded ${
+                                                  result.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                                }`}
+                                              >
+                                                {result.isCorrect ? '✓' : '✗'}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
 
-                                      {/* Inline Sentence with Embedded Blank */}
-                                      <div className="text-sm font-medium text-slate-800 leading-relaxed">
-                                        {hasBlankMatch ? (
-                                          <span>
-                                            {promptParts[0]}
-                                            <span className="inline-flex items-center mx-1.5 align-middle">
-                                              <span className="font-mono text-xs font-extrabold text-blue-700 bg-blue-100 border border-blue-200 px-1.5 py-1 rounded-l-md">
-                                                [{idx + 1}]
-                                              </span>
-                                              {effectiveWordList && effectiveWordList.length > 0 ? (
-                                                <select
-                                                  disabled={isReadOnly}
-                                                  value={answer}
-                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-bold bg-white text-blue-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                                                >
-                                                  <option value="">-- Select A–{String.fromCharCode(64 + effectiveWordList.length)} --</option>
-                                                  {effectiveWordList.map((opt) => {
-                                                    const letterMatch = opt.match(/^([A-Za-z])[\.\:\s]/);
-                                                    const letter = letterMatch ? letterMatch[1].toUpperCase() : opt;
-                                                    return (
-                                                      <option key={opt} value={letter}>
-                                                        {opt}
-                                                      </option>
-                                                    );
-                                                  })}
-                                                </select>
-                                              ) : (
-                                                <input
-                                                  type="text"
-                                                  disabled={isReadOnly}
-                                                  value={answer}
-                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                                  placeholder="Type answer..."
-                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 w-32 shadow-2xs"
-                                                />
-                                              )}
-                                            </span>
-                                            {promptParts.slice(1).join('')}
-                                          </span>
-                                        ) : (
-                                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                            <span>{displayPrompt}</span>
-                                            <div className="inline-flex items-center shrink-0">
-                                              <span className="font-mono text-xs font-extrabold text-blue-700 bg-blue-100 border border-blue-200 px-1.5 py-1 rounded-l-md">
-                                                [{idx + 1}]
-                                              </span>
-                                              {effectiveWordList && effectiveWordList.length > 0 ? (
-                                                <select
-                                                  disabled={isReadOnly}
-                                                  value={answer}
-                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-bold bg-white text-blue-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                                                >
-                                                  <option value="">-- Select A–{String.fromCharCode(64 + effectiveWordList.length)} --</option>
-                                                  {effectiveWordList.map((opt) => {
-                                                    const letterMatch = opt.match(/^([A-Za-z])[\.\:\s]/);
-                                                    const letter = letterMatch ? letterMatch[1].toUpperCase() : opt;
-                                                    return (
-                                                      <option key={opt} value={letter}>
-                                                        {opt}
-                                                      </option>
-                                                    );
-                                                  })}
-                                                </select>
-                                              ) : (
-                                                <input
-                                                  type="text"
-                                                  disabled={isReadOnly}
-                                                  value={answer}
-                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                                  placeholder="Type answer..."
-                                                  className="p-1 border border-blue-300 rounded-r-md text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 w-32 shadow-2xs"
-                                                />
-                                              )}
+                                        {/* Explanation & Answer Key if Graded */}
+                                        {canSeeAnswers && (
+                                          <div className="mt-2 pt-2 border-t border-slate-100 text-xs space-y-0.5">
+                                            <div className="text-slate-600">
+                                              <strong>Answer Key:</strong>{' '}
+                                              <span className="font-mono font-bold text-emerald-700">{q.correctAnswer || 'N/A'}</span>
                                             </div>
+                                            {q.explanation && (
+                                              <div className="text-slate-500 italic text-[11px]">
+                                                <strong>Citation:</strong> {q.explanation}
+                                              </div>
+                                            )}
                                           </div>
                                         )}
                                       </div>
-
-                                      {/* Explanation & Answer Key if Graded */}
-                                      {canSeeAnswers && (
-                                        <div className="mt-2 pt-2 border-t border-slate-200 text-xs flex flex-wrap items-center gap-3">
-                                          <span className="text-slate-600">
-                                            <strong>Answer Key:</strong>{' '}
-                                            <span className="font-mono font-bold text-emerald-700">{q.correctAnswer || 'N/A'}</span>
-                                          </span>
-                                          {q.explanation && (
-                                            <span className="text-slate-500 italic">
-                                              <strong>Citation:</strong> {q.explanation}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
                           );

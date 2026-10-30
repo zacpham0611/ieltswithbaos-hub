@@ -262,8 +262,8 @@ export function normalizeReadingQuestion(
   }
 
   const prompt = resolveQuestionPrompt(raw, index);
-  const type = normalizeQuestionType(raw.type || raw.questionType || raw.question_type);
-  const options = normalizeOptions(raw.options || raw.choices || raw.answers || raw.alternatives);
+  let type = normalizeQuestionType(raw.type || raw.questionType || raw.question_type);
+  let options = normalizeOptions(raw.options || raw.choices || raw.answers || raw.alternatives);
   const wordLimit = raw.wordLimit || raw.word_limit || raw.limit;
   const maxWords =
     typeof raw.maxWords === 'number'
@@ -279,6 +279,43 @@ export function normalizeReadingQuestion(
       raw.key ??
       ''
   ).trim();
+
+  // Answer key and prompt based refinement for YNNG / TFNG
+  const upperKey = correctAnswer.toUpperCase();
+  const rawInstructionStr = String((raw as any).instruction || (raw as any).groupInstruction || '').toLowerCase();
+  const rawPromptStr = String(prompt).toLowerCase();
+
+  if (
+    upperKey === 'YES' ||
+    upperKey === 'NO' ||
+    rawInstructionStr.includes('yes/no/not given') ||
+    rawInstructionStr.includes('yes / no / not given') ||
+    rawPromptStr.includes('yes/no/not given') ||
+    rawPromptStr.includes('yes / no / not given')
+  ) {
+    type = 'yes_no_not_given';
+    options = undefined;
+  } else if (
+    upperKey === 'TRUE' ||
+    upperKey === 'FALSE' ||
+    rawInstructionStr.includes('true/false/not given') ||
+    rawInstructionStr.includes('true / false / not given') ||
+    rawPromptStr.includes('true/false/not given') ||
+    rawPromptStr.includes('true / false / not given')
+  ) {
+    type = 'true_false_not_given';
+    options = undefined;
+  } else if (type === 'multiple_choice' || type === 'short_answer') {
+    // If prompt contains blank patterns, it is a completion question (summary, sentence, or note)
+    const hasBlanks = /(?:\d{1,2}\s*)?(?:[\.]{3,}|_{3,}|…{2,})/.test(prompt);
+    if (hasBlanks) {
+      if (options && options.length > 0) {
+        type = 'summary_completion';
+      } else {
+        type = 'sentence_completion';
+      }
+    }
+  }
 
   const explanation = String(
     raw.explanation ??
@@ -469,10 +506,31 @@ export function sanitizeQuestionsForStudent(
   });
 }
 
+/** All completion-type question types that should use the "full passage text above blanks" layout */
+export const COMPLETION_TYPES = new Set([
+  'summary_completion',
+  'note_completion',
+  'table_completion',
+  'flowchart_completion',
+  'diagram_completion',
+  'sentence_completion',
+  'fill_in_the_blank',
+]);
+
+/** Question types that must NEVER be merged into a completion group even if they share options */
+export const BUTTON_TYPES = new Set([
+  'true_false_not_given',
+  'yes_no_not_given',
+]);
+
 export interface QuestionRenderGroup {
   id: string;
   rangeTitle: string;
   instructions?: string;
+  /** Primary question type for this group (used for render dispatch) */
+  groupType?: string;
+  /** Reconstructed full passage text for completion groups (blanks marked as [N]) */
+  groupText?: string;
   headingsList?: string[];
   featuresList?: string[];
   wordList?: string[];
@@ -506,13 +564,19 @@ export function buildQuestionRenderGroups(
         ? (rawItem as any).idx
         : i;
 
+    // Determine this question's word-list (only for true completion types, NOT button types)
+    const isButtonType = BUTTON_TYPES.has(q.type);
+    const isCompletionType = COMPLETION_TYPES.has(q.type);
+
+    const qWordList =
+      !isButtonType && isCompletionType && q.options && q.options.length > 0
+        ? q.options
+        : !isButtonType && (q as any).wordList && (q as any).wordList.length > 0
+        ? (q as any).wordList
+        : undefined;
+
     const headingsKey = q.headingsList && q.headingsList.length > 0 ? q.headingsList.join('|') : '';
     const featuresKey = q.featuresList && q.featuresList.length > 0 ? q.featuresList.join('|') : '';
-    const qWordList = (q.type === 'summary_completion' && q.options && q.options.length > 0)
-      ? q.options
-      : (q as any).wordList && (q as any).wordList.length > 0
-      ? (q as any).wordList
-      : undefined;
     const wordListKey = qWordList ? qWordList.join('|') : '';
     const wordLimit = q.wordLimit || (q.maxWords ? `NO MORE THAN ${q.maxWords} WORD${q.maxWords > 1 ? 'S' : ''}` : undefined);
     const instruction = (q as any).instruction || (q as any).groupInstruction || (q as any).instructions || '';
@@ -522,9 +586,12 @@ export function buildQuestionRenderGroups(
     const sameWordList = (currentGroup?.wordList?.join('|') || '') === wordListKey;
     const sameInstruction = (currentGroup?.instructions || '') === instruction;
     const sameWordLimit = (currentGroup?.wordLimit || '') === (wordLimit || '');
+    // Button types must form their own groups, never merged with completion groups
+    const sameGroupType = (currentGroup?.groupType || q.type) === q.type;
 
     const shouldContinueGroup = Boolean(
       currentGroup &&
+      sameGroupType &&
       (headingsKey ? sameHeadings : true) &&
       (featuresKey ? sameFeatures : true) &&
       (wordListKey ? sameWordList : true) &&
@@ -539,12 +606,17 @@ export function buildQuestionRenderGroups(
         const firstIdx = currentGroup.questions[0].idx + 1;
         const lastIdx = currentGroup.questions[currentGroup.questions.length - 1].idx + 1;
         currentGroup.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
+        // Build groupText for completion groups (reconstruct full text with blank markers)
+        if (currentGroup.groupType && COMPLETION_TYPES.has(currentGroup.groupType)) {
+          currentGroup.groupText = buildCompletionGroupText(currentGroup.questions);
+        }
         groups.push(currentGroup);
       }
 
       currentGroup = {
         id: `g_${idx}`,
         rangeTitle: `Question ${idx + 1}`,
+        groupType: q.type,
         instructions: instruction || undefined,
         headingsList: q.headingsList && q.headingsList.length > 0 ? q.headingsList : undefined,
         featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
@@ -560,9 +632,67 @@ export function buildQuestionRenderGroups(
     const firstIdx = cg.questions[0].idx + 1;
     const lastIdx = cg.questions[cg.questions.length - 1].idx + 1;
     cg.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
+    if (cg.groupType && COMPLETION_TYPES.has(cg.groupType)) {
+      cg.groupText = buildCompletionGroupText(cg.questions);
+    }
     groups.push(cg);
   }
 
   return groups;
+}
+
+/**
+ * Reconstructs the full passage/note/summary text for a completion group.
+ * Each question's prompt is a sentence with blanks (e.g. "The ... 33 ............. is rising.").
+ * This collapses them into a single continuous text with [N] blank markers.
+ * If prompts are distinct sentences, they are joined with spaces.
+ * If a question's prompt is already the full text (with inline blank), it's used as-is.
+ */
+export function buildCompletionGroupText(
+  questions: Array<{ q: ReadingQuestion; idx: number }>
+): string {
+  if (questions.length === 0) return '';
+
+  // Check if all questions share the same prompt (e.g. the entire summary was stored in each question)
+  const firstPrompt = (questions[0].q.prompt || '').trim();
+  const allSharePrompt =
+    questions.length > 1 &&
+    firstPrompt.length > 50 &&
+    questions.every(({ q }) => (q.prompt || '').trim() === firstPrompt);
+
+  if (allSharePrompt) {
+    return firstPrompt.replace(
+      /(?:^|\s)(\d{1,2})\s*(?:[\.]{3,}|[_]{3,}|…{1,})/g,
+      (_, num) => ` [${num}]`
+    );
+  }
+
+  // Otherwise, process each prompt individually
+  const prompts = questions.map(({ q, idx }) => {
+    let rawPrompt = (q.prompt || '').trim();
+    const qNum = idx + 1;
+
+    // First replace explicit numbered blanks like "33 ............" or "33 _____"
+    let formatted = rawPrompt.replace(
+      /(?:^|\s)(\d{1,2})\s*(?:[\.]{3,}|[_]{3,}|…{1,})/g,
+      (_, num) => ` [${num}]`
+    );
+
+    // If no [N] marker was inserted, check for unnumbered blank dots / underscores
+    if (!/\[\d+\]/.test(formatted)) {
+      if (/(?:[\.]{3,}|[_]{3,}|…{1,}|\[\s*\])/.test(formatted)) {
+        formatted = formatted.replace(
+          /(?:[\.]{3,}|[_]{3,}|…{1,}|\[\s*\])/,
+          ` [${qNum}]`
+        );
+      } else {
+        formatted = `${formatted} [${qNum}]`;
+      }
+    }
+
+    return formatted;
+  });
+
+  return prompts.join(' ');
 }
 

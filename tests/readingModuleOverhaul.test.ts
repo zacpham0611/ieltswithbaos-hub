@@ -5,6 +5,9 @@ import {
   extractParagraphLabelsFromPassage,
   normalizeReadingQuestion,
   extractAllNormalizedQuestions,
+  COMPLETION_TYPES,
+  BUTTON_TYPES,
+  buildCompletionGroupText,
 } from '../src/lib/questionNormalizer.ts';
 import { gradeSingleQuestion, gradeAssignmentSubmission } from '../src/lib/assignmentGrader.ts';
 import { calculateReadingBand } from '../src/lib/ieltsScoring.ts';
@@ -289,6 +292,110 @@ console.log('Test 7: 6 Pastel Rainbow Marker Colors Definition & Properties');
     assert.ok(c.bgHex.startsWith('#'), `${c.id} has valid hex color ${c.bgHex}`);
   });
   console.log('✓ Passed: 6 Pastel rainbow marker colors verified.');
+}
+
+// -------------------------------------------------------------
+// Test 8: All Completion Question Types & Full Text Reconstruction
+// -------------------------------------------------------------
+console.log('Test 8: All Completion Question Types & Full Text Reconstruction');
+{
+  // 1. Verify COMPLETION_TYPES contains all standard variants
+  const expectedTypes = [
+    'summary_completion',
+    'note_completion',
+    'table_completion',
+    'flowchart_completion',
+    'diagram_completion',
+    'sentence_completion',
+    'fill_in_the_blank',
+  ];
+  for (const t of expectedTypes) {
+    assert.ok(COMPLETION_TYPES.has(t), `COMPLETION_TYPES must include ${t}`);
+  }
+  assert.ok(!COMPLETION_TYPES.has('yes_no_not_given'), 'YNNG must NOT be in COMPLETION_TYPES');
+  assert.ok(!COMPLETION_TYPES.has('true_false_not_given'), 'TFNG must NOT be in COMPLETION_TYPES');
+
+  // 2. buildCompletionGroupText with numbered blanks in prompts
+  const completionQs: ReadingQuestion[] = [
+    {
+      id: 'q_33',
+      type: 'summary_completion',
+      prompt: 'The extent of future sea level rises around New Zealand is uncertain and may be determined in the 33 ...............',
+      correctAnswer: 'C',
+      options: ['A. agriculture', 'B. tropical waters', 'C. tidal waves'],
+      points: 1,
+    },
+    {
+      id: 'q_34',
+      type: 'summary_completion',
+      prompt: 'Higher sea levels can lead to reduced 34 ...............',
+      correctAnswer: 'A',
+      options: ['A. agriculture', 'B. tropical waters', 'C. tidal waves'],
+      points: 1,
+    },
+  ];
+
+  const fullText = buildCompletionGroupText(
+    completionQs.map((q, idx) => ({ q, idx: idx + 32 }))
+  );
+  assert.ok(fullText.includes('[33]'), 'Full text must contain [33] blank marker');
+  assert.ok(fullText.includes('[34]'), 'Full text must contain [34] blank marker');
+  assert.ok(!fullText.includes('...............'), 'Blank dots should be converted to markers');
+
+  // 3. buildQuestionRenderGroups generates groupText for completion groups
+  const groups = buildQuestionRenderGroups(completionQs);
+  assert.strictEqual(groups.length, 1, 'Should group identical completion type questions together');
+  assert.strictEqual(groups[0].groupType, 'summary_completion', 'Group type is summary_completion');
+  assert.ok(groups[0].groupText && groups[0].groupText.includes('[33]'), 'Group text populated with markers');
+  assert.strictEqual(groups[0].wordList?.length, 3, 'Word list preserved for summary completion');
+  console.log('✓ Passed: All completion question types and full text reconstruction verified.');
+}
+
+// -------------------------------------------------------------
+// Test 9: Yes / No / Not Given Mapping & Isolation from Summary Completion
+// -------------------------------------------------------------
+console.log('Test 9: Yes / No / Not Given Mapping & Isolation from Summary Completion');
+{
+  // 1. normalizeReadingQuestion maps YES/NO answers to yes_no_not_given and clears word bank options
+  const rawYnngWithWordBank = {
+    id: 'q_38',
+    type: 'summary_completion', // mis-mapped from word box
+    prompt: 'Global warming is slow; it will affect different regions in different ways.',
+    correctAnswer: 'YES',
+    options: ['A. agriculture', 'B. tropical waters', 'C. tidal waves'],
+  };
+
+  const normalized = normalizeReadingQuestion(rawYnngWithWordBank, 37);
+  assert.strictEqual(normalized.type, 'yes_no_not_given', 'Must correct type to yes_no_not_given based on answer key');
+  assert.strictEqual(normalized.options, undefined, 'Options (word bank) must be cleared for button types');
+
+  // 2. Normalization of blank prompts mis-tagged as multiple choice
+  const rawCompletionMisTaggedAsMcq = {
+    id: 'q_33',
+    type: 'multiple_choice',
+    prompt: 'The extent of future sea level rises is determined in the 33 ...............',
+    correctAnswer: 'C',
+    options: ['A. agriculture', 'B. tropical waters', 'C. tidal waves'],
+  };
+  const normalizedCompletion = normalizeReadingQuestion(rawCompletionMisTaggedAsMcq, 32);
+  assert.strictEqual(normalizedCompletion.type, 'summary_completion', 'Blanks in prompt with options must normalize to summary_completion');
+
+  // 3. buildQuestionRenderGroups keeps YNNG and completion separated
+  const mixedQuestions: ReadingQuestion[] = [
+    normalizedCompletion,
+    normalized, // yes_no_not_given
+  ];
+  const mixedGroups = buildQuestionRenderGroups(mixedQuestions);
+  assert.strictEqual(mixedGroups.length, 2, 'YNNG and completion must never be merged into the same group');
+  assert.strictEqual(mixedGroups[0].groupType, 'summary_completion', 'First group is summary_completion');
+  assert.strictEqual(mixedGroups[1].groupType, 'yes_no_not_given', 'Second group is yes_no_not_given');
+  assert.strictEqual(mixedGroups[1].wordList, undefined, 'YNNG group must NOT have wordList');
+
+  // 4. BUTTON_TYPES check
+  assert.ok(BUTTON_TYPES.has('yes_no_not_given'), 'BUTTON_TYPES has yes_no_not_given');
+  assert.ok(BUTTON_TYPES.has('true_false_not_given'), 'BUTTON_TYPES has true_false_not_given');
+  assert.ok(!BUTTON_TYPES.has('summary_completion'), 'BUTTON_TYPES does NOT have summary_completion');
+  console.log('✓ Passed: Yes/No/Not Given mapping and complete isolation from completion groups.');
 }
 
 console.log('\n========================================');
