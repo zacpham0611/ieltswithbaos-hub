@@ -70,6 +70,9 @@ import {
   Lightbulb,
   Users,
   ShieldCheck,
+  Globe,
+  Lock,
+  ArrowRight,
 } from 'lucide-react';
 
 export const AssignmentsView: React.FC = () => {
@@ -125,11 +128,26 @@ export const AssignmentsView: React.FC = () => {
   const [formModelAnswerReleaseCondition, setFormModelAnswerReleaseCondition] = useState<
     'immediate' | 'after_submission' | 'after_graded' | 'never'
   >('after_graded');
+  const [formScoreVisibility, setFormScoreVisibility] = useState<'private' | 'public'>('private');
   const [formReadingTestType, setFormReadingTestType] = useState<ReadingTestType>('academic');
   const [formReadingPassage, setFormReadingPassage] = useState('');
   const [formSpeakingTopic, setFormSpeakingTopic] = useState('');
   const [formSpeakingPoints, setFormSpeakingPoints] = useState('');
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
+
+  // Submission & Grading Progress / Confirmation state
+  const [isSubmittingStudentWork, setIsSubmittingStudentWork] = useState(false);
+  const [isGradingSubmission, setIsGradingSubmission] = useState(false);
+  const [submissionSuccessModal, setSubmissionSuccessModal] = useState<{
+    title: string;
+    message: string;
+    actionText: string;
+    onAction: () => void;
+  } | null>(null);
+
+  // Student Writing tab & annotation scrolling
+  const [studentWritingTab, setStudentWritingTab] = useState<'submission' | 'model_answer'>('submission');
+  const [activeHighlightedAnnotationId, setActiveHighlightedAnnotationId] = useState<string | null>(null);
 
   // Student active taking state
   const [readingAnswers, setReadingAnswers] = useState<Record<string, string>>({});
@@ -646,13 +664,14 @@ export const AssignmentsView: React.FC = () => {
       parts.push(
         <mark
           key={`annot-${a.id || idx}`}
+          id={`annotation_${a.id}`}
           onClick={(e) => {
             e.stopPropagation();
             if (interactive) setActiveInspectedAnnotation(a);
           }}
           className={`px-1 py-0.5 rounded-xs transition-colors font-medium cursor-pointer ${
             typeHighlightMap[a.type] || typeHighlightMap.correction
-          } ${activeInspectedAnnotation?.id === a.id ? 'ring-2 ring-blue-600' : ''}`}
+          } ${activeInspectedAnnotation?.id === a.id || activeHighlightedAnnotationId === a.id ? 'ring-2 ring-blue-600 scale-105 inline-block shadow-xs' : ''}`}
           title={`${a.type.toUpperCase()}: ${a.comment}${a.suggestion ? ` (Suggestion: ${a.suggestion})` : ''}`}
         >
           {text.substring(a.startIndex, a.endIndex)}
@@ -689,6 +708,7 @@ export const AssignmentsView: React.FC = () => {
     setFormTask1ImageUrl('');
     setFormModelAnswer('');
     setFormModelAnswerReleaseCondition('after_graded');
+    setFormScoreVisibility('private');
     setFormReadingTestType('academic');
     setFormReadingPassage('');
     setFormSpeakingTopic('');
@@ -711,6 +731,7 @@ export const AssignmentsView: React.FC = () => {
     setFormTask1ImageUrl(a.task1ImageUrl || '');
     setFormModelAnswer(a.modelAnswer || '');
     setFormModelAnswerReleaseCondition(a.modelAnswerReleaseCondition || 'after_graded');
+    setFormScoreVisibility(a.scoreVisibility || 'private');
     setFormReadingTestType(a.readingTestType || 'academic');
     setFormReadingPassage(a.readingPassage || '');
     setFormSpeakingTopic(a.speakingCueCard?.topic || '');
@@ -743,6 +764,7 @@ export const AssignmentsView: React.FC = () => {
         task1ImageUrl: formSkill === 'writing' && formWritingTaskCategory === 'task1_academic' ? formTask1ImageUrl.trim() : undefined,
         modelAnswer: formModelAnswer.trim() || undefined,
         modelAnswerReleaseCondition: formModelAnswerReleaseCondition,
+        scoreVisibility: formScoreVisibility,
         readingTestType: formSkill === 'reading' ? formReadingTestType : undefined,
         readingPassage: formSkill === 'reading' ? formReadingPassage : undefined,
         speakingPart: formSkill === 'speaking' ? 'part2' : undefined,
@@ -847,62 +869,115 @@ export const AssignmentsView: React.FC = () => {
 
   // Execute reading submit
   const executeReadingSubmit = async () => {
-    if (!activeAssignment) return;
+    if (!activeAssignment || isSubmittingStudentWork) return;
     const effQuestions = getEffectiveQuestions(activeAssignment);
     if (effQuestions.length === 0) return;
 
+    setIsSubmittingStudentWork(true);
     setShowUnansweredModal(false);
-    const testType = activeAssignment.readingTestType || 'academic';
+    try {
+      const testType = activeAssignment.readingTestType || 'academic';
 
-    const gradeSummary = gradeAssignmentSubmission(
-      effQuestions,
-      readingAnswers,
-      testType
-    );
+      const gradeSummary = gradeAssignmentSubmission(
+        effQuestions,
+        readingAnswers,
+        testType
+      );
 
-    await submitAssignment(activeAssignment.id, {
-      readingAnswers,
-      readingScore: {
-        correct: gradeSummary.earnedScore,
-        total: gradeSummary.maxScore,
-        percentage: gradeSummary.percentage,
-        estimatedBand: gradeSummary.bandEstimate,
-        testType,
-        bandNotes: gradeSummary.bandNotes,
-      },
-      readingErrorAnalysis: gradeSummary.errorAnalysis,
-      score: gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate,
-      status: gradeSummary.finalStatus,
-    });
+      await submitAssignment(activeAssignment.id, {
+        readingAnswers,
+        readingScore: {
+          correct: gradeSummary.earnedScore,
+          total: gradeSummary.maxScore,
+          percentage: gradeSummary.percentage,
+          estimatedBand: gradeSummary.bandEstimate,
+          testType,
+          bandNotes: gradeSummary.bandNotes,
+        },
+        readingErrorAnalysis: gradeSummary.errorAnalysis,
+        score: gradeSummary.hasOpenEnded ? undefined : gradeSummary.bandEstimate,
+        status: gradeSummary.finalStatus,
+      });
 
-    // Clear local storage draft
-    localStorage.removeItem(`ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`);
+      // Clear local storage draft
+      localStorage.removeItem(`ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`);
+
+      const isScorePublic = activeAssignment.scoreVisibility === 'public';
+      setSubmissionSuccessModal({
+        title: 'Nộp bài thi Reading thành công!',
+        message:
+          isScorePublic && !gradeSummary.hasOpenEnded
+            ? `Bạn đã hoàn thành bài thi với kết quả: ${gradeSummary.earnedScore}/${gradeSummary.maxScore} câu đúng (Band ${gradeSummary.bandEstimate}).`
+            : 'Bài làm của bạn đã được ghi nhận thành công và chuyển đến giáo viên xét duyệt.',
+        actionText: 'Xem chi tiết bài làm',
+        onAction: () => setSubmissionSuccessModal(null),
+      });
+    } catch (err: any) {
+      alert(err?.message || 'Có lỗi khi nộp bài thi Reading. Vui lòng kiểm tra và thử lại.');
+    } finally {
+      setIsSubmittingStudentWork(false);
+    }
   };
 
   // Submit writing
   const handleWritingSubmit = async () => {
-    if (!activeAssignment || !writingDraft.trim()) return;
+    if (!activeAssignment || !writingDraft.trim() || isSubmittingStudentWork) return;
 
-    await submitAssignment(activeAssignment.id, {
-      writingText: writingDraft,
-      writingWordCount: wordCount,
-      status: 'submitted',
-    });
+    setIsSubmittingStudentWork(true);
+    try {
+      await submitAssignment(activeAssignment.id, {
+        writingText: writingDraft,
+        writingWordCount: wordCount,
+        status: 'submitted',
+      });
 
-    localStorage.removeItem(`ielts_writing_draft_${activeAssignment.id}_${currentUser.id}`);
+      localStorage.removeItem(`ielts_writing_draft_${activeAssignment.id}_${currentUser.id}`);
+
+      setSubmissionSuccessModal({
+        title: 'Nộp bài viết thành công!',
+        message:
+          'Bài viết của bạn đã được gửi đến giáo viên để chấm điểm theo 4 tiêu chí chuẩn IELTS. Bạn sẽ nhận được thông báo ngay khi có kết quả chấm.',
+        actionText: 'Quay lại danh sách bài tập',
+        onAction: () => {
+          setSubmissionSuccessModal(null);
+          setSelectedAssignmentId(null);
+        },
+      });
+    } catch (err: any) {
+      alert(err?.message || 'Có lỗi xảy ra khi nộp bài. Nội dung bài viết vẫn được lưu trữ an toàn.');
+    } finally {
+      setIsSubmittingStudentWork(false);
+    }
   };
 
   // Submit speaking
   const handleSpeakingSubmit = async () => {
-    if (!activeAssignment) return;
+    if (!activeAssignment || isSubmittingStudentWork) return;
 
-    await submitAssignment(activeAssignment.id, {
-      speakingAudioUrl: 'https://example.com/audio/student_speaking_recording.mp3',
-      speakingDuration: recordingSeconds || 85,
-      speakingTranscript: 'Audio recorded by student. Verified speech transcript available for teacher review.',
-      status: 'submitted',
-    });
-    setAudioRecorded(false);
+    setIsSubmittingStudentWork(true);
+    try {
+      await submitAssignment(activeAssignment.id, {
+        speakingAudioUrl: 'https://example.com/audio/student_speaking_recording.mp3',
+        speakingDuration: recordingSeconds || 85,
+        speakingTranscript: 'Audio recorded by student. Verified speech transcript available for teacher review.',
+        status: 'submitted',
+      });
+      setAudioRecorded(false);
+
+      setSubmissionSuccessModal({
+        title: 'Nộp bài Speaking thành công!',
+        message: 'Bản ghi âm bài nói của bạn đã được gửi đến giáo viên để đánh giá và chấm điểm.',
+        actionText: 'Quay lại danh sách bài tập',
+        onAction: () => {
+          setSubmissionSuccessModal(null);
+          setSelectedAssignmentId(null);
+        },
+      });
+    } catch (err: any) {
+      alert(err?.message || 'Có lỗi xảy ra khi nộp bài nói. Vui lòng thử lại.');
+    } finally {
+      setIsSubmittingStudentWork(false);
+    }
   };
 
   // AI draft feedback generator for Teacher
@@ -959,38 +1034,60 @@ export const AssignmentsView: React.FC = () => {
   };
 
   const handleSaveDraft = async () => {
-    if (!currentSubmission) return;
+    if (!currentSubmission || isGradingSubmission) return;
 
-    await gradeSubmission(currentSubmission.id, {
-      rubricScores: gradingRubrics,
-      strengths: teacherStrengths,
-      areasToImprove: teacherAreasToImprove,
-      teacherComments: teacherGeneralComments,
-      nextSteps: teacherNextSteps,
-      score: overallScore,
-      annotations,
-      isDraft: true,
-    });
+    setIsGradingSubmission(true);
+    try {
+      await gradeSubmission(currentSubmission.id, {
+        rubricScores: gradingRubrics,
+        strengths: teacherStrengths,
+        areasToImprove: teacherAreasToImprove,
+        teacherComments: teacherGeneralComments,
+        nextSteps: teacherNextSteps,
+        score: overallScore,
+        annotations,
+        isDraft: true,
+      });
 
-    setDraftSaveNotice(true);
-    setTimeout(() => setDraftSaveNotice(false), 3500);
+      setDraftSaveNotice(true);
+      setTimeout(() => setDraftSaveNotice(false), 3500);
+    } catch (err: any) {
+      alert(err?.message || 'Lỗi khi lưu bản nháp chấm điểm');
+    } finally {
+      setIsGradingSubmission(false);
+    }
   };
 
   const handleFinalizeGrading = async () => {
-    if (!currentSubmission) return;
+    if (!currentSubmission || isGradingSubmission) return;
 
-    await gradeSubmission(currentSubmission.id, {
-      rubricScores: gradingRubrics,
-      strengths: teacherStrengths,
-      areasToImprove: teacherAreasToImprove,
-      teacherComments: teacherGeneralComments,
-      nextSteps: teacherNextSteps,
-      score: overallScore,
-      annotations,
-      isDraft: false,
-    });
+    setIsGradingSubmission(true);
+    try {
+      await gradeSubmission(currentSubmission.id, {
+        rubricScores: gradingRubrics,
+        strengths: teacherStrengths,
+        areasToImprove: teacherAreasToImprove,
+        teacherComments: teacherGeneralComments,
+        nextSteps: teacherNextSteps,
+        score: overallScore,
+        annotations,
+        isDraft: false,
+      });
 
-    setSelectedSubmissionId(null);
+      setSubmissionSuccessModal({
+        title: 'Đã xuất bản kết quả chấm điểm!',
+        message: `Bài nộp của học viên ${currentSubmission.studentName} đã được chấm thành công với kết quả Overall Band ${overallScore.toFixed(1)}. Học viên sẽ nhận được đầy đủ nhận xét và đánh giá chi tiết.`,
+        actionText: 'Quay lại danh sách chấm bài',
+        onAction: () => {
+          setSubmissionSuccessModal(null);
+          setSelectedSubmissionId(null);
+        },
+      });
+    } catch (err: any) {
+      alert(err?.message || 'Lỗi khi xuất bản kết quả chấm điểm');
+    } finally {
+      setIsGradingSubmission(false);
+    }
   };
 
   const handleConfirmReturn = async () => {
@@ -1656,18 +1753,20 @@ export const AssignmentsView: React.FC = () => {
                 {t('common.cancel')}
               </button>
               <button
+                disabled={isGradingSubmission}
                 onClick={handleSaveDraft}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-sm font-bold transition-colors flex items-center space-x-1.5"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 border border-slate-300 rounded-lg text-sm font-bold transition-colors flex items-center space-x-1.5"
               >
                 <Save className="w-4 h-4 text-slate-500" />
-                <span>{t('assignments.saveDraftBtn')}</span>
+                <span>{isGradingSubmission ? t('common.loading') : t('assignments.saveDraftBtn')}</span>
               </button>
               <button
+                disabled={isGradingSubmission}
                 onClick={handleFinalizeGrading}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-xs transition-colors flex items-center space-x-1.5"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-xs transition-colors flex items-center space-x-1.5"
               >
                 <CheckCircle className="w-4 h-4" />
-                <span>{t('assignments.finalizeAndSend')}</span>
+                <span>{isGradingSubmission ? t('common.loading') : t('assignments.finalizeAndSend')}</span>
               </button>
             </div>
           </div>
@@ -1751,6 +1850,92 @@ export const AssignmentsView: React.FC = () => {
 
     // Count answered reading questions
     const answeredCount = questions.filter((q) => Boolean(readingAnswers[q.id]?.trim())).length;
+
+    const isScorePublic = (activeAssignment.scoreVisibility || 'private') === 'public';
+    const canSeeAnswers = isTeacher || (mySub?.status === 'graded' && isScorePublic);
+
+    const handleAnnotationClick = (annId: string) => {
+      setStudentWritingTab('submission');
+      setActiveHighlightedAnnotationId(annId);
+      setTimeout(() => {
+        const el = document.getElementById(`annotation_${annId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+      setTimeout(() => {
+        setActiveHighlightedAnnotationId(null);
+      }, 4000);
+    };
+
+    const questionRenderGroups = useMemo(() => {
+      if (questions.length === 0) return [];
+
+      interface QuestionRenderGroup {
+        id: string;
+        rangeTitle: string;
+        instructions?: string;
+        headingsList?: string[];
+        featuresList?: string[];
+        wordLimit?: string;
+        questions: Array<{ q: ReadingQuestion; idx: number }>;
+      }
+
+      const groups: QuestionRenderGroup[] = [];
+      let currentGroup: QuestionRenderGroup | null = null;
+
+      for (let idx = 0; idx < questions.length; idx++) {
+        const q = questions[idx];
+        const headingsKey = q.headingsList && q.headingsList.length > 0 ? q.headingsList.join('|') : '';
+        const featuresKey = q.featuresList && q.featuresList.length > 0 ? q.featuresList.join('|') : '';
+        const wordLimit = q.wordLimit || (q.maxWords ? `NO MORE THAN ${q.maxWords} WORD${q.maxWords > 1 ? 'S' : ''}` : undefined);
+        const instruction = (q as any).instruction || (q as any).groupInstruction || (q as any).instructions || '';
+
+        const sameHeadings = (currentGroup?.headingsList?.join('|') || '') === headingsKey;
+        const sameFeatures = (currentGroup?.featuresList?.join('|') || '') === featuresKey;
+        const sameInstruction = (currentGroup?.instructions || '') === instruction;
+        const sameWordLimit = (currentGroup?.wordLimit || '') === (wordLimit || '');
+
+        const shouldContinueGroup = Boolean(
+          currentGroup &&
+          (headingsKey ? sameHeadings : true) &&
+          (featuresKey ? sameFeatures : true) &&
+          (instruction ? sameInstruction : true) &&
+          (!headingsKey && !featuresKey && !instruction ? sameWordLimit : true)
+        );
+
+        if (shouldContinueGroup && currentGroup) {
+          currentGroup.questions.push({ q, idx });
+        } else {
+          if (currentGroup) {
+            const firstIdx = currentGroup.questions[0].idx + 1;
+            const lastIdx = currentGroup.questions[currentGroup.questions.length - 1].idx + 1;
+            currentGroup.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
+            groups.push(currentGroup);
+          }
+
+          currentGroup = {
+            id: `g_${idx}`,
+            rangeTitle: `Question ${idx + 1}`,
+            instructions: instruction || undefined,
+            headingsList: q.headingsList && q.headingsList.length > 0 ? q.headingsList : undefined,
+            featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
+            wordLimit,
+            questions: [{ q, idx }],
+          };
+        }
+      }
+
+      if (currentGroup) {
+        const cg: QuestionRenderGroup = currentGroup;
+        const firstIdx = cg.questions[0].idx + 1;
+        const lastIdx = cg.questions[cg.questions.length - 1].idx + 1;
+        cg.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
+        groups.push(cg);
+      }
+
+      return groups;
+    }, [questions]);
 
     return (
       <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
@@ -2070,378 +2255,405 @@ export const AssignmentsView: React.FC = () => {
                       </p>
                     </div>
                   ) : (
-                    /* Interactive Questions List */
-                    <div className="space-y-6">
-                      {questions.map((q, idx) => {
-                        const answer = readingAnswers[q.id] || '';
-                        const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
-                        const isFlag = Boolean(flaggedQuestions[q.id]);
-                        const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
-                        const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
-                        const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
-                        const displayPrompt = resolveQuestionPrompt(q, idx + 1);
-
-                        return (
-                          <div
-                            key={q.id}
-                            id={`q_${q.id}`}
-                            className={`p-4 rounded-xl border text-sm space-y-3 transition-colors scroll-mt-4 ${
-                              result
-                                ? result.isCorrect
-                                  ? 'border-emerald-300 bg-emerald-50/20'
-                                  : 'border-red-300 bg-red-50/20'
-                                : 'border-slate-200 bg-slate-50/40'
-                            }`}
-                          >
+                    /* Interactive Questions Grouped */
+                    <div className="space-y-8">
+                      {questionRenderGroups.map((group) => (
+                        <div key={group.id} className="space-y-4 pt-1">
+                          {/* Group Instruction & Reference Box Banner (Rendered ONCE per question group) */}
+                          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
                             <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-900 text-sm">
-                                Question {idx + 1} ({q.type.replace(/_/g, ' ')})
+                              <span className="font-extrabold text-xs uppercase tracking-wider text-slate-800">
+                                {group.rangeTitle}
                               </span>
-
-                              <div className="flex items-center space-x-2">
-                                {/* Flag button */}
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })
-                                  }
-                                  className={`p-1 rounded text-xs flex items-center space-x-1 ${
-                                    isFlag ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-slate-600'
-                                  }`}
-                                  title="Flag for review"
-                                >
-                                  <Flag className="w-3.5 h-3.5" />
-                                  <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
-                                </button>
-
-                                {result && (
-                                  <span
-                                    className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
-                                      result.isCorrect
-                                        ? 'bg-emerald-100 text-emerald-800'
-                                        : 'bg-red-100 text-red-800'
-                                    }`}
-                                  >
-                                    {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <p className="font-semibold text-slate-800 text-sm leading-relaxed">{displayPrompt}</p>
-
-                          {/* Reference Box: List of Headings */}
-                          {q.headingsList && q.headingsList.length > 0 && (
-                            <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-1 text-xs">
-                              <span className="font-bold text-amber-900 uppercase text-[11px] block">
-                                List of Headings:
-                              </span>
-                              <div className="space-y-1 text-amber-950 font-medium">
-                                {q.headingsList.map((h) => (
-                                  <div key={h} className="leading-snug">
-                                    {h}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Reference Box: List of Researchers / Features */}
-                          {q.featuresList && q.featuresList.length > 0 && (
-                            <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-1 text-xs">
-                              <span className="font-bold text-indigo-900 uppercase text-[11px] block">
-                                List of Features / Researchers:
-                              </span>
-                              <div className="space-y-1 text-indigo-950 font-medium">
-                                {q.featuresList.map((f) => (
-                                  <div key={f} className="leading-snug">
-                                    {f}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Word limit note if applicable */}
-                          {maxWords && (
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs text-amber-800 font-semibold bg-amber-50 px-2.5 py-1 rounded border border-amber-200 inline-block">
-                                Limit: NO MORE THAN {maxWords} WORD{maxWords > 1 ? 'S' : ''}
-                              </span>
-                              {isOverWordLimit && (
-                                <span className="text-xs text-red-600 font-bold animate-pulse">
-                                  Exceeds limit ({currentWordsCount}/{maxWords} words)
+                              {group.wordLimit && (
+                                <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/70 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                                  {group.wordLimit}
                                 </span>
                               )}
                             </div>
-                          )}
 
-                          {/* Question Type Interactive Controls */}
-                          {q.type === 'true_false_not_given' || q.type === 'yes_no_not_given' ? (
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              {(q.type === 'true_false_not_given'
-                                ? ['TRUE', 'FALSE', 'NOT GIVEN']
-                                : ['YES', 'NO', 'NOT GIVEN']
-                              ).map((choice) => (
-                                <button
-                                  key={choice}
-                                  type="button"
-                                  disabled={mySub?.status === 'graded'}
-                                  onClick={() => handleAnswerChange(q.id, choice)}
-                                  className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                                    answer.toUpperCase() === choice
-                                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  {choice}
-                                </button>
-                              ))}
-                            </div>
-                          ) : q.type === 'matching_information' ? (
-                            <div className="space-y-2 pt-1">
-                              <div className="text-xs text-amber-900 bg-amber-50/80 border border-amber-200 px-2.5 py-1.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                <span className="font-semibold">Which paragraph contains this information?</span>
-                                <span className="text-[11px] font-mono font-medium text-amber-800">
-                                  NB: Letters may be used more than once
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap gap-1.5 pt-1">
-                                {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
-                                  const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
-                                  const isSelected =
-                                    answer.toUpperCase() === letter || answer.toUpperCase() === label.toUpperCase();
-                                  return (
-                                    <button
-                                      key={label}
-                                      type="button"
-                                      disabled={mySub?.status === 'graded'}
-                                      onClick={() => handleAnswerChange(q.id, letter)}
-                                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                        isSelected
-                                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                                      }`}
-                                    >
-                                      Paragraph {letter}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-
-                              <div className="pt-1">
-                                <select
-                                  disabled={mySub?.status === 'graded'}
-                                  value={answer}
-                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                  className="w-full sm:w-72 p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                                >
-                                  <option value="">-- Or select paragraph from dropdown --</option>
-                                  {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
-                                    const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
-                                    return (
-                                      <option key={label} value={letter}>
-                                        Paragraph {letter}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                              </div>
-                            </div>
-                          ) : q.type === 'matching_headings' && q.headingsList && q.headingsList.length > 0 ? (
-                            <div className="space-y-1.5">
-                              <select
-                                disabled={mySub?.status === 'graded'}
-                                value={answer}
-                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                              >
-                                <option value="">-- Choose Heading (i, ii, iii...) --</option>
-                                {q.headingsList.map((h) => {
-                                  const romanMatch = h.match(/^([ivx\d]+)/i);
-                                  const code = romanMatch ? romanMatch[1] : h;
-                                  return (
-                                    <option key={h} value={code}>
-                                      {h}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            </div>
-                          ) : q.type === 'matching_features' && q.featuresList && q.featuresList.length > 0 ? (
-                            <div className="space-y-1.5">
-                              <select
-                                disabled={mySub?.status === 'graded'}
-                                value={answer}
-                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                              >
-                                <option value="">-- Choose Feature / Person (A, B, C...) --</option>
-                                {q.featuresList.map((f) => {
-                                  const letterMatch = f.match(/^([A-G])/i);
-                                  const code = letterMatch ? letterMatch[1] : f;
-                                  return (
-                                    <option key={f} value={code}>
-                                      {f}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            </div>
-                          ) : q.type === 'matching_sentence_endings' && q.options && q.options.length > 0 ? (
-                            <div className="space-y-1.5">
-                              <select
-                                disabled={mySub?.status === 'graded'}
-                                value={answer}
-                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                              >
-                                <option value="">-- Choose Sentence Ending (A, B, C...) --</option>
-                                {q.options.map((opt) => (
-                                  <option key={opt} value={opt}>
-                                    {opt}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
-                            <div className="space-y-1.5">
-                              {q.options.map((opt) => {
-                                const selectedList = answer ? answer.split(',').map((s) => s.trim()) : [];
-                                const isChecked = selectedList.includes(opt);
-                                return (
-                                  <label
-                                    key={opt}
-                                    className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
-                                      isChecked
-                                        ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
-                                        : 'hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      disabled={mySub?.status === 'graded'}
-                                      checked={isChecked}
-                                      onChange={(e) => {
-                                        let updated = [...selectedList];
-                                        if (e.target.checked) {
-                                          updated.push(opt);
-                                        } else {
-                                          updated = updated.filter((item) => item !== opt);
-                                        }
-                                        handleAnswerChange(q.id, updated.join(', '));
-                                      }}
-                                      className="text-blue-600 rounded"
-                                    />
-                                    <span>{opt}</span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          ) : q.options && q.options.length > 0 ? (
-                            <div className="space-y-1.5">
-                              {q.options.map((opt) => (
-                                <label
-                                  key={opt}
-                                  className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
-                                    answer === opt
-                                      ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
-                                      : 'hover:bg-slate-100'
-                                  }`}
-                                >
-                                  <input
-                                    type="radio"
-                                    name={`q_${q.id}`}
-                                    disabled={mySub?.status === 'graded'}
-                                    checked={answer === opt}
-                                    onChange={() => handleAnswerChange(q.id, opt)}
-                                    className="text-blue-600"
-                                  />
-                                  <span>{opt}</span>
-                                </label>
-                              ))}
-                            </div>
-                          ) : q.type === 'matching' && q.matchingPairs && q.matchingPairs.length > 0 ? (
-                            <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50/50">
-                              <p className="text-xs font-bold text-slate-700 uppercase">Match each item:</p>
-                              {q.matchingPairs.map((pair, pIdx) => {
-                                let currentMap: Record<string, string> = {};
-                                try {
-                                  currentMap = answer ? JSON.parse(answer) : {};
-                                } catch {
-                                  currentMap = {};
-                                }
-                                return (
-                                  <div
-                                    key={pIdx}
-                                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white rounded border border-slate-200 text-xs"
-                                  >
-                                    <span className="font-semibold text-slate-800">{pair.left}</span>
-                                    <select
-                                      disabled={mySub?.status === 'graded'}
-                                      value={currentMap[pair.left] || ''}
-                                      onChange={(e) => {
-                                        const updated = { ...currentMap, [pair.left]: e.target.value };
-                                        handleAnswerChange(q.id, JSON.stringify(updated));
-                                      }}
-                                      className="p-1.5 border border-slate-300 rounded text-xs bg-white text-slate-900"
-                                    >
-                                      <option value="">-- Select Match --</option>
-                                      {q.matchingPairs!.map((m) => (
-                                        <option key={m.right} value={m.right}>
-                                          {m.right}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="space-y-1">
-                              <input
-                                type="text"
-                                disabled={mySub?.status === 'graded'}
-                                value={answer}
-                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                placeholder={
-                                  maxWords
-                                    ? `Type answer (max ${maxWords} word${maxWords > 1 ? 's' : ''})...`
-                                    : 'Type your answer phrase...'
-                                }
-                                className={`w-full sm:w-80 p-2.5 border rounded-lg text-sm bg-white font-medium focus:ring-2 focus:outline-hidden ${
-                                  isOverWordLimit
-                                    ? 'border-red-400 focus:ring-red-400'
-                                    : 'border-slate-300 focus:ring-blue-500'
-                                }`}
-                              />
-                              {maxWords && (
-                                <div className="text-[11px] text-slate-400 font-mono">
-                                  {currentWordsCount} / {maxWords} words typed
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Explanation and Citation (Shown when graded) */}
-                          {mySub?.status === 'graded' && (
-                            <div className="mt-2 pt-2 border-t border-slate-200 text-xs space-y-1">
-                              <p className="text-slate-600">
-                                <strong>Answer Key:</strong>{' '}
-                                <span className="font-mono text-emerald-700">{q.correctAnswer || 'Provided in review'}</span>
+                            {group.instructions && (
+                              <p className="text-xs text-slate-700 italic leading-relaxed">
+                                {group.instructions}
                               </p>
-                              {q.explanation && (
-                                <p className="text-slate-500 italic">
-                                  <strong>Citation:</strong> {q.explanation}
-                                </p>
-                              )}
-                            </div>
-                          )}
+                            )}
+
+                            {/* Reference Box: List of Headings (Rendered ONCE per group) */}
+                            {group.headingsList && group.headingsList.length > 0 && (
+                              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-1 text-xs">
+                                <span className="font-bold text-amber-900 uppercase text-[11px] block">
+                                  List of Headings:
+                                </span>
+                                <div className="space-y-1 text-amber-950 font-medium">
+                                  {group.headingsList.map((h) => (
+                                    <div key={h} className="leading-snug">
+                                      {h}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Reference Box: List of Features / Researchers (Rendered ONCE per group) */}
+                            {group.featuresList && group.featuresList.length > 0 && (
+                              <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-1 text-xs">
+                                <span className="font-bold text-indigo-900 uppercase text-[11px] block">
+                                  List of Features / Researchers:
+                                </span>
+                                <div className="space-y-1 text-indigo-950 font-medium">
+                                  {group.featuresList.map((f) => (
+                                    <div key={f} className="leading-snug">
+                                      {f}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Questions in this group */}
+                          <div className="space-y-4">
+                            {group.questions.map(({ q, idx }) => {
+                              const answer = readingAnswers[q.id] || '';
+                              const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
+                              const isFlag = Boolean(flaggedQuestions[q.id]);
+                              const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
+                              const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
+                              const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
+                              const displayPrompt = resolveQuestionPrompt(q, idx + 1);
+
+                              return (
+                                <div
+                                  key={q.id}
+                                  id={`q_${q.id}`}
+                                  className={`p-4 rounded-xl border text-sm space-y-3 transition-colors scroll-mt-4 ${
+                                    result
+                                      ? result.isCorrect
+                                        ? 'border-emerald-300 bg-emerald-50/20'
+                                        : 'border-red-300 bg-red-50/20'
+                                      : 'border-slate-200 bg-slate-50/40'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-slate-900 text-sm">
+                                      Question {idx + 1}
+                                    </span>
+
+                                    <div className="flex items-center space-x-2">
+                                      {/* Flag button */}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })
+                                        }
+                                        className={`p-1 rounded text-xs flex items-center space-x-1 ${
+                                          isFlag ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-slate-600'
+                                        }`}
+                                        title="Flag for review"
+                                      >
+                                        <Flag className="w-3.5 h-3.5" />
+                                        <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
+                                      </button>
+
+                                      {result && canSeeAnswers && (
+                                        <span
+                                          className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
+                                            result.isCorrect
+                                              ? 'bg-emerald-100 text-emerald-800'
+                                              : 'bg-red-100 text-red-800'
+                                          }`}
+                                        >
+                                          {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <p className="font-semibold text-slate-800 text-sm leading-relaxed">{displayPrompt}</p>
+
+                                  {/* Word limit note if applicable */}
+                                  {maxWords && !group.wordLimit && (
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-xs text-amber-800 font-semibold bg-amber-50 px-2.5 py-1 rounded border border-amber-200 inline-block">
+                                        Limit: NO MORE THAN {maxWords} WORD{maxWords > 1 ? 'S' : ''}
+                                      </span>
+                                      {isOverWordLimit && (
+                                        <span className="text-xs text-red-600 font-bold animate-pulse">
+                                          Exceeds limit ({currentWordsCount}/{maxWords} words)
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Question Type Interactive Controls */}
+                                  {q.type === 'true_false_not_given' || q.type === 'yes_no_not_given' ? (
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                      {(q.type === 'true_false_not_given'
+                                        ? ['TRUE', 'FALSE', 'NOT GIVEN']
+                                        : ['YES', 'NO', 'NOT GIVEN']
+                                      ).map((choice) => (
+                                        <button
+                                          key={choice}
+                                          type="button"
+                                          disabled={mySub?.status === 'graded'}
+                                          onClick={() => handleAnswerChange(q.id, choice)}
+                                          className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                                            answer.toUpperCase() === choice
+                                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          {choice}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : q.type === 'matching_information' ? (
+                                    <div className="space-y-2 pt-1">
+                                      <div className="text-xs text-amber-900 bg-amber-50/80 border border-amber-200 px-2.5 py-1.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                        <span className="font-semibold">Which paragraph contains this information?</span>
+                                        <span className="text-[11px] font-mono font-medium text-amber-800">
+                                          NB: Letters may be used more than once
+                                        </span>
+                                      </div>
+
+                                      <div className="flex flex-wrap gap-1.5 pt-1">
+                                        {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
+                                          const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
+                                          const isSelected =
+                                            answer.toUpperCase() === letter || answer.toUpperCase() === label.toUpperCase();
+                                          return (
+                                            <button
+                                              key={label}
+                                              type="button"
+                                              disabled={mySub?.status === 'graded'}
+                                              onClick={() => handleAnswerChange(q.id, letter)}
+                                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                                isSelected
+                                                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                              }`}
+                                            >
+                                              Paragraph {letter}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+
+                                      <div className="pt-1">
+                                        <select
+                                          disabled={mySub?.status === 'graded'}
+                                          value={answer}
+                                          onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                          className="w-full sm:w-72 p-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                        >
+                                          <option value="">-- Or select paragraph from dropdown --</option>
+                                          {(q.options && q.options.length > 0 ? q.options : paragraphLabels).map((label) => {
+                                            const letter = label.match(/([A-Za-z])/i)?.[1]?.toUpperCase() || label;
+                                            return (
+                                              <option key={label} value={letter}>
+                                                Paragraph {letter}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      </div>
+                                    </div>
+                                  ) : q.type === 'matching_headings' && (group.headingsList || q.headingsList) && (group.headingsList || q.headingsList)!.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      <select
+                                        disabled={mySub?.status === 'graded'}
+                                        value={answer}
+                                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                        className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                      >
+                                        <option value="">-- Choose Heading (i, ii, iii...) --</option>
+                                        {(group.headingsList || q.headingsList)!.map((h) => {
+                                          const romanMatch = h.match(/^([ivx\d]+)/i);
+                                          const code = romanMatch ? romanMatch[1] : h;
+                                          return (
+                                            <option key={h} value={code}>
+                                              {h}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                    </div>
+                                  ) : q.type === 'matching_features' && (group.featuresList || q.featuresList) && (group.featuresList || q.featuresList)!.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      <select
+                                        disabled={mySub?.status === 'graded'}
+                                        value={answer}
+                                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                        className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                      >
+                                        <option value="">-- Choose Feature / Person (A, B, C...) --</option>
+                                        {(group.featuresList || q.featuresList)!.map((f) => {
+                                          const letterMatch = f.match(/^([A-G])/i);
+                                          const code = letterMatch ? letterMatch[1] : f;
+                                          return (
+                                            <option key={f} value={code}>
+                                              {f}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                    </div>
+                                  ) : q.type === 'matching_sentence_endings' && q.options && q.options.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      <select
+                                        disabled={mySub?.status === 'graded'}
+                                        value={answer}
+                                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                        className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                      >
+                                        <option value="">-- Choose Sentence Ending (A, B, C...) --</option>
+                                        {q.options.map((opt) => (
+                                          <option key={opt} value={opt}>
+                                            {opt}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      {q.options.map((opt) => {
+                                        const selectedList = answer ? answer.split(',').map((s) => s.trim()) : [];
+                                        const isChecked = selectedList.includes(opt);
+                                        return (
+                                          <label
+                                            key={opt}
+                                            className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
+                                              isChecked
+                                                ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
+                                                : 'hover:bg-slate-100'
+                                            }`}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              disabled={mySub?.status === 'graded'}
+                                              checked={isChecked}
+                                              onChange={(e) => {
+                                                let updated = [...selectedList];
+                                                if (e.target.checked) {
+                                                  updated.push(opt);
+                                                } else {
+                                                  updated = updated.filter((item) => item !== opt);
+                                                }
+                                                handleAnswerChange(q.id, updated.join(', '));
+                                              }}
+                                              className="text-blue-600 rounded"
+                                            />
+                                            <span>{opt}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : q.options && q.options.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      {q.options.map((opt) => (
+                                        <label
+                                          key={opt}
+                                          className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
+                                            answer === opt
+                                              ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
+                                              : 'hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          <input
+                                            type="radio"
+                                            name={`q_${q.id}`}
+                                            disabled={mySub?.status === 'graded'}
+                                            checked={answer === opt}
+                                            onChange={() => handleAnswerChange(q.id, opt)}
+                                            className="text-blue-600"
+                                          />
+                                          <span>{opt}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  ) : q.type === 'matching' && q.matchingPairs && q.matchingPairs.length > 0 ? (
+                                    <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50/50">
+                                      <p className="text-xs font-bold text-slate-700 uppercase">Match each item:</p>
+                                      {q.matchingPairs.map((pair, pIdx) => {
+                                        let currentMap: Record<string, string> = {};
+                                        try {
+                                          currentMap = answer ? JSON.parse(answer) : {};
+                                        } catch {
+                                          currentMap = {};
+                                        }
+                                        return (
+                                          <div
+                                            key={pIdx}
+                                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white rounded border border-slate-200 text-xs"
+                                          >
+                                            <span className="font-semibold text-slate-800">{pair.left}</span>
+                                            <select
+                                              disabled={mySub?.status === 'graded'}
+                                              value={currentMap[pair.left] || ''}
+                                              onChange={(e) => {
+                                                const updated = { ...currentMap, [pair.left]: e.target.value };
+                                                handleAnswerChange(q.id, JSON.stringify(updated));
+                                              }}
+                                              className="p-1.5 border border-slate-300 rounded text-xs bg-white text-slate-900"
+                                            >
+                                              <option value="">-- Select Match --</option>
+                                              {q.matchingPairs!.map((m) => (
+                                                <option key={m.right} value={m.right}>
+                                                  {m.right}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <input
+                                        type="text"
+                                        disabled={mySub?.status === 'graded'}
+                                        value={answer}
+                                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                        placeholder={
+                                          maxWords
+                                            ? `Type answer (max ${maxWords} word${maxWords > 1 ? 's' : ''})...`
+                                            : 'Type your answer phrase...'
+                                        }
+                                        className={`w-full sm:w-80 p-2.5 border rounded-lg text-sm bg-white font-medium focus:ring-2 focus:outline-hidden ${
+                                          isOverWordLimit
+                                            ? 'border-red-400 focus:ring-red-400'
+                                            : 'border-slate-300 focus:ring-blue-500'
+                                        }`}
+                                      />
+                                      {maxWords && (
+                                        <div className="text-[11px] text-slate-400 font-mono">
+                                          {currentWordsCount} / {maxWords} words typed
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Explanation and Citation (Shown ONLY when graded AND canSeeAnswers is true) */}
+                                  {canSeeAnswers && (
+                                    <div className="mt-2 pt-2 border-t border-slate-200 text-xs space-y-1">
+                                      <p className="text-slate-600">
+                                        <strong>Answer Key:</strong>{' '}
+                                        <span className="font-mono text-emerald-700">{q.correctAnswer || 'Provided in review'}</span>
+                                      </p>
+                                      {q.explanation && (
+                                        <p className="text-slate-500 italic">
+                                          <strong>Citation:</strong> {q.explanation}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                      ))}
+                    </div>
                   )}
                 </div>
 
@@ -2570,21 +2782,47 @@ export const AssignmentsView: React.FC = () => {
                 {/* Teacher In-line Annotations on Essay */}
                 {mySub.annotations && mySub.annotations.length > 0 && (
                   <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-2xs">
-                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                      Teacher In-Text Annotations ({mySub.annotations.length})
-                    </span>
-                    <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                        Teacher In-Text Annotations ({mySub.annotations.length})
+                      </span>
+                      <span className="text-[11px] text-blue-600 font-medium">
+                        Click vào thẻ nhận xét để cuộn đến đoạn văn tương ứng
+                      </span>
+                    </div>
+                    <div className="space-y-2.5">
                       {mySub.annotations.map((ann, aIdx) => (
-                        <div key={ann.id || aIdx} className="text-xs p-2.5 rounded-lg bg-amber-50/60 border border-amber-200 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                          <div className="space-y-1">
-                            <div className="font-serif italic text-slate-700">"{ann.selectedText || (ann as any).highlightedText}"</div>
-                            <div className="font-sans font-medium text-amber-900">{ann.comment}</div>
+                        <div
+                          key={ann.id || aIdx}
+                          onClick={() => handleAnnotationClick(ann.id)}
+                          className="text-xs p-3 rounded-xl bg-amber-50/70 border border-amber-200 hover:border-amber-400 hover:bg-amber-100/50 cursor-pointer transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-3 shadow-2xs group"
+                        >
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex items-center space-x-1.5 text-slate-500 font-medium text-[11px]">
+                              <Eye className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition-transform" />
+                              <span>Đoạn văn được nhận xét:</span>
+                            </div>
+                            <div className="font-serif italic text-slate-800 bg-white/80 p-2 rounded border border-amber-100 leading-relaxed">
+                              "{ann.selectedText || (ann as any).highlightedText}"
+                            </div>
+                            <div className="font-sans font-semibold text-amber-950 mt-1">
+                              {ann.comment}
+                            </div>
+                            {ann.suggestion && (
+                              <div className="text-emerald-800 font-medium bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 mt-1 text-[11px]">
+                                <strong className="text-emerald-900">Gợi ý sửa:</strong> {ann.suggestion}
+                              </div>
+                            )}
                           </div>
-                          {(ann.type || (ann as any).category) && (
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
-                              {ann.type || (ann as any).category}
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-200/80 text-amber-900">
+                              {ann.type || (ann as any).category || 'Feedback'}
                             </span>
-                          )}
+                            <span className="text-[11px] text-blue-600 font-bold group-hover:underline flex items-center space-x-0.5">
+                              <span>Xem trên bài</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2636,9 +2874,40 @@ export const AssignmentsView: React.FC = () => {
               </div>
             </div>
 
-            {/* Model Answer (Revealed when condition met) */}
-            {activeAssignment.modelAnswer && (
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 shadow-xs space-y-3">
+            {/* Tabs: Student Submission vs Model Answer */}
+            <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
+              <button
+                type="button"
+                onClick={() => setStudentWritingTab('submission')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 ${
+                  studentWritingTab === 'submission'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Bài nộp của bạn {mySub ? '(Đã ghi nhận)' : ''}</span>
+              </button>
+
+              {activeAssignment.modelAnswer && (
+                <button
+                  type="button"
+                  onClick={() => setStudentWritingTab('model_answer')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 ${
+                    studentWritingTab === 'model_answer'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Bài mẫu IELTS tham khảo (Band 8.5 - 9.0)</span>
+                </button>
+              )}
+            </div>
+
+            {/* View A: Model Answer Dedicated Tab */}
+            {studentWritingTab === 'model_answer' && activeAssignment.modelAnswer && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 shadow-xs space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center space-x-1.5">
                     <Sparkles className="w-4 h-4 text-blue-600" />
@@ -2648,67 +2917,107 @@ export const AssignmentsView: React.FC = () => {
                     Official Reference
                   </span>
                 </div>
-                <div className="text-sm font-sans text-slate-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-blue-100">
+                <div className="text-sm font-sans text-slate-800 leading-relaxed whitespace-pre-wrap bg-white p-5 rounded-xl border border-blue-100 shadow-2xs">
                   {activeAssignment.modelAnswer}
                 </div>
               </div>
             )}
 
-            {/* Student Writing Editor & Live Word Counter */}
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                  Your Response
-                </h3>
-
-                <div className="flex items-center space-x-3">
-                  {/* Progress bar to target words */}
+            {/* View B: Student Submission Tab */}
+            {studentWritingTab === 'submission' && (
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
                   <div className="flex items-center space-x-2">
-                    <div className="w-28 bg-slate-200 h-2 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all ${
-                          wordCount >= targetWords ? 'bg-emerald-500' : 'bg-amber-500'
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                      {mySub ? 'Bài làm của bạn' : 'Soạn bài viết'}
+                    </h3>
+                    {mySub && (
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                        {mySub.status === 'graded' ? 'Đã chấm điểm' : mySub.status === 'returned' ? 'Cần sửa đổi' : 'Đã nộp'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    {/* Progress bar to target words */}
+                    <div className="flex items-center space-x-2">
+                      <div className="w-28 bg-slate-200 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${
+                            wordCount >= targetWords ? 'bg-emerald-500' : 'bg-amber-500'
+                          }`}
+                          style={{ width: `${targetProgress}%` }}
+                        />
+                      </div>
+                      <span
+                        className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                          wordCount >= targetWords
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
                         }`}
-                        style={{ width: `${targetProgress}%` }}
-                      />
+                      >
+                        {wordCount >= targetWords
+                          ? `Đạt yêu cầu (${wordCount} từ)`
+                          : `Còn thiếu ${targetWords - wordCount} từ (${wordCount}/${targetWords})`}
+                      </span>
                     </div>
-                    <span
-                      className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                        wordCount >= targetWords
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {wordCount >= targetWords
-                        ? `Target Reached (${wordCount} words)`
-                        : `${targetWords - wordCount} words needed (${wordCount}/${targetWords})`}
-                    </span>
                   </div>
                 </div>
+
+                {/* If submitted and not returned: Strictly Read-Only Formatted Essay with Annotations */}
+                {mySub && mySub.status !== 'returned' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600">
+                      <span className="font-semibold flex items-center space-x-1.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>Bài nộp đã được ghi nhận · Chế độ chỉ đọc</span>
+                      </span>
+                      <span className="text-slate-400">Thời gian nộp: {mySub.submittedAt}</span>
+                    </div>
+
+                    <div className="p-5 bg-slate-50/40 rounded-xl border border-slate-200 text-base font-sans leading-relaxed text-slate-900 whitespace-pre-wrap">
+                      {renderAnnotatedText(mySub.writingText || '', mySub.annotations, true)}
+                    </div>
+                  </div>
+                ) : (
+                  /* Editable Textarea for fresh submission or returned revision */
+                  <div className="space-y-4">
+                    {mySub?.status === 'returned' && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
+                        <strong>Yêu cầu chỉnh sửa từ giáo viên:</strong> {mySub.teacherComments || 'Vui lòng bổ sung luận điểm và nộp lại.'}
+                      </div>
+                    )}
+
+                    <textarea
+                      rows={16}
+                      value={writingDraft}
+                      onChange={(e) => handleWritingDraftChange(e.target.value)}
+                      placeholder="Viết bài luận IELTS của bạn tại đây theo đúng điều kiện thi thực tế..."
+                      className="w-full p-4 text-base font-sans text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden leading-relaxed"
+                    />
+
+                    {!isTeacher && (
+                      <div className="flex justify-end pt-2">
+                        <button
+                          onClick={handleWritingSubmit}
+                          disabled={!writingDraft.trim() || isSubmittingStudentWork}
+                          className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-xs flex items-center space-x-2 transition-colors"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span>
+                            {isSubmittingStudentWork
+                              ? t('common.loading')
+                              : mySub
+                              ? 'Nộp lại bài viết'
+                              : 'Nộp bài cho giáo viên chấm'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-
-              <textarea
-                rows={16}
-                disabled={mySub?.status === 'graded'}
-                value={writingDraft}
-                onChange={(e) => handleWritingDraftChange(e.target.value)}
-                placeholder="Write your IELTS essay or report here under exam conditions..."
-                className="w-full p-4 text-base font-sans text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-hidden leading-relaxed"
-              />
-
-              {!isTeacher && mySub?.status !== 'graded' && (
-                <div className="flex justify-end pt-2">
-                  <button
-                    onClick={handleWritingSubmit}
-                    disabled={!writingDraft.trim()}
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-xs flex items-center space-x-2 transition-colors"
-                  >
-                    <Send className="w-4 h-4" />
-                    <span>{mySub ? 'Resubmit Essay' : 'Submit for Teacher Grading'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
           </div>
         )}
 
@@ -3071,18 +3380,42 @@ export const AssignmentsView: React.FC = () => {
               >
                 <div>
                   <div className="flex items-center justify-between text-xs mb-2">
-                    <span
-                      className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${
-                        a.skill === 'reading'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : a.skill === 'writing'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-purple-100 text-purple-800'
-                      }`}
-                    >
-                      {a.skill}
-                      {a.writingTaskCategory && ` (${a.writingTaskCategory.replace('_', ' ').toUpperCase()})`}
-                    </span>
+                    <div className="flex items-center space-x-1.5">
+                      <span
+                        className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${
+                          a.skill === 'reading'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : a.skill === 'writing'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-purple-100 text-purple-800'
+                        }`}
+                      >
+                        {a.skill}
+                        {a.writingTaskCategory && ` (${a.writingTaskCategory.replace('_', ' ').toUpperCase()})`}
+                      </span>
+
+                      {isTeacher && (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 ${
+                            a.scoreVisibility === 'public'
+                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}
+                        >
+                          {a.scoreVisibility === 'public' ? (
+                            <>
+                              <Globe className="w-2.5 h-2.5" />
+                              <span>Public</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>Private</span>
+                            </>
+                          )}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs text-slate-400 flex items-center space-x-1">
                       <Clock className="w-3.5 h-3.5" />
                       <span>Due: {a.dueDate || 'Open'}</span>
@@ -3102,13 +3435,19 @@ export const AssignmentsView: React.FC = () => {
                     <span
                       className={`font-semibold capitalize text-xs ${
                         studentSub.status === 'graded'
-                          ? 'text-emerald-600'
+                          ? a.scoreVisibility === 'public' && studentSub.score
+                            ? 'text-emerald-600'
+                            : 'text-slate-600'
                           : studentSub.status === 'returned'
                           ? 'text-red-600'
                           : 'text-amber-600'
                       }`}
                     >
-                      {studentSub.status === 'graded' ? `Graded: Band ${studentSub.score}` : studentSub.status}
+                      {studentSub.status === 'graded'
+                        ? a.scoreVisibility === 'public' && studentSub.score
+                          ? `Graded: Band ${studentSub.score}`
+                          : 'Graded (Private Score)'
+                        : studentSub.status}
                     </span>
                   ) : (
                     <div className="flex items-center space-x-2">
@@ -3672,7 +4011,7 @@ export const AssignmentsView: React.FC = () => {
                   className="w-full p-2.5 border border-blue-200 rounded-lg text-sm bg-white outline-hidden"
                 />
 
-                <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Model Answer Release Condition</label>
                     <select
@@ -3684,6 +4023,18 @@ export const AssignmentsView: React.FC = () => {
                       <option value="after_submission">Released Immediately Upon Submission</option>
                       <option value="immediate">Available Immediately During Practice</option>
                       <option value="never">Never (Teacher Eyes Only)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Score Visibility (Chế độ xem điểm)</label>
+                    <select
+                      value={formScoreVisibility}
+                      onChange={(e) => setFormScoreVisibility(e.target.value as 'private' | 'public')}
+                      className="w-full p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                    >
+                      <option value="private">🔒 Private (Chỉ GV thấy điểm — Mặc định)</option>
+                      <option value="public">🌐 Public (Học viên thấy điểm sau khi chấm)</option>
                     </select>
                   </div>
                 </div>
@@ -3899,6 +4250,37 @@ export const AssignmentsView: React.FC = () => {
                     No materials found in your resource library yet. You can upload documents via Smart Import.
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* Modal: Submission or Grading Confirmation & Navigation */}
+      {submissionSuccessModal && (
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+            <div className="relative z-10 bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-center space-y-4">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {submissionSuccessModal.title}
+                </h3>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  {submissionSuccessModal.message}
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={submissionSuccessModal.onAction}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center justify-center space-x-1.5"
+                >
+                  <span>{submissionSuccessModal.actionText}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           </div>

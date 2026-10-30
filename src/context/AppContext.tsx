@@ -92,6 +92,7 @@ interface AppContextType {
   approveMonthlyReport: (id: string) => Promise<void>;
   publishMonthlyReport: (id: string) => Promise<void>;
   voidMonthlyReport: (id: string) => Promise<void>;
+  deleteMonthlyReport: (id: string) => Promise<void>;
 
   // Tuition
   feeConfigurations: FeeConfiguration[];
@@ -374,6 +375,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     task1ImageUrl: a.task1_image_url || metadata.task1ImageUrl,
                     modelAnswer: a.model_answer || metadata.modelAnswer,
                     modelAnswerReleaseCondition: a.model_answer_release_policy || a.model_answer_release_condition || metadata.modelAnswerReleaseCondition || 'after_graded',
+                    scoreVisibility: a.score_visibility || metadata.scoreVisibility || 'private',
                     speakingPart: a.speaking_part,
                     speakingCueCard: a.speaking_cue_card,
                   };
@@ -732,6 +734,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 const hasSubmitted = !!studentSub;
 
                 const { questions: questionsList, questionGroups, passages, metadata } = unpackAssignmentReadingData(a.reading_questions);
+                const isScorePublic = (a.score_visibility || metadata.scoreVisibility || 'private') === 'public';
 
                 const releaseCondition =
                   a.model_answer_release_policy ||
@@ -739,11 +742,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   metadata.modelAnswerReleaseCondition ||
                   'after_graded';
 
-                const canSeeAnswers = isGraded && releaseCondition !== 'never';
+                const canSeeAnswers = isGraded && isScorePublic && releaseCondition !== 'never';
                 const canSeeModelAnswer =
                   releaseCondition === 'immediate' ||
                   (releaseCondition === 'after_submission' && hasSubmitted) ||
-                  (releaseCondition === 'after_graded' && isGraded);
+                  (releaseCondition === 'after_graded' && isGraded && isScorePublic);
 
                 const sanitizedQuestions = questionsList.map((q: any) => {
                   if (canSeeAnswers) return q;
@@ -817,6 +820,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   task1ImageUrl: a.task1_image_url || metadata.task1ImageUrl,
                   modelAnswer: canSeeModelAnswer ? (a.model_answer || metadata.modelAnswer) : undefined,
                   modelAnswerReleaseCondition: releaseCondition,
+                  scoreVisibility: a.score_visibility || metadata.scoreVisibility || 'private',
                   speakingPart: a.speaking_part,
                   speakingCueCard: a.speaking_cue_card,
                 };
@@ -831,7 +835,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSubmissions(
             subsData.map((s: any) => {
               const { comments, annotations, isDraft } = parseTeacherComments(s.teacher_comments);
-              const isGradedPublished = s.status === 'graded' && !isDraft;
+              const parentAssign = s.assignments;
+              const { metadata: assignMeta } = unpackAssignmentReadingData(parentAssign?.reading_questions);
+              const isScorePublic = (parentAssign?.score_visibility || assignMeta?.scoreVisibility || 'private') === 'public';
+              const isGradedPublished = s.status === 'graded' && !isDraft && isScorePublic;
               return {
                 id: s.id,
                 assignmentId: s.assignment_id,
@@ -845,8 +852,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
                 updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
                 readingAnswers: s.reading_answers,
-                readingScore: s.reading_score,
-                readingErrorAnalysis: s.reading_error_analysis,
+                readingScore: isScorePublic ? s.reading_score : undefined,
+                readingErrorAnalysis: isScorePublic ? s.reading_error_analysis : undefined,
                 writingText: s.writing_text,
                 writingWordCount: s.writing_word_count,
                 writingRevisions: s.writing_revisions,
@@ -1803,6 +1810,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         task1ImageUrl: assignmentData.task1ImageUrl,
         modelAnswer: assignmentData.modelAnswer,
         modelAnswerReleaseCondition: assignmentData.modelAnswerReleaseCondition || 'after_graded',
+        scoreVisibility: assignmentData.scoreVisibility || 'private',
       },
     };
 
@@ -1818,6 +1826,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: assignmentData.status,
         reading_passage: assignmentData.readingPassage || null,
         reading_questions: packedQuestions,
+        score_visibility: assignmentData.scoreVisibility || 'private',
         writing_task_type: assignmentData.writingTaskType || null,
         writing_prompt: assignmentData.writingPrompt || null,
         writing_min_words: assignmentData.writingMinWords || (assignmentData.writingTaskCategory === 'task2' ? 250 : 150),
@@ -1879,6 +1888,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         task1ImageUrl: updates.task1ImageUrl !== undefined ? updates.task1ImageUrl : existing.task1ImageUrl,
         modelAnswer: updates.modelAnswer !== undefined ? updates.modelAnswer : existing.modelAnswer,
         modelAnswerReleaseCondition: updates.modelAnswerReleaseCondition || existing.modelAnswerReleaseCondition || 'after_graded',
+        scoreVisibility: updates.scoreVisibility !== undefined ? updates.scoreVisibility : existing.scoreVisibility || 'private',
       },
     };
 
@@ -1894,6 +1904,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updates.status !== undefined) rowUpdates.status = updates.status;
     if (updates.readingPassage !== undefined) rowUpdates.reading_passage = updates.readingPassage;
     rowUpdates.reading_questions = packedQuestions;
+    if (updates.scoreVisibility !== undefined) rowUpdates.score_visibility = updates.scoreVisibility;
     if (updates.writingTaskType !== undefined) rowUpdates.writing_task_type = updates.writingTaskType;
     if (updates.writingPrompt !== undefined) rowUpdates.writing_prompt = updates.writingPrompt;
     if (updates.writingMinWords !== undefined) rowUpdates.writing_min_words = updates.writingMinWords;
@@ -2353,6 +2364,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMonthlyReports((prev) => prev.map((r) => (r.id === id ? { ...r, state: 'void' } : r)));
   };
 
+  const deleteMonthlyReport = async (id: string): Promise<void> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const { error } = await supabase
+      .from('monthly_assessments')
+      .delete()
+      .eq('id', id)
+      .eq('teacher_id', currentUser.id);
+
+    if (error) {
+      console.error('Error deleting monthly assessment:', error);
+      throw new Error(error.message || 'Failed to delete assessment');
+    }
+
+    setMonthlyReports((prev) => prev.filter((r) => r.id !== id));
+  };
+
   // TUITION OPERATIONS
   const createFeeConfiguration = async (configData: Omit<FeeConfiguration, 'id' | 'teacherId'>) => {
     if (!currentUser) return;
@@ -2423,31 +2451,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const fileExt = file.name.split('.').pop() || 'png';
-    const filePath = `${currentUser.id}/qr_${Date.now()}.${fileExt}`;
+    const filePath = `teachers/${currentUser.id}/qr_${Date.now()}.${fileExt}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('teacher_assets')
-      .upload(filePath, file, {
-        upsert: true,
-        contentType: file.type,
+    const fileToBase64 = (f: File): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(f);
       });
 
-    if (uploadError) {
-      console.error('Error uploading payment QR:', uploadError);
-      throw new Error(uploadError.message || 'Failed to upload QR image to storage');
+    let uploadedUrl: string | null = null;
+
+    try {
+      let uploadRes = await supabase.storage
+        .from('teacher_assets')
+        .upload(filePath, file, {
+          upsert: true,
+          contentType: file.type,
+        });
+
+      if (uploadRes.error && uploadRes.error.message?.toLowerCase().includes('bucket not found')) {
+        try {
+          await supabase.storage.createBucket('teacher_assets', {
+            public: true,
+            fileSizeLimit: 5242880,
+            allowedMimeTypes: validTypes,
+          });
+
+          uploadRes = await supabase.storage
+            .from('teacher_assets')
+            .upload(filePath, file, {
+              upsert: true,
+              contentType: file.type,
+            });
+        } catch (createErr) {
+          console.warn('Auto-create bucket failed:', createErr);
+        }
+      }
+
+      if (!uploadRes.error) {
+        const { data: publicUrlData } = supabase.storage
+          .from('teacher_assets')
+          .getPublicUrl(filePath);
+        uploadedUrl = publicUrlData.publicUrl;
+      } else {
+        console.warn('Storage upload error, utilizing fallback:', uploadRes.error.message);
+      }
+    } catch (storageErr) {
+      console.warn('Storage exception, utilizing fallback:', storageErr);
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from('teacher_assets')
-      .getPublicUrl(filePath);
-
-    const publicUrl = publicUrlData.publicUrl;
+    if (!uploadedUrl) {
+      uploadedUrl = await fileToBase64(file);
+    }
 
     await updateProfile({
-      paymentQrUrl: publicUrl,
+      paymentQrUrl: uploadedUrl,
     });
 
-    return publicUrl;
+    return uploadedUrl;
   };
 
   const removeTeacherPaymentQr = async (): Promise<void> => {
@@ -2707,6 +2770,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveMonthlyReport,
         publishMonthlyReport,
         voidMonthlyReport,
+        deleteMonthlyReport,
         feeConfigurations,
         createFeeConfiguration,
         updateFeeConfiguration,

@@ -321,6 +321,85 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     }
   };
 
+  const handleSaveCurrentTestToLibrary = async () => {
+    if (!activeDoc || !currentUser) return;
+    setIsPublishingAssignment(true);
+    try {
+      const struct = activeDoc.detectedStructure as any;
+      const questionsToSave =
+        reviewedQuestions.length > 0
+          ? reviewedQuestions
+          : struct?.questions || [];
+      const questionGroupsToSave = struct?.questionGroups || [];
+      const passageToSave =
+        reviewedPassage || editedPassage || struct?.passageText || editedRawText;
+      const titleToSave = (
+        reviewedTitle ||
+        editedTitle ||
+        struct?.title ||
+        activeDoc.name
+      ).trim();
+
+      const passagesToSave = struct?.passages?.length
+        ? struct.passages
+        : [
+            {
+              id: 'p_1',
+              title: titleToSave,
+              content: passageToSave,
+              questions: questionsToSave,
+              questionGroups: questionGroupsToSave,
+            },
+          ];
+
+      const structuredPayload = {
+        title: titleToSave,
+        skill: assignSkill || 'reading',
+        readingPassage: passageToSave,
+        content: passageToSave,
+        passages: passagesToSave,
+        questionGroups: questionGroupsToSave,
+        questions: questionsToSave,
+        readingTestType: 'academic',
+        metadata: {
+          sourceDocumentName: activeDoc.name,
+          difficultyLevel: struct?.difficultyLevel || 7,
+          targetBand: assignTargetBand || '7.0',
+        },
+      };
+
+      await addResource({
+        title: titleToSave,
+        type: 'doc',
+        content: JSON.stringify(structuredPayload),
+        tags: ['smart-import', assignSkill || 'reading', 'interactive-test'],
+        skill: assignSkill || 'reading',
+        folder: 'Imported Library Tests',
+        courseId: assignCourseId || null,
+        isPublished: true,
+      });
+
+      alert('Đã lưu bài tập vào Thư viện tài nguyên với đầy đủ câu hỏi, đáp án và cấu trúc!');
+      onResourceCreated?.();
+      onClose();
+    } catch (err: any) {
+      alert(`Lỗi khi lưu vào thư viện: ${err.message}`);
+    } finally {
+      setIsPublishingAssignment(false);
+    }
+  };
+
+  const handleStep3SaveToLibrary = async () => {
+    const tests = activeDoc?.detectedStructure?.tests || [];
+    const cTests = activeDoc?.detectedStructure?.candidateTests || [];
+    if (tests.length > 0 || cTests.length > 1) {
+      await handleBatchSaveAllTestsToLibrary();
+      onClose();
+    } else {
+      await handleSaveCurrentTestToLibrary();
+    }
+  };
+
   const handleSaveAllCandidateTestsAsSeparate = async (status: 'draft' | 'published') => {
     if (!activeDoc?.detectedStructure?.candidateTests?.length || !assignCourseId) {
       alert('Please select a course.');
@@ -1295,7 +1374,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
                 {/* Option C: Save to Resource Library */}
                 <div
-                  onClick={handleSaveWordToResources}
+                  onClick={handleStep3SaveToLibrary}
                   className="p-5 rounded-2xl border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/20 bg-white cursor-pointer transition-all flex flex-col justify-between space-y-4 shadow-xs group"
                 >
                   <div className="space-y-3">
@@ -1307,7 +1386,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                         Save to Library
                       </h4>
                       <p className="text-xs text-slate-500 mt-1">
-                        Save original document content and metadata directly into your persistent teacher Resource Library for future use.
+                        Save all structured passages, questions, options, and answer keys directly into your persistent teacher Resource Library for future use.
                       </p>
                     </div>
                   </div>
@@ -1972,6 +2051,17 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                       <span>Publish All {activeDoc.detectedStructure.candidateTests.length} Tests Separately</span>
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={handleSaveCurrentTestToLibrary}
+                    disabled={isPublishingAssignment}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center justify-center space-x-1.5"
+                    title="Lưu toàn bộ bài tập và câu hỏi đã chỉnh sửa vào Thư viện tài nguyên"
+                  >
+                    <Save className="w-4 h-4 text-emerald-600" />
+                    <span>Lưu vào Thư viện</span>
+                  </button>
 
                   <button
                     onClick={() => handleSaveAssignment('draft')}

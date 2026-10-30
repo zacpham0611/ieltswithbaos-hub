@@ -237,6 +237,7 @@ export interface Assignment {
     speakTimeSeconds: number;
   };
   answerReleasePolicy?: 'immediate' | 'after_submission' | 'never';
+  scoreVisibility?: 'private' | 'public';
   sourceDocumentName?: string;
 }
 

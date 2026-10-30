@@ -26,6 +26,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_course_student_session_date
 ON public.class_sessions (course_id, student_id, session_date) 
 WHERE student_id IS NOT NULL AND status != 'cancelled';
 
+-- 3b. Add score_visibility to assignments (Private by default for strict exam integrity)
+ALTER TABLE public.assignments
+ADD COLUMN IF NOT EXISTS score_visibility TEXT NOT NULL DEFAULT 'private' CHECK (score_visibility IN ('private', 'public'));
+
 -- 4. Set up Supabase Storage bucket for teacher payment QR codes and assets
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
@@ -41,19 +45,27 @@ ON CONFLICT (id) DO UPDATE SET
   allowed_mime_types = ARRAY['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
 
 -- Storage RLS Policies for teacher_assets
+-- Clean up existing policies if already defined
+DROP POLICY IF EXISTS "Public read access for teacher assets" ON storage.objects;
+DROP POLICY IF EXISTS "Teachers can upload own payment QR assets" ON storage.objects;
+DROP POLICY IF EXISTS "Teachers can update own payment QR assets" ON storage.objects;
+DROP POLICY IF EXISTS "Teachers can delete own payment QR assets" ON storage.objects;
+
 -- Allow public viewing of teacher payment QR codes so students can scan on tuition statements
 CREATE POLICY "Public read access for teacher assets"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'teacher_assets');
 
--- Allow teachers to upload their own payment QR code
+-- Allow teachers to upload their own payment QR code (supports both teachers/<uid>/ and <uid>/ prefixes)
 CREATE POLICY "Teachers can upload own payment QR assets"
 ON storage.objects FOR INSERT
 TO authenticated
 WITH CHECK (
   bucket_id = 'teacher_assets' AND
-  (storage.foldername(name))[1] = 'teachers' AND
-  (storage.foldername(name))[2] = auth.uid()::text
+  (
+    ((storage.foldername(name))[1] = 'teachers' AND (storage.foldername(name))[2] = auth.uid()::text)
+    OR (storage.foldername(name))[1] = auth.uid()::text
+  )
 );
 
 -- Allow teachers to update/replace their own payment QR code
@@ -62,8 +74,10 @@ ON storage.objects FOR UPDATE
 TO authenticated
 USING (
   bucket_id = 'teacher_assets' AND
-  (storage.foldername(name))[1] = 'teachers' AND
-  (storage.foldername(name))[2] = auth.uid()::text
+  (
+    ((storage.foldername(name))[1] = 'teachers' AND (storage.foldername(name))[2] = auth.uid()::text)
+    OR (storage.foldername(name))[1] = auth.uid()::text
+  )
 );
 
 -- Allow teachers to delete their own payment QR code
@@ -72,8 +86,10 @@ ON storage.objects FOR DELETE
 TO authenticated
 USING (
   bucket_id = 'teacher_assets' AND
-  (storage.foldername(name))[1] = 'teachers' AND
-  (storage.foldername(name))[2] = auth.uid()::text
+  (
+    ((storage.foldername(name))[1] = 'teachers' AND (storage.foldername(name))[2] = auth.uid()::text)
+    OR (storage.foldername(name))[1] = auth.uid()::text
+  )
 );
 
 -- 5. Force PostgREST to reload its schema cache immediately so duration_minutes and is_billable are visible

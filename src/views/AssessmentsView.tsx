@@ -26,6 +26,7 @@ import {
   Check,
   ShieldCheck,
   TrendingUp,
+  Trash2,
 } from 'lucide-react';
 
 export const AssessmentsView: React.FC = () => {
@@ -40,6 +41,7 @@ export const AssessmentsView: React.FC = () => {
     approveMonthlyReport,
     publishMonthlyReport,
     voidMonthlyReport,
+    deleteMonthlyReport,
     selectedReportId,
     setSelectedReportId,
   } = useApp();
@@ -56,6 +58,8 @@ export const AssessmentsView: React.FC = () => {
   const [newStudentId, setNewStudentId] = useState('');
   const [newMonth, setNewMonth] = useState('October 2026');
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  const [reportToDelete, setReportToDelete] = useState<MonthlyReport | null>(null);
+  const [isDeletingReport, setIsDeletingReport] = useState(false);
 
   // Currently opened report
   const activeReport = selectedReportId
@@ -139,6 +143,22 @@ export const AssessmentsView: React.FC = () => {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDeleteReport = async () => {
+    if (!reportToDelete) return;
+    setIsDeletingReport(true);
+    try {
+      await deleteMonthlyReport(reportToDelete.id);
+      if (selectedReportId === reportToDelete.id) {
+        setSelectedReportId(null);
+      }
+      setReportToDelete(null);
+    } catch (err: any) {
+      alert(err?.message || 'Lỗi khi xóa báo cáo đánh giá.');
+    } finally {
+      setIsDeletingReport(false);
+    }
   };
 
   // Dynamic calculation & hydration of completed assignments for active report
@@ -301,6 +321,15 @@ export const AssessmentsView: React.FC = () => {
                   className="px-3 py-2 text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs font-semibold rounded-lg transition-colors"
                 >
                   {t('assessments.voidBtn')}
+                </button>
+
+                <button
+                  onClick={() => setReportToDelete(activeReport)}
+                  className="px-3 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition-colors border border-red-200"
+                  title="Xóa vĩnh viễn báo cáo đánh giá này"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa đánh giá</span>
                 </button>
               </>
             )}
@@ -857,12 +886,26 @@ export const AssessmentsView: React.FC = () => {
                     )}
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => setSelectedReportId(report.id)}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-                    >
-                      {t('assessments.openReport')} &rarr;
-                    </button>
+                    <div className="flex items-center justify-end space-x-2">
+                      <button
+                        onClick={() => setSelectedReportId(report.id)}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        {t('assessments.openReport')} &rarr;
+                      </button>
+                      {isTeacher && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReportToDelete(report);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                          title="Xóa đánh giá định kỳ"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -959,6 +1002,59 @@ export const AssessmentsView: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* Modal: Confirm Delete Assessment */}
+      {reportToDelete && (
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+            <div className="relative z-10 bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+              <div className="flex items-center space-x-3 text-red-600 mb-3">
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <Trash2 className="w-5 h-5 text-red-600" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900">Xác nhận xóa đánh giá định kỳ</h3>
+              </div>
+              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                Bạn có chắc chắn muốn xóa vĩnh viễn báo cáo đánh giá của học viên{' '}
+                <strong className="text-slate-900">{reportToDelete.studentName}</strong> trong lớp{' '}
+                <strong className="text-slate-900">{reportToDelete.courseName}</strong> (Kỳ đánh giá:{' '}
+                <strong className="text-slate-900">{reportToDelete.month}</strong>)?
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 mb-5">
+                <p className="font-semibold mb-1">Lưu ý quan trọng:</p>
+                <p>
+                  Hành động này sẽ xóa dữ liệu đánh giá và nhận xét của giáo viên. Lịch sử bài làm, điểm số và bài nộp của học viên vẫn được bảo toàn nguyên vẹn.
+                </p>
+              </div>
+              <div className="flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  disabled={isDeletingReport}
+                  onClick={() => setReportToDelete(null)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold rounded-lg transition-colors"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingReport}
+                  onClick={handleDeleteReport}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center space-x-1.5"
+                >
+                  {isDeletingReport ? (
+                    <span>{t('common.loading')}</span>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Xóa báo cáo</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </Portal>
