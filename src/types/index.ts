@@ -87,6 +87,12 @@ export interface Resource {
   folder?: string;
   isPublished: boolean;
   createdAt: string;
+  speakingPart?: 'part1' | 'part2' | 'part3';
+  speakingPart1?: SpeakingPart1LibraryContent;
+  speakingPart2?: SpeakingPart2LibraryContent;
+  speakingPart3?: SpeakingPart3LibraryContent;
+  description?: string;
+  category?: string;
 }
 
 export interface Lesson {
@@ -207,6 +213,59 @@ export type WritingTaskCategory =
 
 export type ReadingTestType = 'academic' | 'general';
 
+export interface SpeakingTopic {
+  id: string;
+  topic: string;
+  title?: string;
+  questions: string[];
+}
+
+export interface SpeakingCueCard {
+  topic: string;
+  points: string[];
+  prepTimeSeconds: number;
+  speakTimeSeconds: number;
+}
+
+export interface SpeakingQuestionResponse {
+  questionId?: string;
+  audioUrl: string;
+  transcript?: string;
+  translation?: string;
+  duration?: number;
+  status?: 'idle' | 'processing' | 'completed' | 'failed';
+  recordedAt?: string;
+}
+
+export interface SpeakingPart1LibraryContent {
+  part: 'part1';
+  topics: SpeakingTopic[];
+  sourceDocumentName?: string;
+}
+
+export interface SpeakingPart2LibraryContent {
+  part: 'part2';
+  cueCards: Array<{
+    id: string;
+    topic: string;
+    points: string[];
+    prepTimeSeconds?: number;
+    speakTimeSeconds?: number;
+  }>;
+  sourceDocumentName?: string;
+}
+
+export interface SpeakingPart3LibraryContent {
+  part: 'part3';
+  questions: string[];
+  sourceDocumentName?: string;
+}
+
+export type SpeakingLibraryContent =
+  | SpeakingPart1LibraryContent
+  | SpeakingPart2LibraryContent
+  | SpeakingPart3LibraryContent;
+
 export interface Assignment {
   id: string;
   courseId: string;
@@ -233,12 +292,9 @@ export interface Assignment {
   modelAnswerReleaseCondition?: 'immediate' | 'after_submission' | 'after_graded' | 'never';
   // Speaking Specific
   speakingPart?: 'part1' | 'part2' | 'part3' | 'full';
-  speakingCueCard?: {
-    topic: string;
-    points: string[];
-    prepTimeSeconds: number;
-    speakTimeSeconds: number;
-  };
+  speakingTopics?: SpeakingTopic[];
+  speakingCueCard?: SpeakingCueCard;
+  speakingQuestions?: string[];
   answerReleasePolicy?: 'immediate' | 'after_submission' | 'never';
   scoreVisibility?: 'private' | 'public';
   sourceDocumentName?: string;
@@ -282,7 +338,9 @@ export interface Submission {
   // Speaking
   speakingAudioUrl?: string;
   speakingTranscript?: string;
+  speakingTranslation?: string;
   speakingDuration?: number;
+  speakingResponses?: Record<string, SpeakingQuestionResponse>;
   // Rubrics & Feedback
   rubricScores?: {
     criterion: string;

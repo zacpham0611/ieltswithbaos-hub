@@ -13,6 +13,14 @@ import {
   blobToDataUrl,
 } from '../lib/docxGenerator';
 import { convertDocumentToAssignment } from '../lib/ai';
+import {
+  extractSpeakingPartsFromDocument,
+  type ExtractedSpeakingDocument,
+  type ExtractedSpeakingPart1,
+  type ExtractedSpeakingPart2,
+  type ExtractedSpeakingPart2CueCard,
+  type ExtractedSpeakingPart3,
+} from '../lib/speakingExtractor';
 import { Portal } from './Portal';
 import {
   FileUp,
@@ -41,6 +49,9 @@ import {
   HelpCircle,
   Check,
   AlertCircle,
+  Mic,
+  Volume2,
+  FolderPlus,
 } from 'lucide-react';
 
 interface SmartDocumentImportModalProps {
@@ -115,6 +126,21 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [previewStudentAnswers, setPreviewStudentAnswers] = useState<Record<string, string>>({});
   const [isPublishingAssignment, setIsPublishingAssignment] = useState(false);
 
+  // Document Type Selection: Reading vs Speaking
+  const [importSkillType, setImportSkillType] = useState<'reading' | 'speaking'>('reading');
+
+  // Speaking Smart Import State
+  const [extractedSpeakingDoc, setExtractedSpeakingDoc] = useState<ExtractedSpeakingDocument | null>(null);
+  const [editedSpeakingPart1, setEditedSpeakingPart1] = useState<ExtractedSpeakingPart1 | null>(null);
+  const [editedSpeakingPart2, setEditedSpeakingPart2] = useState<ExtractedSpeakingPart2 | null>(null);
+  const [editedSpeakingPart3, setEditedSpeakingPart3] = useState<ExtractedSpeakingPart3 | null>(null);
+  const [speakingActiveTab, setSpeakingActiveTab] = useState<'part1' | 'part2' | 'part3'>('part1');
+  const [savePart1, setSavePart1] = useState(true);
+  const [savePart2, setSavePart2] = useState(true);
+  const [savePart3, setSavePart3] = useState(true);
+  const [isSavingSpeakingResources, setIsSavingSpeakingResources] = useState(false);
+  const [speakingSaveSuccessNotice, setSpeakingSaveSuccessNotice] = useState<string | null>(null);
+
   if (!isOpen) return null;
 
   const activeDoc = uploadedFiles.find((f) => f.id === activeFileId) || uploadedFiles[0];
@@ -134,6 +160,20 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       try {
         const doc = await processDocumentFile(file);
         newDocs.push(doc);
+
+        if (importSkillType === 'speaking' && doc.rawText) {
+          const spk = extractSpeakingPartsFromDocument(doc.rawText, file.name);
+          setExtractedSpeakingDoc(spk);
+          setEditedSpeakingPart1(spk.part1 ? JSON.parse(JSON.stringify(spk.part1)) : null);
+          setEditedSpeakingPart2(spk.part2 ? JSON.parse(JSON.stringify(spk.part2)) : null);
+          setEditedSpeakingPart3(spk.part3 ? JSON.parse(JSON.stringify(spk.part3)) : null);
+          setSavePart1(Boolean(spk.part1));
+          setSavePart2(Boolean(spk.part2));
+          setSavePart3(Boolean(spk.part3));
+          if (spk.part1) setSpeakingActiveTab('part1');
+          else if (spk.part2) setSpeakingActiveTab('part2');
+          else if (spk.part3) setSpeakingActiveTab('part3');
+        }
       } catch (err: any) {
         newDocs.push({
           id: `doc_${Date.now()}_${i}`,
@@ -154,6 +194,82 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     const firstReady = newDocs.find((d) => d.status === 'ready');
     if (firstReady) {
       selectActiveDocument(firstReady);
+      if (importSkillType === 'speaking') {
+        setCurrentStep('preview');
+      }
+    }
+  };
+
+  const handleSaveSpeakingToLibrary = async () => {
+    if (!activeDoc && !extractedSpeakingDoc) return;
+    setIsSavingSpeakingResources(true);
+    setSpeakingSaveSuccessNotice(null);
+
+    try {
+      const sourceName = activeDoc?.name || extractedSpeakingDoc?.sourceFileName || 'Speaking Practice';
+      const cleanBaseName = sourceName.replace(/\.[^/.]+$/, '');
+      let savedCount = 0;
+
+      // 1. Save Part 1 (if selected and present)
+      if (savePart1 && editedSpeakingPart1 && editedSpeakingPart1.topics.length > 0) {
+        await addResource({
+          title: `${cleanBaseName} - Speaking Part 1 (Topics)`,
+          type: 'doc',
+          skill: 'speaking',
+          folder: 'IELTS Speaking',
+          tags: ['speaking', 'part1', 'smart-import'],
+          content: JSON.stringify({
+            part: 'part1',
+            topics: editedSpeakingPart1.topics,
+            sourceDocumentName: sourceName,
+          }),
+          isPublished: true,
+        });
+        savedCount++;
+      }
+
+      // 2. Save Part 2 (if selected and present)
+      if (savePart2 && editedSpeakingPart2 && editedSpeakingPart2.cueCards.length > 0) {
+        await addResource({
+          title: `${cleanBaseName} - Speaking Part 2 (Cue Cards)`,
+          type: 'doc',
+          skill: 'speaking',
+          folder: 'IELTS Speaking',
+          tags: ['speaking', 'part2', 'smart-import'],
+          content: JSON.stringify({
+            part: 'part2',
+            cueCards: editedSpeakingPart2.cueCards,
+            sourceDocumentName: sourceName,
+          }),
+          isPublished: true,
+        });
+        savedCount++;
+      }
+
+      // 3. Save Part 3 (if selected and present)
+      if (savePart3 && editedSpeakingPart3 && editedSpeakingPart3.questions.length > 0) {
+        await addResource({
+          title: `${cleanBaseName} - Speaking Part 3 (Discussion)`,
+          type: 'doc',
+          skill: 'speaking',
+          folder: 'IELTS Speaking',
+          tags: ['speaking', 'part3', 'smart-import'],
+          content: JSON.stringify({
+            part: 'part3',
+            questions: editedSpeakingPart3.questions,
+            sourceDocumentName: sourceName,
+          }),
+          isPublished: true,
+        });
+        savedCount++;
+      }
+
+      setSpeakingSaveSuccessNotice(`Đã tách và lưu thành công ${savedCount} tài nguyên Speaking vào Thư viện tài liệu!`);
+      onResourceCreated?.();
+    } catch (err: any) {
+      alert(err?.message || 'Có lỗi khi lưu tài liệu Speaking vào Thư viện.');
+    } finally {
+      setIsSavingSpeakingResources(false);
     }
   };
 
@@ -945,6 +1061,40 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           --------------------------------------- */}
           {currentStep === 'upload' && (
             <div className="space-y-6">
+              {/* Document Type Selector (Reading vs Speaking) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">Chọn loại tài liệu Smart Import:</span>
+                  <span className="text-[11px] text-slate-500">Hệ thống áp dụng pipeline nhận diện chuyên biệt độc lập cho từng kỹ năng.</span>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setImportSkillType('reading')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                      importSkillType === 'reading'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>IELTS Reading (Đọc)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportSkillType('speaking')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                      importSkillType === 'speaking'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>IELTS Speaking (Nói Part 1-2-3)</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Drag & Drop Upload Zone */}
               <div
                 onClick={() => fileInputRef.current?.click()}
@@ -1077,7 +1227,429 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           {/* --------------------------------------
               STEP 2: PREVIEW & EDIT EXTRACTED TEXT
           --------------------------------------- */}
-          {currentStep === 'preview' && activeDoc && (
+          {currentStep === 'preview' && activeDoc && importSkillType === 'speaking' && (
+            <div className="space-y-5">
+              {speakingSaveSuccessNotice && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900 font-bold">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle className="w-5 h-5 text-emerald-600" />
+                    <span>{speakingSaveSuccessNotice}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-3 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold text-xs"
+                  >
+                    Đóng cửa sổ
+                  </button>
+                </div>
+              )}
+
+              {/* Speaking Header & Recognition Summary */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[11px] font-extrabold uppercase">
+                      Speaking Recognition
+                    </span>
+                    <h3 className="text-sm font-bold text-slate-900">{activeDoc.name}</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Nhận diện độc lập các phần Speaking. Chọn các phần cần lưu vào Thư viện tài liệu (không tự động tạo bài tập).
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  {editedSpeakingPart1 && (
+                    <span className="px-2.5 py-1 bg-blue-50 text-blue-800 rounded-lg border border-blue-200 font-semibold">
+                      Part 1: {editedSpeakingPart1.topics.length} Topics
+                    </span>
+                  )}
+                  {editedSpeakingPart2 && (
+                    <span className="px-2.5 py-1 bg-amber-50 text-amber-800 rounded-lg border border-amber-200 font-semibold">
+                      Part 2: {editedSpeakingPart2.cueCards.length} Cue Cards
+                    </span>
+                  )}
+                  {editedSpeakingPart3 && (
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-lg border border-emerald-200 font-semibold">
+                      Part 3: {editedSpeakingPart3.questions.length} Questions
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Checkboxes: Which parts to split & save */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-purple-50/50 border border-purple-200 rounded-xl">
+                <label className="flex items-center space-x-2.5 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={savePart1}
+                    onChange={(e) => setSavePart1(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                  />
+                  <span>Lưu Part 1 ({editedSpeakingPart1?.topics.length || 0} Topics)</span>
+                </label>
+                <label className="flex items-center space-x-2.5 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={savePart2}
+                    onChange={(e) => setSavePart2(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                  />
+                  <span>Lưu Part 2 ({editedSpeakingPart2?.cueCards.length || 0} Cue Cards)</span>
+                </label>
+                <label className="flex items-center space-x-2.5 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={savePart3}
+                    onChange={(e) => setSavePart3(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                  />
+                  <span>Lưu Part 3 ({editedSpeakingPart3?.questions.length || 0} Questions)</span>
+                </label>
+              </div>
+
+              {/* Speaking Navigation Tabs */}
+              <div className="flex border-b border-slate-200 space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setSpeakingActiveTab('part1')}
+                  className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
+                    speakingActiveTab === 'part1'
+                      ? 'border-purple-600 text-purple-900 bg-purple-50/50'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Part 1: Topic-based ({editedSpeakingPart1?.topics.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSpeakingActiveTab('part2')}
+                  className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
+                    speakingActiveTab === 'part2'
+                      ? 'border-purple-600 text-purple-900 bg-purple-50/50'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Part 2: Cue Cards ({editedSpeakingPart2?.cueCards.length || 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSpeakingActiveTab('part3')}
+                  className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
+                    speakingActiveTab === 'part3'
+                      ? 'border-purple-600 text-purple-900 bg-purple-50/50'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Part 3: Discussion ({editedSpeakingPart3?.questions.length || 0})
+                </button>
+              </div>
+
+              {/* Tab 1: Part 1 Topics & Questions Editor */}
+              {speakingActiveTab === 'part1' && (
+                <div className="space-y-4">
+                  {editedSpeakingPart1 && editedSpeakingPart1.topics.length > 0 ? (
+                    editedSpeakingPart1.topics.map((top, tIdx) => (
+                      <div key={top.id || tIdx} className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center space-x-2 flex-1">
+                            <span className="w-6 h-6 rounded-md bg-blue-100 text-blue-800 text-xs font-bold flex items-center justify-center shrink-0">
+                              {tIdx + 1}
+                            </span>
+                            <input
+                              type="text"
+                              value={top.topic}
+                              onChange={(e) => {
+                                const newTopics = [...editedSpeakingPart1.topics];
+                                newTopics[tIdx].topic = e.target.value;
+                                setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                              }}
+                              placeholder="Topic Name (e.g. Crowded place, Singing)"
+                              className="font-bold text-sm text-slate-900 border border-slate-300 rounded-lg px-2.5 py-1 flex-1"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newTopics = editedSpeakingPart1.topics.filter((_, i) => i !== tIdx);
+                              setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100"
+                            title="Xóa chủ đề này"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="space-y-2 pl-8">
+                          <label className="text-[11px] font-bold text-slate-600 block">Questions under this topic:</label>
+                          {top.questions.map((q, qIdx) => (
+                            <div key={qIdx} className="flex items-center space-x-2">
+                              <span className="text-xs text-slate-400 font-mono w-4">{qIdx + 1}.</span>
+                              <input
+                                type="text"
+                                value={q}
+                                onChange={(e) => {
+                                  const newTopics = [...editedSpeakingPart1.topics];
+                                  newTopics[tIdx].questions[qIdx] = e.target.value;
+                                  setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                                }}
+                                className="flex-1 p-2 border border-slate-200 rounded-lg text-xs text-slate-800"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newTopics = [...editedSpeakingPart1.topics];
+                                  newTopics[tIdx].questions = newTopics[tIdx].questions.filter((_, i) => i !== qIdx);
+                                  setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                                }}
+                                className="p-1 text-slate-400 hover:text-red-500 rounded"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newTopics = [...editedSpeakingPart1.topics];
+                              newTopics[tIdx].questions.push('New question?');
+                              setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                            }}
+                            className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center space-x-1 pt-1"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm câu hỏi cho chủ đề này</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                      Không tìm thấy câu hỏi Part 1 trong tài liệu này.
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prevTopics = editedSpeakingPart1?.topics || [];
+                      const newT = {
+                        id: `topic_${prevTopics.length + 1}`,
+                        topic: 'New Topic',
+                        questions: ['What is your opinion?'],
+                      };
+                      setEditedSpeakingPart1({ topics: [...prevTopics, newT], confidence: 1 });
+                    }}
+                    className="w-full py-2.5 border border-dashed border-blue-300 text-blue-700 bg-blue-50/50 hover:bg-blue-50 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Thêm chủ đề Part 1 mới</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Tab 2: Part 2 Cue Cards Editor */}
+              {speakingActiveTab === 'part2' && (
+                <div className="space-y-4">
+                  {editedSpeakingPart2 && editedSpeakingPart2.cueCards.length > 0 ? (
+                    editedSpeakingPart2.cueCards.map((card, cIdx) => (
+                      <div key={card.id || cIdx} className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                          <span className="font-extrabold text-xs uppercase tracking-wider text-amber-900 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
+                            Cue Card {cIdx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newCards = editedSpeakingPart2.cueCards.filter((_, i) => i !== cIdx);
+                              setEditedSpeakingPart2({ ...editedSpeakingPart2, cueCards: newCards });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100"
+                            title="Xóa cue card này"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-800 block">Topic / Prompt:</label>
+                          <input
+                            type="text"
+                            value={card.topic}
+                            onChange={(e) => {
+                              const newCards = [...editedSpeakingPart2.cueCards];
+                              newCards[cIdx].topic = e.target.value;
+                              setEditedSpeakingPart2({ ...editedSpeakingPart2, cueCards: newCards });
+                            }}
+                            className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-800 block">Instructions & Bullet Points:</label>
+                          <input
+                            type="text"
+                            value={card.instructions}
+                            onChange={(e) => {
+                              const newCards = [...editedSpeakingPart2.cueCards];
+                              newCards[cIdx].instructions = e.target.value;
+                              setEditedSpeakingPart2({ ...editedSpeakingPart2, cueCards: newCards });
+                            }}
+                            className="w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 italic"
+                          />
+                          <div className="space-y-1.5 pl-4 border-l-2 border-amber-300">
+                            {card.points.map((pt, ptIdx) => (
+                              <div key={ptIdx} className="flex items-center space-x-2">
+                                <span className="text-slate-400 text-xs">•</span>
+                                <input
+                                  type="text"
+                                  value={pt}
+                                  onChange={(e) => {
+                                    const newCards = [...editedSpeakingPart2.cueCards];
+                                    newCards[cIdx].points[ptIdx] = e.target.value;
+                                    setEditedSpeakingPart2({ ...editedSpeakingPart2, cueCards: newCards });
+                                  }}
+                                  className="flex-1 p-1.5 border border-slate-200 rounded-md text-xs text-slate-800"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newCards = [...editedSpeakingPart2.cueCards];
+                                    newCards[cIdx].points = newCards[cIdx].points.filter((_, i) => i !== ptIdx);
+                                    setEditedSpeakingPart2({ ...editedSpeakingPart2, cueCards: newCards });
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-red-500 rounded"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newCards = [...editedSpeakingPart2.cueCards];
+                                newCards[cIdx].points.push('And explain why...');
+                                setEditedSpeakingPart2({ ...editedSpeakingPart2, cueCards: newCards });
+                              }}
+                              className="text-xs font-semibold text-amber-700 hover:text-amber-900 flex items-center space-x-1 pt-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Thêm ý gợi ý (bullet point)</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                      Không tìm thấy Cue Card Part 2 trong tài liệu này.
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prevCards = editedSpeakingPart2?.cueCards || [];
+                      const newC: ExtractedSpeakingPart2CueCard = {
+                        id: `cue_card_${prevCards.length + 1}`,
+                        topic: 'Describe an experience that changed your perspective.',
+                        instructions: 'You should say:',
+                        points: ['What the experience was', 'When and where it happened', 'What you learned'],
+                        prepTimeSeconds: 60,
+                        speakTimeSeconds: 120,
+                      };
+                      setEditedSpeakingPart2({ cueCards: [...prevCards, newC], confidence: 1 });
+                    }}
+                    className="w-full py-2.5 border border-dashed border-amber-300 text-amber-800 bg-amber-50/50 hover:bg-amber-50 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Thêm Cue Card Part 2 mới</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Tab 3: Part 3 Discussion Questions Editor */}
+              {speakingActiveTab === 'part3' && (
+                <div className="space-y-4">
+                  {editedSpeakingPart3 && editedSpeakingPart3.questions.length > 0 ? (
+                    <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <span className="font-extrabold text-xs uppercase tracking-wider text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
+                          Part 3 Independent Discussion Questions
+                        </span>
+                        <span className="text-xs text-slate-500 font-semibold">
+                          {editedSpeakingPart3.questions.length} câu hỏi
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {editedSpeakingPart3.questions.map((q, qIdx) => (
+                          <div key={qIdx} className="flex items-center space-x-2">
+                            <span className="text-xs text-slate-400 font-mono w-6 text-right">{qIdx + 1}.</span>
+                            <input
+                              type="text"
+                              value={q}
+                              onChange={(e) => {
+                                const newQs = [...editedSpeakingPart3.questions];
+                                newQs[qIdx] = e.target.value;
+                                setEditedSpeakingPart3({ ...editedSpeakingPart3, questions: newQs });
+                              }}
+                              className="flex-1 p-2 border border-slate-200 rounded-lg text-xs text-slate-800"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newQs = editedSpeakingPart3.questions.filter((_, i) => i !== qIdx);
+                                setEditedSpeakingPart3({ ...editedSpeakingPart3, questions: newQs });
+                              }}
+                              className="p-1 text-slate-400 hover:text-red-500 rounded"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newQs = [...editedSpeakingPart3.questions, 'Why do you think this happens?'];
+                          setEditedSpeakingPart3({ ...editedSpeakingPart3, questions: newQs });
+                        }}
+                        className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 flex items-center space-x-1 pt-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm câu hỏi thảo luận mới</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                      Không tìm thấy câu hỏi Part 3 trong tài liệu này.
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prevQs = editedSpeakingPart3?.questions || [];
+                      setEditedSpeakingPart3({ questions: [...prevQs, 'How will this issue evolve in the future?'], confidence: 1 });
+                    }}
+                    className="w-full py-2.5 border border-dashed border-emerald-300 text-emerald-800 bg-emerald-50/50 hover:bg-emerald-50 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Thêm câu hỏi Part 3 mới</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* --------------------------------------
+              STEP 2: PREVIEW & EDIT EXTRACTED TEXT (READING)
+          --------------------------------------- */}
+          {currentStep === 'preview' && activeDoc && importSkillType !== 'speaking' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
                 <div>
@@ -2360,7 +2932,19 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
               </button>
             )}
 
-            {currentStep === 'preview' && (
+            {currentStep === 'preview' && importSkillType === 'speaking' && (
+              <button
+                type="button"
+                disabled={isSavingSpeakingResources || (!savePart1 && !savePart2 && !savePart3)}
+                onClick={handleSaveSpeakingToLibrary}
+                className="px-5 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-colors"
+              >
+                <FolderPlus className="w-4 h-4" />
+                <span>{isSavingSpeakingResources ? 'Đang lưu vào Thư viện...' : 'Lưu các phần đã chọn vào Thư viện tài liệu'}</span>
+              </button>
+            )}
+
+            {currentStep === 'preview' && importSkillType !== 'speaking' && (
               <button
                 onClick={() => setCurrentStep('choose_output')}
                 className="px-5 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center space-x-1.5"

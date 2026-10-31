@@ -14,6 +14,9 @@ import {
   QuestionType,
   QuestionGroup,
   ParsedPassage,
+  SpeakingTopic,
+  SpeakingCueCard,
+  SpeakingQuestionResponse,
 } from '../types';
 import { parseDocumentStructure } from '../lib/documentExtractor';
 import { gradeAssignmentSubmission, parseMaxWordsFromLimit } from '../lib/assignmentGrader';
@@ -35,6 +38,15 @@ import {
   generateCorrectedEssay,
   normalizeAnnotations,
 } from '../lib/writingCorrection';
+import { SpeakingAudioRecorder } from '../components/SpeakingAudioRecorder';
+import {
+  extractSpeakingAssignmentDetails,
+  unpackSpeakingSubmission,
+  packSpeakingSubmission,
+  uploadSpeakingAudio,
+  transcribeAndTranslateAudio,
+  downloadSpeakingAudio,
+} from '../lib/speakingService';
 import {
   FileCheck2,
   Clock,
@@ -71,6 +83,8 @@ import {
   Layers,
   Edit,
   HelpCircle,
+  Download,
+  FolderPlus,
   BarChart3,
   GripVertical,
   Search,
@@ -214,6 +228,10 @@ export const AssignmentsView: React.FC = () => {
   const [formReadingPassage, setFormReadingPassage] = useState('');
   const [formSpeakingTopic, setFormSpeakingTopic] = useState('');
   const [formSpeakingPoints, setFormSpeakingPoints] = useState('');
+  const [formSpeakingPart, setFormSpeakingPart] = useState<'part1' | 'part2' | 'part3'>('part2');
+  const [formSpeakingTopics, setFormSpeakingTopics] = useState<SpeakingTopic[]>([]);
+  const [formSpeakingQuestions, setFormSpeakingQuestions] = useState<string[]>([]);
+  const [showSpeakingLibraryPicker, setShowSpeakingLibraryPicker] = useState<boolean>(false);
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
 
   // Submission & Grading Progress / Confirmation state
@@ -239,6 +257,14 @@ export const AssignmentsView: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioRecorded, setAudioRecorded] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+
+  // Student Speaking taking state
+  const [studentSpeakingAudios, setStudentSpeakingAudios] = useState<
+    Record<string, { blob: Blob | File; duration: number; url: string }>
+  >({});
+  const [speakingSubmittingStep, setSpeakingSubmittingStep] = useState<string>('');
+  const [speakingPrepCountdown, setSpeakingPrepCountdown] = useState<number>(0);
+  const [speakingPrepRunning, setSpeakingPrepRunning] = useState<boolean>(false);
 
   // Reading Timer & Layout state
   const [timerSeconds, setTimerSeconds] = useState<number>(60 * 60); // 60 minutes default
@@ -470,6 +496,23 @@ export const AssignmentsView: React.FC = () => {
     const s = secs % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
+
+  // Speaking prep countdown timer effect
+  useEffect(() => {
+    let interval: any;
+    if (speakingPrepRunning && speakingPrepCountdown > 0) {
+      interval = setInterval(() => {
+        setSpeakingPrepCountdown((prev) => {
+          if (prev <= 1) {
+            setSpeakingPrepRunning(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [speakingPrepRunning, speakingPrepCountdown]);
 
   // Split-Screen Drag Effect
   useEffect(() => {
@@ -1049,8 +1092,11 @@ export const AssignmentsView: React.FC = () => {
     setFormScoreVisibility('private');
     setFormReadingTestType('academic');
     setFormReadingPassage('');
+    setFormSpeakingPart('part2');
     setFormSpeakingTopic('');
     setFormSpeakingPoints('');
+    setFormSpeakingTopics([]);
+    setFormSpeakingQuestions([]);
     setShowCreateEditModal(true);
   };
 
@@ -1072,8 +1118,12 @@ export const AssignmentsView: React.FC = () => {
     setFormScoreVisibility(a.scoreVisibility || 'private');
     setFormReadingTestType(a.readingTestType || 'academic');
     setFormReadingPassage(a.readingPassage || '');
-    setFormSpeakingTopic(a.speakingCueCard?.topic || '');
-    setFormSpeakingPoints(a.speakingCueCard?.points?.join('\n') || '');
+    const spkDetails = extractSpeakingAssignmentDetails(a);
+    setFormSpeakingPart(spkDetails.part);
+    setFormSpeakingTopic(spkDetails.cueCard?.topic || a.speakingCueCard?.topic || '');
+    setFormSpeakingPoints(spkDetails.cueCard?.points?.join('\n') || a.speakingCueCard?.points?.join('\n') || '');
+    setFormSpeakingTopics(spkDetails.topics || []);
+    setFormSpeakingQuestions(spkDetails.questions || []);
     setShowCreateEditModal(true);
   };
 
@@ -1105,18 +1155,30 @@ export const AssignmentsView: React.FC = () => {
         scoreVisibility: formScoreVisibility,
         readingTestType: formSkill === 'reading' ? formReadingTestType : undefined,
         readingPassage: formSkill === 'reading' ? formReadingPassage : undefined,
-        speakingPart: formSkill === 'speaking' ? 'part2' : undefined,
+        speakingPart: formSkill === 'speaking' ? formSpeakingPart : undefined,
+        speakingTopics: formSkill === 'speaking' && formSpeakingPart === 'part1' ? formSpeakingTopics : undefined,
         speakingCueCard:
           formSkill === 'speaking'
-            ? {
-                topic: formSpeakingTopic.trim() || 'Describe an experience that taught you something valuable.',
-                points: formSpeakingPoints
-                  ? formSpeakingPoints.split('\n').map((p) => p.trim()).filter(Boolean)
-                  : ['What the experience was', 'When it happened', 'What you learned from it'],
-                prepTimeSeconds: 60,
-                speakTimeSeconds: 120,
-              }
+            ? formSpeakingPart === 'part1'
+              ? ({
+                  part: 'part1',
+                  topics: formSpeakingTopics,
+                } as any)
+              : formSpeakingPart === 'part3'
+              ? ({
+                  part: 'part3',
+                  questions: formSpeakingQuestions,
+                } as any)
+              : {
+                  topic: formSpeakingTopic.trim() || 'Describe an experience that taught you something valuable.',
+                  points: formSpeakingPoints
+                    ? formSpeakingPoints.split('\n').map((p) => p.trim()).filter(Boolean)
+                    : ['What the experience was', 'When it happened', 'What you learned from it'],
+                  prepTimeSeconds: 60,
+                  speakTimeSeconds: 120,
+                }
             : undefined,
+        speakingQuestions: formSkill === 'speaking' && formSpeakingPart === 'part3' ? formSpeakingQuestions : undefined,
       };
 
       const existingAssign = editingAssignmentId ? assignments.find((a) => a.id === editingAssignmentId) : null;
@@ -1292,19 +1354,77 @@ export const AssignmentsView: React.FC = () => {
   const handleSpeakingSubmit = async () => {
     if (!activeAssignment || isSubmittingStudentWork) return;
 
+    const audioKeys = Object.keys(studentSpeakingAudios);
+    if (audioKeys.length === 0) {
+      alert('Vui lòng hoàn thành ít nhất một bản ghi âm hoặc tải lên file âm thanh trước khi nộp bài.');
+      return;
+    }
+
     setIsSubmittingStudentWork(true);
+    setSpeakingSubmittingStep('Đang chuẩn bị các bản ghi âm...');
     try {
+      const responses: SpeakingQuestionResponse[] = [];
+      let totalDuration = 0;
+
+      for (let i = 0; i < audioKeys.length; i++) {
+        const key = audioKeys[i];
+        const audio = studentSpeakingAudios[key];
+        setSpeakingSubmittingStep(`Đang tải lên bản ghi âm (${i + 1}/${audioKeys.length})...`);
+        const audioUrl = await uploadSpeakingAudio(audio.blob, {
+          assignmentId: activeAssignment.id,
+          studentId: currentUser.id,
+          questionId: key,
+        });
+
+        setSpeakingSubmittingStep(`Đang nhận diện giọng nói & dịch nghĩa (${i + 1}/${audioKeys.length})...`);
+        const { transcript, translation } = await transcribeAndTranslateAudio({
+          audioUrl,
+          promptContext: key,
+          speakingPart: activeAssignment.speakingPart || 'part2',
+        });
+
+        responses.push({
+          questionId: key,
+          audioUrl,
+          duration: audio.duration,
+          transcript,
+          translation,
+          recordedAt: new Date().toISOString(),
+        });
+
+        totalDuration += audio.duration;
+      }
+
+      setSpeakingSubmittingStep('Đang lưu bài nộp vào hệ thống...');
+      const overallTranscript = responses.map((r) => r.transcript).filter(Boolean).join('\n\n');
+      const overallTranslation = responses.map((r) => r.translation).filter(Boolean).join('\n\n');
+
+      const responsesMap: Record<string, SpeakingQuestionResponse> = {};
+      responses.forEach((r) => {
+        if (r.questionId) {
+          responsesMap[r.questionId] = r;
+        }
+      });
+
+      const packedJson = packSpeakingSubmission({
+        transcript: overallTranscript,
+        translation: overallTranslation,
+        responses: responsesMap,
+      });
+
       await submitAssignment(activeAssignment.id, {
-        speakingAudioUrl: 'https://example.com/audio/student_speaking_recording.mp3',
-        speakingDuration: recordingSeconds || 85,
-        speakingTranscript: 'Audio recorded by student. Verified speech transcript available for teacher review.',
+        speakingAudioUrl: responses[0]?.audioUrl || '',
+        speakingTranscript: packedJson,
+        speakingTranslation: overallTranslation,
+        speakingDuration: totalDuration,
+        speakingResponses: responsesMap,
         status: 'submitted',
       });
-      setAudioRecorded(false);
 
+      setStudentSpeakingAudios({});
       setSubmissionSuccessModal({
         title: 'Nộp bài Speaking thành công!',
-        message: 'Bản ghi âm bài nói của bạn đã được gửi đến giáo viên để đánh giá và chấm điểm.',
+        message: 'Bản ghi âm bài nói cùng nhận diện transcript và bản dịch đã được lưu trữ an toàn và gửi đến giáo viên.',
         actionText: 'Quay lại danh sách bài tập',
         onAction: () => {
           setSubmissionSuccessModal(null);
@@ -1315,6 +1435,7 @@ export const AssignmentsView: React.FC = () => {
       alert(err?.message || 'Có lỗi xảy ra khi nộp bài nói. Vui lòng thử lại.');
     } finally {
       setIsSubmittingStudentWork(false);
+      setSpeakingSubmittingStep('');
     }
   };
 
@@ -1864,29 +1985,137 @@ export const AssignmentsView: React.FC = () => {
           )}
 
           {currentSubmission.skill === 'speaking' && (
-            <div className="space-y-3">
-              <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-lg flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <Volume2 className="w-6 h-6 text-blue-600" />
-                  <div>
-                    <p className="text-sm font-bold text-blue-900">{t('assignments.recordTitle')}</p>
-                    <p className="text-xs text-blue-600">{t('assignments.audioVerified')}: {currentSubmission.speakingDuration}s</p>
-                  </div>
-                </div>
-                <button className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-semibold flex items-center space-x-1.5">
-                  <Play className="w-4 h-4" />
-                  <span>{t('assignments.playAudio')}</span>
-                </button>
-              </div>
+            <div className="space-y-4">
+              {(() => {
+                const unpacked = unpackSpeakingSubmission(
+                  currentSubmission.speakingTranscript,
+                  currentSubmission.speakingAudioUrl
+                );
+                const responses = Object.entries(unpacked.responses || {}).map(([qKey, r]) => ({
+                  ...r,
+                  questionId: r.questionId || qKey,
+                }));
+                const studentNameClean = (currentSubmission.studentName || 'Student').replace(/\s+/g, '_');
+                const assignmentTitleClean = (parentAssignment?.title || 'Speaking_Test').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-              {currentSubmission.speakingTranscript && (
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
-                  <span className="font-bold text-slate-700 block mb-1">{t('assignments.verifiedTranscript')}:</span>
-                  <p className="text-slate-600 leading-relaxed italic">
-                    "{currentSubmission.speakingTranscript}"
-                  </p>
-                </div>
-              )}
+                if (responses && responses.length > 0) {
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl">
+                        <div className="flex items-center space-x-2.5">
+                          <Volume2 className="w-5 h-5 text-blue-600" />
+                          <span className="text-sm font-bold text-blue-950">
+                            Bài làm Speaking ({responses.length} câu trả lời)
+                          </span>
+                        </div>
+                        <span className="text-xs font-semibold px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full">
+                          Tổng thời lượng: {currentSubmission.speakingDuration || responses.reduce((acc, r) => acc + (r.duration || 0), 0)}s
+                        </span>
+                      </div>
+
+                      {responses.map((resp, idx) => (
+                        <div key={resp.questionId || idx} className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                            <span className="text-sm font-bold text-slate-800">
+                              Câu {idx + 1} {resp.questionId ? `(${resp.questionId})` : ''} • {resp.duration}s
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                downloadSpeakingAudio(
+                                  resp.audioUrl,
+                                  `${studentNameClean}_${assignmentTitleClean}_Q${idx + 1}_${resp.questionId || 'part'}.webm`
+                                )
+                              }
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                              title="Tải bản ghi âm về máy"
+                            >
+                              <Download className="w-3.5 h-3.5 text-slate-600" />
+                              <span>Tải file ghi âm</span>
+                            </button>
+                          </div>
+
+                          <div className="py-1">
+                            <audio controls src={resp.audioUrl} className="w-full h-10" />
+                          </div>
+
+                          {resp.transcript && (
+                            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1">
+                              <span className="font-bold text-slate-700 uppercase tracking-wide flex items-center space-x-1">
+                                <span>AI Transcript (English)</span>
+                              </span>
+                              <p className="text-slate-800 leading-relaxed font-sans">{resp.transcript}</p>
+                            </div>
+                          )}
+
+                          {resp.translation && (
+                            <div className="p-3 bg-teal-50/50 rounded-lg border border-teal-200/70 text-xs space-y-1">
+                              <span className="font-bold text-teal-800 uppercase tracking-wide flex items-center space-x-1">
+                                <span>Bản dịch tiếng Việt</span>
+                              </span>
+                              <p className="text-teal-900 leading-relaxed font-sans">{resp.translation}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                // Fallback for single/legacy recording
+                return (
+                  <div className="space-y-3">
+                    <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-lg flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <Volume2 className="w-6 h-6 text-blue-600" />
+                        <div>
+                          <p className="text-sm font-bold text-blue-900">{t('assignments.recordTitle')}</p>
+                          <p className="text-xs text-blue-600">{t('assignments.audioVerified')}: {currentSubmission.speakingDuration}s</p>
+                        </div>
+                      </div>
+                      {currentSubmission.speakingAudioUrl && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadSpeakingAudio(
+                              currentSubmission.speakingAudioUrl!,
+                              `${studentNameClean}_${assignmentTitleClean}_recording.webm`
+                            )
+                          }
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Tải file ghi âm</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {currentSubmission.speakingAudioUrl && (
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <audio controls src={currentSubmission.speakingAudioUrl} className="w-full h-10" />
+                      </div>
+                    )}
+
+                    {currentSubmission.speakingTranscript && (
+                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+                        <span className="font-bold text-slate-700 block mb-1">{t('assignments.verifiedTranscript')}:</span>
+                        <p className="text-slate-600 leading-relaxed italic">
+                          "{currentSubmission.speakingTranscript}"
+                        </p>
+                      </div>
+                    )}
+
+                    {currentSubmission.speakingTranslation && (
+                      <div className="bg-teal-50 p-4 rounded-lg border border-teal-200 text-sm">
+                        <span className="font-bold text-teal-800 block mb-1">Bản dịch tiếng Việt:</span>
+                        <p className="text-teal-900 leading-relaxed italic">
+                          "{currentSubmission.speakingTranslation}"
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -4075,59 +4304,381 @@ export const AssignmentsView: React.FC = () => {
               </div>
             )}
 
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                {t('assignments.cueCardTitle')} ({activeAssignment.speakingPart?.toUpperCase() || 'PART 2'})
-              </h3>
+            {(() => {
+              const speakingInfo = extractSpeakingAssignmentDetails(activeAssignment);
+              const isReadOnlySubmission = Boolean(mySub && mySub.status !== 'returned');
 
-              {activeAssignment.speakingCueCard && (
-                <div className="p-5 bg-amber-50/50 rounded-xl border border-amber-200 space-y-3">
-                  <p className="text-base font-bold text-slate-900">
-                    {activeAssignment.speakingCueCard.topic}
-                  </p>
-                  <p className="text-xs font-semibold text-slate-600">{t('assignments.youShouldSay')}</p>
-                  <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
-                    {activeAssignment.speakingCueCard.points.map((pt, i) => (
-                      <li key={i}>{pt}</li>
-                    ))}
-                  </ul>
-                  <div className="pt-2 text-xs text-slate-500 flex space-x-4">
-                    <span>{t('assignments.prepTime')}: {activeAssignment.speakingCueCard.prepTimeSeconds}s</span>
-                    <span>{t('assignments.speakingTime')}: 1-2 minutes</span>
-                  </div>
-                </div>
-              )}
+              return (
+                <div className="space-y-6">
+                  {/* IF ALREADY SUBMITTED (Read-only review for student) */}
+                  {isReadOnlySubmission && mySub && (
+                    <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <div className="flex items-center space-x-2 text-blue-900">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                          <h3 className="text-base font-bold text-slate-900">
+                            Bản ghi âm bài nói đã nộp
+                          </h3>
+                        </div>
+                        <span className="text-xs font-bold px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-full uppercase">
+                          {mySub.status === 'graded' ? 'Đã chấm điểm' : 'Đã nộp bài'}
+                        </span>
+                      </div>
 
-              {/* Audio Recorder Simulation */}
-              <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-4">
-                <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mx-auto text-2xl">
-                  <Mic className="w-8 h-8" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">Simulate Audio Submission</h4>
-                  <p className="text-xs text-slate-500">Record speaking response for teacher feedback and band scoring.</p>
-                </div>
+                      {(() => {
+                        const unpacked = unpackSpeakingSubmission(mySub.speakingTranscript, mySub.speakingAudioUrl);
+                        const responses = Object.entries(unpacked.responses || {}).map(([qKey, r]) => ({
+                          ...r,
+                          questionId: r.questionId || qKey,
+                        }));
 
-                <div className="flex justify-center space-x-3">
-                  <button
-                    onClick={() => {
-                      setAudioRecorded(true);
-                      setRecordingSeconds(92);
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
-                  >
-                    Simulate Complete Recording (92s)
-                  </button>
-                  <button
-                    onClick={handleSpeakingSubmit}
-                    disabled={!audioRecorded}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    Submit Audio
-                  </button>
+                        if (responses && responses.length > 0) {
+                          return (
+                            <div className="space-y-4">
+                              {responses.map((resp, idx) => (
+                                <div key={resp.questionId || idx} className="p-4 bg-slate-50/70 rounded-xl border border-slate-200 space-y-3">
+                                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                                    <span>Câu {idx + 1} ({resp.questionId})</span>
+                                    <span>Thời lượng: {resp.duration}s</span>
+                                  </div>
+                                  <audio controls src={resp.audioUrl} className="w-full h-10" />
+
+                                  {resp.transcript && (
+                                    <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs space-y-1">
+                                      <span className="font-bold text-slate-700 uppercase tracking-wide block">
+                                        AI Transcript (English)
+                                      </span>
+                                      <p className="text-slate-800 leading-relaxed font-sans">{resp.transcript}</p>
+                                    </div>
+                                  )}
+
+                                  {resp.translation && (
+                                    <div className="p-3 bg-teal-50/60 rounded-lg border border-teal-200/70 text-xs space-y-1">
+                                      <span className="font-bold text-teal-800 uppercase tracking-wide block">
+                                        Bản dịch tiếng Việt
+                                      </span>
+                                      <p className="text-teal-900 leading-relaxed font-sans">{resp.translation}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-3">
+                            {mySub.speakingAudioUrl && (
+                              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                <audio controls src={mySub.speakingAudioUrl} className="w-full h-10" />
+                              </div>
+                            )}
+                            {mySub.speakingTranscript && (
+                              <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs space-y-1">
+                                <span className="font-bold text-slate-700 uppercase tracking-wide block">
+                                  AI Transcript
+                                </span>
+                                <p className="text-slate-800 leading-relaxed italic">{mySub.speakingTranscript}</p>
+                              </div>
+                            )}
+                            {mySub.speakingTranslation && (
+                              <div className="p-3 bg-teal-50/60 rounded-lg border border-teal-200 text-xs space-y-1">
+                                <span className="font-bold text-teal-800 uppercase tracking-wide block">
+                                  Bản dịch tiếng Việt
+                                </span>
+                                <p className="text-teal-900 leading-relaxed">{mySub.speakingTranslation}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* ACTIVE TAKING INTERFACE (Not submitted or returned for revision) */}
+                  {(!isReadOnlySubmission || isTeacher) && (
+                    <div className="space-y-6">
+                      {mySub?.status === 'returned' && (
+                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+                          <p className="font-bold text-sm">Yêu cầu thu âm lại từ giáo viên:</p>
+                          <p className="leading-relaxed">{mySub.teacherComments || 'Vui lòng ghi âm lại bài nói và hoàn thiện theo nhận xét.'}</p>
+                        </div>
+                      )}
+
+                      {/* PART 1: TOPIC-BASED */}
+                      {speakingInfo.part === 'part1' && (
+                        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
+                          <div className="pb-3 border-b border-slate-100">
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
+                              IELTS Speaking Part 1
+                            </span>
+                            <h3 className="text-base font-bold text-slate-900 mt-1">
+                              Topic-based Questions
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Trả lời từng câu hỏi bên dưới. Bạn có thể thu âm trực tiếp qua mic hoặc tải lên file âm thanh riêng biệt cho từng câu.
+                            </p>
+                          </div>
+
+                          {speakingInfo.topics && speakingInfo.topics.length > 0 ? (
+                            <div className="space-y-6">
+                              {speakingInfo.topics.map((topic, tIdx) => (
+                                <div key={tIdx} className="p-4 bg-purple-50/40 rounded-xl border border-purple-200 space-y-4">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="px-2 py-0.5 bg-purple-600 text-white rounded text-[11px] font-bold uppercase">
+                                      Chủ đề {tIdx + 1}
+                                    </span>
+                                    <h4 className="text-sm font-bold text-slate-900">{topic.title}</h4>
+                                  </div>
+
+                                  <div className="space-y-4">
+                                    {topic.questions.map((q, qIdx) => {
+                                      const questionKey = `p1_${tIdx}_${qIdx}`;
+                                      return (
+                                        <div key={qIdx} className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                                          <p className="text-sm font-semibold text-slate-900">
+                                            <span className="text-purple-700 font-bold mr-1.5">
+                                              Câu {tIdx + 1}.{qIdx + 1}:
+                                            </span>
+                                            {q}
+                                          </p>
+
+                                          <SpeakingAudioRecorder
+                                            questionId={questionKey}
+                                            maxSeconds={60}
+                                            initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
+                                            onAudioReady={(blob, duration, url) => {
+                                              setStudentSpeakingAudios((prev) => ({
+                                                ...prev,
+                                                [questionKey]: { blob, duration, url },
+                                              }));
+                                            }}
+                                            onAudioClear={() => {
+                                              setStudentSpeakingAudios((prev) => {
+                                                const next = { ...prev };
+                                                delete next[questionKey];
+                                                return next;
+                                              });
+                                            }}
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
+                              Không có chủ đề Part 1 nào được cấu hình cho bài tập này.
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* PART 2: INDIVIDUAL LONG TURN */}
+                      {speakingInfo.part === 'part2' && (
+                        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
+                          <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
+                            <div>
+                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
+                                IELTS Speaking Part 2
+                              </span>
+                              <h3 className="text-base font-bold text-slate-900 mt-1">
+                                Individual Long Turn (Cue Card)
+                              </h3>
+                            </div>
+                            <span className="text-xs text-slate-500 font-medium">
+                              1 phút chuẩn bị • 1-2 phút nói
+                            </span>
+                          </div>
+
+                          {/* Cue Card Frame */}
+                          <div className="p-5 bg-amber-50/60 rounded-xl border-2 border-amber-300 shadow-2xs space-y-3">
+                            <p className="text-base font-bold text-slate-900">
+                              {speakingInfo.cueCard?.topic || activeAssignment.title}
+                            </p>
+                            <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                              You should say:
+                            </p>
+                            <ul className="list-disc list-inside text-sm text-slate-800 space-y-1.5 pl-1">
+                              {(speakingInfo.cueCard?.points || ['What it was', 'When it happened', 'Why it is memorable']).map((pt, i) => (
+                                <li key={i}>{pt}</li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* 60-Second Preparation Timer */}
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                                Thời gian chuẩn bị ghi chú (60 giây)
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                Nhấn bắt đầu để đếm ngược 1 phút chuẩn bị trước khi thu âm bài nói.
+                              </p>
+                            </div>
+
+                            <div className="flex items-center space-x-3">
+                              <span
+                                className={`text-xl font-mono font-bold px-3 py-1 rounded-lg border ${
+                                  speakingPrepRunning
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                                    : speakingPrepCountdown === 0
+                                    ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                    : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                }`}
+                              >
+                                {speakingPrepCountdown > 0 ? `${speakingPrepCountdown}s` : '00s'}
+                              </span>
+
+                              {!speakingPrepRunning ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSpeakingPrepCountdown(60);
+                                    setSpeakingPrepRunning(true);
+                                  }}
+                                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                >
+                                  Bắt đầu 1 phút chuẩn bị
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSpeakingPrepRunning(false);
+                                    setSpeakingPrepCountdown(0);
+                                  }}
+                                  className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+                                >
+                                  Dừng / Đặt lại
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Part 2 Audio Recorder */}
+                          <div className="space-y-2">
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                              Thu âm bài nói Part 2 (Tối đa 2 phút)
+                            </label>
+                            <SpeakingAudioRecorder
+                              questionId="p2_cue"
+                              maxSeconds={speakingInfo.cueCard?.speakTimeSeconds || 120}
+                              initialAudioUrl={studentSpeakingAudios.p2_cue?.url}
+                              onAudioReady={(blob, duration, url) => {
+                                setStudentSpeakingAudios((prev) => ({
+                                  ...prev,
+                                  p2_cue: { blob, duration, url },
+                                }));
+                              }}
+                              onAudioClear={() => {
+                                setStudentSpeakingAudios((prev) => {
+                                  const next = { ...prev };
+                                  delete next.p2_cue;
+                                  return next;
+                                });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* PART 3: INDEPENDENT DISCUSSION */}
+                      {speakingInfo.part === 'part3' && (
+                        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
+                          <div className="pb-3 border-b border-slate-100">
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
+                              IELTS Speaking Part 3
+                            </span>
+                            <h3 className="text-base font-bold text-slate-900 mt-1">
+                              Two-way Discussion Questions
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Thảo luận các câu hỏi chuyên sâu mở rộng từ chủ đề. Trả lời từng câu hỏi với bản thu âm độc lập.
+                            </p>
+                          </div>
+
+                          {speakingInfo.questions && speakingInfo.questions.length > 0 ? (
+                            <div className="space-y-4">
+                              {speakingInfo.questions.map((q, qIdx) => {
+                                const questionKey = `p3_${qIdx}`;
+                                return (
+                                  <div key={qIdx} className="p-4 bg-slate-50/70 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                                    <p className="text-sm font-semibold text-slate-900">
+                                      <span className="text-purple-700 font-bold mr-1.5">
+                                        Câu {qIdx + 1}:
+                                      </span>
+                                      {q}
+                                    </p>
+
+                                    <SpeakingAudioRecorder
+                                      questionId={questionKey}
+                                      maxSeconds={90}
+                                      initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
+                                      onAudioReady={(blob, duration, url) => {
+                                        setStudentSpeakingAudios((prev) => ({
+                                          ...prev,
+                                          [questionKey]: { blob, duration, url },
+                                        }));
+                                      }}
+                                      onAudioClear={() => {
+                                        setStudentSpeakingAudios((prev) => {
+                                          const next = { ...prev };
+                                          delete next[questionKey];
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
+                              Không có câu hỏi thảo luận Part 3 nào được cấu hình cho bài tập này.
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* SUBMIT ACTION BAR */}
+                      {!isTeacher && (
+                        <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="text-xs text-slate-600">
+                            <span className="font-bold text-slate-800">
+                              Đã thu âm: {Object.keys(studentSpeakingAudios).length} câu trả lời
+                            </span>
+                            {speakingSubmittingStep && (
+                              <p className="text-blue-600 font-semibold mt-0.5 animate-pulse">
+                                {speakingSubmittingStep}
+                              </p>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleSpeakingSubmit}
+                            disabled={Object.keys(studentSpeakingAudios).length === 0 || isSubmittingStudentWork}
+                            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-xs flex items-center justify-center space-x-2 transition-colors cursor-pointer"
+                          >
+                            <Send className="w-4 h-4" />
+                            <span>
+                              {isSubmittingStudentWork
+                                ? 'Đang nộp bài...'
+                                : mySub?.status === 'returned'
+                                ? 'Nộp lại bài Speaking'
+                                : 'Nộp bài Speaking'}
+                            </span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         )}
 
@@ -5080,23 +5631,345 @@ export const AssignmentsView: React.FC = () => {
 
               {/* SPEAKING SPECIFIC CONFIGURATION */}
               {formSkill === 'speaking' && (
-                <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-200 space-y-3">
-                  <label className="block font-bold text-purple-900">{t('assignments.cueCardTitle')} - Topic</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Describe an ambition that you have had for a long time."
-                    value={formSpeakingTopic}
-                    onChange={(e) => setFormSpeakingTopic(e.target.value)}
-                    className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
-                  />
-                  <label className="block font-bold text-purple-900">Cue Card Bullet Points (One per line)</label>
-                  <textarea
-                    rows={3}
-                    placeholder="What it is&#10;What you need to do to achieve it&#10;Why this ambition is important"
-                    value={formSpeakingPoints}
-                    onChange={(e) => setFormSpeakingPoints(e.target.value)}
-                    className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
-                  />
+                <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-200 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-200/60 pb-3">
+                    <div>
+                      <label className="block text-sm font-bold text-purple-950">
+                        Cấu trúc phần thi Speaking *
+                      </label>
+                      <p className="text-xs text-purple-700">
+                        Chọn Part 1 (chủ đề/câu hỏi), Part 2 (cue card dài), hoặc Part 3 (thảo luận tự do).
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowSpeakingLibraryPicker(!showSpeakingLibraryPicker)}
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
+                    >
+                      <FolderPlus className="w-4 h-4" />
+                      <span>Chọn từ Thư viện</span>
+                    </button>
+                  </div>
+
+                  {/* Materials Library Picker Dropdown */}
+                  {showSpeakingLibraryPicker && (
+                    <div className="p-3 bg-white rounded-xl border border-purple-300 shadow-md space-y-2 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-700 pb-1 border-b border-slate-100">
+                        <span>Tài liệu Speaking trong Thư viện ({resources.filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking' || r.speakingPart).length})</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowSpeakingLibraryPicker(false)}
+                          className="text-slate-400 hover:text-slate-600 text-xs"
+                        >
+                          Đóng
+                        </button>
+                      </div>
+
+                      {resources.filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking' || r.speakingPart).length === 0 ? (
+                        <p className="text-xs text-slate-500 py-2 italic text-center">
+                          Chưa có tài liệu Speaking nào trong Thư viện. Hãy import từ Word/PDF qua chức năng Smart Import.
+                        </p>
+                      ) : (
+                        <div className="max-h-48 overflow-y-auto space-y-1.5">
+                          {resources
+                            .filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking' || r.speakingPart)
+                            .map((res) => {
+                              const resPart = res.speakingPart || (res.title.includes('Part 1') ? 'part1' : res.title.includes('Part 3') ? 'part3' : 'part2');
+                              return (
+                                <div
+                                  key={res.id}
+                                  onClick={() => {
+                                    if (resPart === 'part1' || res.speakingPart1) {
+                                      setFormSpeakingPart('part1');
+                                      let topics = res.speakingPart1?.topics;
+                                      if (!topics && res.content) {
+                                        try { topics = JSON.parse(res.content).topics; } catch {}
+                                      }
+                                      setFormSpeakingTopics(topics || [{ id: 'topic_1', topic: res.title, title: res.title, questions: ['Tell me about your daily routine.'] }]);
+                                    } else if (resPart === 'part3' || res.speakingPart3) {
+                                      setFormSpeakingPart('part3');
+                                      let qs = res.speakingPart3?.questions;
+                                      if (!qs && res.content) {
+                                        try { qs = JSON.parse(res.content).questions; } catch {}
+                                      }
+                                      setFormSpeakingQuestions(qs || ['How will this topic evolve in the future?']);
+                                    } else {
+                                      setFormSpeakingPart('part2');
+                                      const p2 = res.speakingPart2;
+                                      const cueCard = p2?.cueCards?.[0];
+                                      setFormSpeakingTopic(cueCard?.topic || res.title);
+                                      setFormSpeakingPoints(cueCard?.points?.join('\n') || 'What it is\nWhy it matters\nHow you feel about it');
+                                    }
+                                    if (!formTitle.trim()) {
+                                      setFormTitle(res.title);
+                                    }
+                                    setShowSpeakingLibraryPicker(false);
+                                  }}
+                                  className="p-2 rounded-lg border border-slate-200 hover:border-purple-400 hover:bg-purple-50/50 cursor-pointer transition-colors flex items-center justify-between text-xs"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-800">{res.title}</p>
+                                    <p className="text-[11px] text-slate-500">{res.description || res.category || 'Tài liệu Speaking'}</p>
+                                  </div>
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-800">
+                                    {resPart}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Part Selector Tabs */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'part1', label: 'Part 1: Topic-based', desc: 'Chủ đề & câu hỏi ngắn' },
+                      { id: 'part2', label: 'Part 2: Long Turn', desc: 'Cue Card độc lập' },
+                      { id: 'part3', label: 'Part 3: Discussion', desc: 'Câu hỏi thảo luận tự do' },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setFormSpeakingPart(tab.id as 'part1' | 'part2' | 'part3')}
+                        className={`p-2.5 rounded-lg border text-left transition-all ${
+                          formSpeakingPart === tab.id
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="text-xs font-bold leading-tight">{tab.label}</p>
+                        <p className={`text-[10px] mt-0.5 ${formSpeakingPart === tab.id ? 'text-purple-100' : 'text-slate-500'}`}>
+                          {tab.desc}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* PART 1 CONFIGURATION */}
+                  {formSpeakingPart === 'part1' && (
+                    <div className="space-y-4 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-purple-900 uppercase">
+                          Danh sách chủ đề Part 1 ({formSpeakingTopics.length} chủ đề)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormSpeakingTopics((prev) => [
+                              ...prev,
+                              {
+                                id: `topic_${Date.now()}_${prev.length + 1}`,
+                                topic: `Topic ${prev.length + 1}`,
+                                title: `Topic ${prev.length + 1}`,
+                                questions: ['What do you think about this?'],
+                              },
+                            ])
+                          }
+                          className="px-2.5 py-1 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-md text-xs font-bold transition-colors"
+                        >
+                          + Thêm chủ đề mới
+                        </button>
+                      </div>
+
+                      {formSpeakingTopics.length === 0 ? (
+                        <div className="p-4 bg-white rounded-lg border border-dashed border-purple-300 text-center text-xs text-purple-700">
+                          Chưa có chủ đề nào. Nhấn "+ Thêm chủ đề mới" hoặc chọn từ Thư viện tài liệu.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {formSpeakingTopics.map((topic, tIdx) => (
+                            <div key={tIdx} className="p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <input
+                                  type="text"
+                                  value={topic.title || topic.topic}
+                                  placeholder="Tên chủ đề (ví dụ: Work / Study, Hometown, Hobbies)"
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormSpeakingTopics((prev) =>
+                                      prev.map((tp, idx) => (idx === tIdx ? { ...tp, topic: val, title: val } : tp))
+                                    );
+                                  }}
+                                  className="w-full font-bold text-slate-800 text-xs p-1.5 border border-slate-200 rounded-md outline-hidden focus:border-purple-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setFormSpeakingTopics((prev) => prev.filter((_, idx) => idx !== tIdx))
+                                  }
+                                  className="text-slate-400 hover:text-red-600 p-1 shrink-0"
+                                  title="Xóa chủ đề"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+
+                              <div className="space-y-1.5 pl-2 border-l-2 border-purple-200">
+                                {topic.questions.map((q, qIdx) => (
+                                  <div key={qIdx} className="flex items-center space-x-2">
+                                    <span className="text-[11px] font-bold text-slate-500 shrink-0">
+                                      {tIdx + 1}.{qIdx + 1}
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={q}
+                                      placeholder="Nội dung câu hỏi Speaking"
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setFormSpeakingTopics((prev) =>
+                                          prev.map((tp, idx) => {
+                                            if (idx !== tIdx) return tp;
+                                            const updatedQs = [...tp.questions];
+                                            updatedQs[qIdx] = val;
+                                            return { ...tp, questions: updatedQs };
+                                          })
+                                        );
+                                      }}
+                                      className="w-full text-xs p-1.5 border border-slate-200 rounded-md outline-hidden"
+                                    />
+                                    {topic.questions.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFormSpeakingTopics((prev) =>
+                                            prev.map((tp, idx) => {
+                                              if (idx !== tIdx) return tp;
+                                              return {
+                                                ...tp,
+                                                questions: tp.questions.filter((_, i) => i !== qIdx),
+                                              };
+                                            })
+                                          );
+                                        }}
+                                        className="text-slate-400 hover:text-red-500 p-1 shrink-0"
+                                        title="Xóa câu hỏi"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFormSpeakingTopics((prev) =>
+                                      prev.map((tp, idx) => {
+                                        if (idx !== tIdx) return tp;
+                                        return { ...tp, questions: [...tp.questions, ''] };
+                                      })
+                                    );
+                                  }}
+                                  className="text-[11px] font-bold text-purple-600 hover:text-purple-800 pt-1 block"
+                                >
+                                  + Thêm câu hỏi cho chủ đề này
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PART 2 CONFIGURATION */}
+                  {formSpeakingPart === 'part2' && (
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="block text-xs font-bold text-purple-950 mb-1">
+                          {t('assignments.cueCardTitle')} - Topic *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Describe an ambition that you have had for a long time."
+                          value={formSpeakingTopic}
+                          onChange={(e) => setFormSpeakingTopic(e.target.value)}
+                          className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-purple-950 mb-1">
+                          Cue Card Bullet Points (You should say... mỗi ý 1 dòng)
+                        </label>
+                        <textarea
+                          rows={3}
+                          placeholder="What it is&#10;What you need to do to achieve it&#10;Why this ambition is important"
+                          value={formSpeakingPoints}
+                          onChange={(e) => setFormSpeakingPoints(e.target.value)}
+                          className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
+                        <div className="p-2 bg-white rounded-lg border border-slate-200">
+                          <span className="font-semibold block">Thời gian chuẩn bị:</span>
+                          <span className="font-bold text-purple-700">60 giây (1 phút)</span>
+                        </div>
+                        <div className="p-2 bg-white rounded-lg border border-slate-200">
+                          <span className="font-semibold block">Thời gian nói:</span>
+                          <span className="font-bold text-purple-700">1 - 2 phút (tối đa 120s)</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PART 3 CONFIGURATION */}
+                  {formSpeakingPart === 'part3' && (
+                    <div className="space-y-3 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-purple-900 uppercase">
+                          Câu hỏi thảo luận Part 3 ({formSpeakingQuestions.length} câu)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFormSpeakingQuestions((prev) => [...prev, ''])}
+                          className="px-2.5 py-1 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-md text-xs font-bold transition-colors"
+                        >
+                          + Thêm câu hỏi
+                        </button>
+                      </div>
+
+                      {formSpeakingQuestions.length === 0 ? (
+                        <div className="p-4 bg-white rounded-lg border border-dashed border-purple-300 text-center text-xs text-purple-700">
+                          Chưa có câu hỏi thảo luận nào. Nhấn "+ Thêm câu hỏi" hoặc chọn từ Thư viện.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {formSpeakingQuestions.map((q, idx) => (
+                            <div key={idx} className="flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-200">
+                              <span className="text-xs font-bold text-purple-700 shrink-0 w-6 text-center">
+                                {idx + 1}.
+                              </span>
+                              <input
+                                type="text"
+                                value={q}
+                                placeholder="Nhập câu hỏi thảo luận chuyên sâu Part 3"
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setFormSpeakingQuestions((prev) =>
+                                    prev.map((item, i) => (i === idx ? val : item))
+                                  );
+                                }}
+                                className="w-full text-xs p-1 outline-hidden"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFormSpeakingQuestions((prev) => prev.filter((_, i) => i !== idx))
+                                }
+                                className="text-slate-400 hover:text-red-500 p-1 shrink-0"
+                                title="Xóa câu hỏi"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
