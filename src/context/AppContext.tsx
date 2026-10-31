@@ -23,6 +23,12 @@ import {
   TeacherBankInfo,
   CourseSkill,
   AssignmentAssessmentEvidence,
+  RegularTest,
+  RegularTestAttempt,
+  RegularTestEvent,
+  RegularTestReportLink,
+  RegularTestStatus,
+  RegularTestAttemptStatus,
 } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { I18nProvider } from '../i18n/context';
@@ -30,6 +36,14 @@ import { calculateReadingBand, calculateIeltsOverallBand } from '../lib/ieltsSco
 import { gradeAssignmentSubmission } from '../lib/assignmentGrader';
 import { extractAllNormalizedQuestions, sanitizeQuestionsForStudent } from '../lib/questionNormalizer';
 import { calculateMonthlyTuition } from '../lib/tuitionCalculator';
+import {
+  hashAccessCode,
+  getStrictSettingsForPreset,
+  sanitizeExamDataForStudent,
+  calculateRemainingSeconds,
+  evaluateRegularTestAttempt,
+  computeRiskLevel,
+} from '../lib/regularTestManager';
 
 interface AppContextType {
   currentUser: User | null;
@@ -134,6 +148,63 @@ interface AppContextType {
   selectedReportId: string | null;
   setSelectedReportId: (id: string | null) => void;
 
+  // Regular Tests & Strict Exam Mode
+  regularTests: RegularTest[];
+  regularTestAttempts: RegularTestAttempt[];
+  regularTestReportLinks: RegularTestReportLink[];
+  activeExamAttempt: RegularTestAttempt | null;
+  setActiveExamAttempt: (attempt: RegularTestAttempt | null) => void;
+  createRegularTest: (test: Partial<RegularTest>) => Promise<RegularTest>;
+  updateRegularTest: (id: string, updates: Partial<RegularTest>) => Promise<void>;
+  publishRegularTest: (id: string) => Promise<void>;
+  closeRegularTest: (id: string) => Promise<void>;
+  archiveRegularTest: (id: string) => Promise<void>;
+  deleteRegularTest: (id: string) => Promise<{ success: boolean; message?: string }>;
+  startRegularTestAttempt: (
+    testId: string,
+    accessCode?: string,
+    deviceInfo?: Record<string, any>
+  ) => Promise<{ attempt: RegularTestAttempt; examData: any }>;
+  saveRegularTestAnswers: (
+    attemptId: string,
+    sessionToken: string,
+    answers: Record<string, any>,
+    flaggedQuestions?: Record<string, boolean>,
+    sequence?: number
+  ) => Promise<void>;
+  submitRegularTestAttempt: (
+    attemptId: string,
+    finalAnswers: Record<string, any>,
+    isAutoSubmit?: boolean
+  ) => Promise<void>;
+  logRegularTestEvents: (
+    attemptId: string,
+    events: Omit<RegularTestEvent, 'id' | 'createdAt'>[]
+  ) => Promise<void>;
+  gradeRegularTestAttempt: (
+    attemptId: string,
+    updates: {
+      writingScores?: any;
+      releaseSettings?: any;
+      scores?: any;
+      gradingStatus?: RegularTestAttempt['gradingStatus'];
+      isReleased?: boolean;
+    }
+  ) => Promise<void>;
+  grantRegularTestExtraTime: (
+    attemptId: string,
+    extraMinutes: number,
+    reason: string
+  ) => Promise<void>;
+  forceSubmitRegularTestAttempt: (
+    attemptId: string,
+    reason: string
+  ) => Promise<void>;
+  linkRegularTestToMonthlyReport: (
+    reportId: string,
+    attemptId: string
+  ) => Promise<void>;
+
   refreshData: () => Promise<void>;
 }
 
@@ -160,6 +231,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tuitionStatements, setTuitionStatements] = useState<TuitionStatement[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+
+  // Regular Tests & Strict Exam Mode state
+  const [regularTests, setRegularTests] = useState<RegularTest[]>([]);
+  const [regularTestAttempts, setRegularTestAttempts] = useState<RegularTestAttempt[]>([]);
+  const [regularTestReportLinks, setRegularTestReportLinks] = useState<RegularTestReportLink[]>([]);
+  const [activeExamAttempt, setActiveExamAttempt] = useState<RegularTestAttempt | null>(null);
 
   // Navigation state
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -2837,6 +2914,651 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActivities((prev) => [newAct, ...prev]);
   };
 
+  // =============================================================================
+  // REGULAR TESTS & STRICT EXAM MODE ACTIONS
+  // =============================================================================
+
+  const createRegularTest = async (testData: Partial<RegularTest>): Promise<RegularTest> => {
+    if (!currentUser || currentUser.role !== 'teacher') {
+      throw new Error('Only teachers can create regular tests');
+    }
+
+    const testId = `test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const preset = testData.strictPreset || 'standard';
+    const strictSettings = testData.strictSettings || getStrictSettingsForPreset(preset);
+
+    let accessCodeHash: string | undefined = undefined;
+    if (testData.accessCodeEnabled && testData.accessCodeHash) {
+      accessCodeHash = await hashAccessCode(testData.accessCodeHash);
+    }
+
+    const newTest: RegularTest = {
+      id: testId,
+      courseId: testData.courseId || '',
+      courseName: courses.find((c) => c.id === testData.courseId)?.name || 'Course',
+      teacherId: currentUser.id,
+      teacherName: currentUser.name,
+      title: testData.title || 'Regular Test',
+      instructions: testData.instructions || '',
+      skills: testData.skills || ['reading'],
+      availabilityStart: testData.availabilityStart,
+      availabilityEnd: testData.availabilityEnd,
+      hardDeadline: testData.hardDeadline,
+      durationMinutes: Number(testData.durationMinutes) || 60,
+      timingMode: testData.timingMode || (testData.skills && testData.skills.length > 1 ? 'per_section' : 'overall_timer'),
+      sectionTimers: testData.sectionTimers || {},
+      eligibleStudentIds: testData.eligibleStudentIds || [],
+      maxAttempts: Number(testData.maxAttempts) || 1,
+      accessCodeEnabled: Boolean(testData.accessCodeEnabled),
+      accessCodeHash,
+      strictPreset: preset,
+      strictSettings,
+      status: testData.status || 'draft',
+      currentVersion: 1,
+      releaseSettings: testData.releaseSettings || {
+        timing: 'manual_review',
+        detailLevel: 'with_corrections',
+        feedbackReleased: false,
+      },
+      sections: testData.sections || [],
+      createdAt: new Date().toISOString().split('T')[0],
+      updatedAt: new Date().toISOString().split('T')[0],
+    };
+
+    try {
+      await supabase.from('regular_tests').insert({
+        id: newTest.id,
+        course_id: newTest.courseId,
+        teacher_id: newTest.teacherId,
+        title: newTest.title,
+        instructions: newTest.instructions,
+        skills: newTest.skills,
+        availability_start: newTest.availabilityStart || null,
+        availability_end: newTest.availabilityEnd || null,
+        hard_deadline: newTest.hardDeadline || null,
+        duration_minutes: newTest.durationMinutes,
+        timing_mode: newTest.timingMode,
+        section_timers: newTest.sectionTimers,
+        eligible_student_ids: newTest.eligibleStudentIds,
+        max_attempts: newTest.maxAttempts,
+        access_code_enabled: newTest.accessCodeEnabled,
+        access_code_hash: newTest.accessCodeHash,
+        strict_preset: newTest.strictPreset,
+        strict_settings: newTest.strictSettings,
+        status: newTest.status,
+        current_version: newTest.currentVersion,
+        release_settings: newTest.releaseSettings,
+        sections: newTest.sections,
+      });
+    } catch (err) {
+      console.warn('Regular test DB insert notice:', err);
+    }
+
+    setRegularTests((prev) => [newTest, ...prev]);
+    addActivity(`Created Regular Test: ${newTest.title}`, 'submission', 'regular_tests');
+    return newTest;
+  };
+
+  const updateRegularTest = async (id: string, updates: Partial<RegularTest>) => {
+    if (!currentUser || currentUser.role !== 'teacher') {
+      throw new Error('Only teachers can update regular tests');
+    }
+
+    let updatedHash = updates.accessCodeHash;
+    if (updates.accessCodeEnabled && updates.accessCodeHash && !updates.accessCodeHash.includes(':')) {
+      updatedHash = await hashAccessCode(updates.accessCodeHash);
+    }
+
+    setRegularTests((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...updates, accessCodeHash: updatedHash || t.accessCodeHash, updatedAt: new Date().toISOString().split('T')[0] } : t))
+    );
+
+    try {
+      const dbUpdates: any = { ...updates, updated_at: new Date().toISOString() };
+      if (updatedHash) dbUpdates.access_code_hash = updatedHash;
+      await supabase.from('regular_tests').update(dbUpdates).eq('id', id);
+    } catch (err) {
+      console.warn('Regular test DB update notice:', err);
+    }
+  };
+
+  const publishRegularTest = async (id: string) => {
+    const test = regularTests.find((t) => t.id === id);
+    if (!test) throw new Error('Test not found');
+
+    const nextVersion = (test.currentVersion || 0) + 1;
+    const now = new Date();
+    const startTime = test.availabilityStart ? new Date(test.availabilityStart) : null;
+    const newStatus: RegularTestStatus = startTime && startTime > now ? 'scheduled' : 'live';
+
+    // Create immutable version snapshot
+    try {
+      await supabase.from('regular_test_versions').insert({
+        test_id: id,
+        version_number: nextVersion,
+        frozen_payload: {
+          title: test.title,
+          instructions: test.instructions,
+          skills: test.skills,
+          sections: test.sections,
+          durationMinutes: test.durationMinutes,
+          timingMode: test.timingMode,
+          sectionTimers: test.sectionTimers,
+          strictPreset: test.strictPreset,
+          strictSettings: test.strictSettings,
+        },
+      });
+
+      await supabase
+        .from('regular_tests')
+        .update({
+          status: newStatus,
+          current_version: nextVersion,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+    } catch (err) {
+      console.warn('Publish test DB notice:', err);
+    }
+
+    setRegularTests((prev) =>
+      prev.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: newStatus,
+              currentVersion: nextVersion,
+              updatedAt: new Date().toISOString().split('T')[0],
+            }
+          : t
+      )
+    );
+
+    addActivity(`Published Regular Test: ${test.title}`, 'submission', 'regular_tests');
+  };
+
+  const closeRegularTest = async (id: string) => {
+    setRegularTests((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: 'closed', updatedAt: new Date().toISOString().split('T')[0] } : t))
+    );
+    try {
+      await supabase.from('regular_tests').update({ status: 'closed', updated_at: new Date().toISOString() }).eq('id', id);
+    } catch (err) {
+      console.warn('Close test DB notice:', err);
+    }
+  };
+
+  const archiveRegularTest = async (id: string) => {
+    setRegularTests((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: 'archived', updatedAt: new Date().toISOString().split('T')[0] } : t))
+    );
+    try {
+      await supabase.from('regular_tests').update({ status: 'archived', updated_at: new Date().toISOString() }).eq('id', id);
+    } catch (err) {
+      console.warn('Archive test DB notice:', err);
+    }
+  };
+
+  const deleteRegularTest = async (id: string): Promise<{ success: boolean; message?: string }> => {
+    const hasAttempts = regularTestAttempts.some((a) => a.testId === id);
+    if (hasAttempts) {
+      return {
+        success: false,
+        message: 'Cannot delete test with existing student attempts. You may archive it instead.',
+      };
+    }
+
+    setRegularTests((prev) => prev.filter((t) => t.id !== id));
+    try {
+      await supabase.from('regular_tests').delete().eq('id', id);
+    } catch (err) {
+      console.warn('Delete test DB notice:', err);
+    }
+
+    return { success: true };
+  };
+
+  const startRegularTestAttempt = async (
+    testId: string,
+    accessCode?: string,
+    deviceInfo?: Record<string, any>
+  ): Promise<{ attempt: RegularTestAttempt; examData: any }> => {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const test = regularTests.find((t) => t.id === testId);
+    if (!test) throw new Error('Test not found');
+
+    if (test.status !== 'live') {
+      throw new Error('Test is not currently live for exam taking');
+    }
+
+    // Access code validation
+    if (test.accessCodeEnabled) {
+      if (!accessCode) {
+        throw new Error('Access code is required');
+      }
+      const hashedInput = await hashAccessCode(accessCode);
+      if (hashedInput !== test.accessCodeHash) {
+        throw new Error('Invalid access code');
+      }
+    }
+
+    // Attempt count check
+    const existing = regularTestAttempts.filter((a) => a.testId === testId && a.studentId === currentUser.id);
+    if (existing.length >= test.maxAttempts) {
+      throw new Error(`Maximum attempts (${test.maxAttempts}) reached for this test`);
+    }
+
+    const attemptNumber = existing.length + 1;
+    const serverStartTime = new Date().toISOString();
+    const serverTiming = calculateRemainingSeconds({
+      serverStartTime,
+      durationMinutes: test.durationMinutes,
+      hardDeadline: test.hardDeadline,
+    });
+
+    const sessionToken = `tok_${Math.random().toString(36).substring(2)}_${Date.now()}`;
+    const attemptId = `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    const newAttempt: RegularTestAttempt = {
+      id: attemptId,
+      testId,
+      testTitle: test.title,
+      versionId: `v_${test.currentVersion || 1}`,
+      studentId: currentUser.id,
+      studentName: currentUser.name,
+      studentEmail: currentUser.email,
+      courseId: test.courseId,
+      courseName: test.courseName,
+      attemptNumber,
+      serverStartTime,
+      serverDeadline: serverTiming.effectiveDeadline.toISOString(),
+      extraTimeMinutes: 0,
+      currentSectionIndex: 0,
+      status: 'in_progress',
+      autoSubmitted: false,
+      sessionToken,
+      answers: { reading: {}, writing: { text: '', wordCount: 0 } },
+      flaggedQuestions: {},
+      writingRevisions: [],
+      saveRevisionSequence: 0,
+      gradingStatus: 'pending',
+      isReleased: false,
+      createdAt: serverStartTime,
+      updatedAt: serverStartTime,
+    };
+
+    try {
+      await supabase.from('regular_test_attempts').insert({
+        id: newAttempt.id,
+        test_id: newAttempt.testId,
+        student_id: newAttempt.studentId,
+        attempt_number: newAttempt.attemptNumber,
+        server_start_time: newAttempt.serverStartTime,
+        server_deadline: newAttempt.serverDeadline,
+        session_token: newAttempt.sessionToken,
+        status: newAttempt.status,
+        answers: newAttempt.answers,
+        flagged_questions: newAttempt.flaggedQuestions,
+        device_info: deviceInfo || {},
+      });
+    } catch (err) {
+      console.warn('Start attempt DB notice:', err);
+    }
+
+    setRegularTestAttempts((prev) => [newAttempt, ...prev]);
+    setActiveExamAttempt(newAttempt);
+
+    const examData = sanitizeExamDataForStudent(test);
+    return { attempt: newAttempt, examData };
+  };
+
+  const saveRegularTestAnswers = async (
+    attemptId: string,
+    sessionToken: string,
+    answers: Record<string, any>,
+    flaggedQuestions?: Record<string, boolean>,
+    sequence?: number
+  ) => {
+    setRegularTestAttempts((prev) =>
+      prev.map((a) => {
+        if (a.id !== attemptId) return a;
+        if (a.sessionToken !== sessionToken) return a;
+
+        const updatedWritingText = answers.writing?.text;
+        const previousWritingText = a.answers?.writing?.text;
+        const revisions = [...(a.writingRevisions || [])];
+
+        if (updatedWritingText !== undefined && updatedWritingText !== previousWritingText) {
+          revisions.push({
+            timestamp: new Date().toISOString(),
+            wordCount: answers.writing?.wordCount || 0,
+            length: updatedWritingText.length,
+          });
+        }
+
+        return {
+          ...a,
+          answers: { ...a.answers, ...answers },
+          flaggedQuestions: flaggedQuestions ? { ...a.flaggedQuestions, ...flaggedQuestions } : a.flaggedQuestions,
+          writingRevisions: revisions,
+          saveRevisionSequence: sequence || (a.saveRevisionSequence || 0) + 1,
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+
+    try {
+      await supabase
+        .from('regular_test_attempts')
+        .update({
+          answers,
+          flagged_questions: flaggedQuestions,
+          save_revision_sequence: sequence,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', attemptId)
+        .eq('session_token', sessionToken);
+    } catch (err) {
+      console.warn('Save answers DB notice:', err);
+    }
+  };
+
+  const submitRegularTestAttempt = async (
+    attemptId: string,
+    finalAnswers: Record<string, any>,
+    isAutoSubmit: boolean = false
+  ) => {
+    const attempt = regularTestAttempts.find((a) => a.id === attemptId);
+    if (!attempt) return;
+
+    const test = regularTests.find((t) => t.id === attempt.testId);
+    if (!test) return;
+
+    const updatedAttempt: RegularTestAttempt = {
+      ...attempt,
+      answers: { ...attempt.answers, ...finalAnswers },
+      status: isAutoSubmit ? 'auto_submitted' : 'submitted',
+      autoSubmitted: isAutoSubmit,
+      submittedAt: new Date().toISOString(),
+    };
+
+    // Auto-grade objective sections
+    const { scores, gradingStatus } = evaluateRegularTestAttempt(updatedAttempt, test);
+    updatedAttempt.scores = scores;
+    updatedAttempt.gradingStatus = gradingStatus;
+
+    // Check release settings for immediate release
+    if (test.releaseSettings?.timing === 'immediate' || (test.releaseSettings?.timing === 'auto_graded' && gradingStatus === 'fully_graded')) {
+      updatedAttempt.isReleased = true;
+      updatedAttempt.releasedAt = new Date().toISOString();
+    }
+
+    setRegularTestAttempts((prev) => prev.map((a) => (a.id === attemptId ? updatedAttempt : a)));
+    if (activeExamAttempt?.id === attemptId) {
+      setActiveExamAttempt(null);
+    }
+
+    try {
+      await supabase
+        .from('regular_test_attempts')
+        .update({
+          status: updatedAttempt.status,
+          submitted_at: updatedAttempt.submittedAt,
+          auto_submitted: updatedAttempt.autoSubmitted,
+          answers: updatedAttempt.answers,
+          scores: updatedAttempt.scores,
+          grading_status: updatedAttempt.gradingStatus,
+          is_released: updatedAttempt.isReleased,
+          released_at: updatedAttempt.releasedAt,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', attemptId);
+    } catch (err) {
+      console.warn('Submit attempt DB notice:', err);
+    }
+
+    addActivity(
+      `Submitted Regular Test: ${test.title} (${isAutoSubmit ? 'Auto-submitted' : 'Manual'})`,
+      'submission',
+      'regular_tests'
+    );
+  };
+
+  const logRegularTestEvents = async (
+    attemptId: string,
+    events: Omit<RegularTestEvent, 'id' | 'createdAt'>[]
+  ) => {
+    if (!events || events.length === 0) return;
+
+    const attempt = regularTestAttempts.find((a) => a.id === attemptId);
+    if (!attempt) return;
+
+    const fullEvents: RegularTestEvent[] = events.map((e) => ({
+      ...e,
+      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+    }));
+
+    const currentRisk = computeRiskLevel(fullEvents);
+
+    setRegularTestAttempts((prev) =>
+      prev.map((a) =>
+        a.id === attemptId
+          ? {
+              ...a,
+              eventCount: (a.eventCount || 0) + fullEvents.length,
+              riskLevel: currentRisk,
+            }
+          : a
+      )
+    );
+
+    try {
+      await supabase.from('regular_test_events').insert(
+        fullEvents.map((e) => ({
+          attempt_id: attemptId,
+          test_id: attempt.testId,
+          student_id: attempt.studentId,
+          event_type: e.eventType,
+          category: e.category,
+          severity: e.severity,
+          server_timestamp: e.serverTimestamp || new Date().toISOString(),
+          duration_seconds: e.durationSeconds || 0,
+          metadata: e.metadata || {},
+        }))
+      );
+    } catch (err) {
+      console.warn('Log events DB notice:', err);
+    }
+  };
+
+  const gradeRegularTestAttempt = async (
+    attemptId: string,
+    updates: {
+      writingScores?: any;
+      releaseSettings?: any;
+      scores?: any;
+      gradingStatus?: RegularTestAttempt['gradingStatus'];
+      isReleased?: boolean;
+    }
+  ) => {
+    if (!currentUser || currentUser.role !== 'teacher') {
+      throw new Error('Only teachers can grade regular test attempts');
+    }
+
+    const attempt = regularTestAttempts.find((a) => a.id === attemptId);
+    if (!attempt) throw new Error('Attempt not found');
+
+    const updatedScores = {
+      ...(attempt.scores || {}),
+      ...(updates.scores || {}),
+    };
+
+    if (updates.writingScores) {
+      updatedScores.writing = updates.writingScores;
+      // Recompute overall band
+      const bandsToAverage: number[] = [];
+      if (updatedScores.reading?.band) bandsToAverage.push(updatedScores.reading.band);
+      if (updatedScores.writing?.band) bandsToAverage.push(updatedScores.writing.band);
+      if (bandsToAverage.length > 0) {
+        updatedScores.overall = calculateIeltsOverallBand(bandsToAverage);
+      }
+    }
+
+    const isReleased = updates.isReleased !== undefined ? updates.isReleased : attempt.isReleased;
+    const gradingStatus = updates.gradingStatus || 'fully_graded';
+
+    setRegularTestAttempts((prev) =>
+      prev.map((a) =>
+        a.id === attemptId
+          ? {
+              ...a,
+              scores: updatedScores,
+              gradingStatus,
+              isReleased,
+              releasedAt: isReleased && !a.releasedAt ? new Date().toISOString() : a.releasedAt,
+              updatedAt: new Date().toISOString(),
+            }
+          : a
+      )
+    );
+
+    try {
+      await supabase
+        .from('regular_test_attempts')
+        .update({
+          scores: updatedScores,
+          grading_status: gradingStatus,
+          is_released: isReleased,
+          released_at: isReleased ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', attemptId);
+    } catch (err) {
+      console.warn('Grade attempt DB notice:', err);
+    }
+
+    addActivity(`Graded Regular Test attempt for ${attempt.studentName}`, 'submission', 'regular_tests');
+  };
+
+  const grantRegularTestExtraTime = async (
+    attemptId: string,
+    extraMinutes: number,
+    reason: string
+  ) => {
+    if (!currentUser || currentUser.role !== 'teacher') {
+      throw new Error('Only teachers can grant extra time');
+    }
+
+    const attempt = regularTestAttempts.find((a) => a.id === attemptId);
+    if (!attempt) throw new Error('Attempt not found');
+
+    const newExtra = (attempt.extraTimeMinutes || 0) + extraMinutes;
+    const newDeadline = new Date(new Date(attempt.serverDeadline).getTime() + extraMinutes * 60 * 1000).toISOString();
+
+    setRegularTestAttempts((prev) =>
+      prev.map((a) =>
+        a.id === attemptId
+          ? {
+              ...a,
+              extraTimeMinutes: newExtra,
+              serverDeadline: newDeadline,
+              updatedAt: new Date().toISOString(),
+            }
+          : a
+      )
+    );
+
+    // Log teacher intervention event
+    await logRegularTestEvents(attemptId, [
+      {
+        attemptId,
+        testId: attempt.testId,
+        studentId: attempt.studentId,
+        eventType: 'extra_time_granted',
+        category: 'teacher_action',
+        severity: 'info',
+        serverTimestamp: new Date().toISOString(),
+        durationSeconds: extraMinutes * 60,
+        metadata: { grantedBy: currentUser.name, extraMinutes, reason },
+        reviewStatus: 'acknowledged',
+      },
+    ]);
+
+    try {
+      await supabase
+        .from('regular_test_attempts')
+        .update({
+          extra_time_minutes: newExtra,
+          server_deadline: newDeadline,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', attemptId);
+    } catch (err) {
+      console.warn('Extra time DB notice:', err);
+    }
+  };
+
+  const forceSubmitRegularTestAttempt = async (attemptId: string, reason: string) => {
+    if (!currentUser || currentUser.role !== 'teacher') {
+      throw new Error('Only teachers can force submit attempts');
+    }
+
+    const attempt = regularTestAttempts.find((a) => a.id === attemptId);
+    if (!attempt) throw new Error('Attempt not found');
+
+    await logRegularTestEvents(attemptId, [
+      {
+        attemptId,
+        testId: attempt.testId,
+        studentId: attempt.studentId,
+        eventType: 'teacher_force_submit',
+        category: 'teacher_action',
+        severity: 'high',
+        serverTimestamp: new Date().toISOString(),
+        durationSeconds: 0,
+        metadata: { forcedBy: currentUser.name, reason },
+        reviewStatus: 'acknowledged',
+      },
+    ]);
+
+    await submitRegularTestAttempt(attemptId, attempt.answers || {}, true);
+  };
+
+  const linkRegularTestToMonthlyReport = async (reportId: string, attemptId: string) => {
+    const attempt = regularTestAttempts.find((a) => a.id === attemptId);
+    if (!attempt) throw new Error('Attempt not found');
+
+    const linkId = `link_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newLink: RegularTestReportLink = {
+      id: linkId,
+      reportId,
+      attemptId,
+      testId: attempt.testId,
+      studentId: attempt.studentId,
+      testTitle: attempt.testTitle,
+      submittedAt: attempt.submittedAt,
+      scores: attempt.scores,
+      status: attempt.status,
+      createdAt: new Date().toISOString(),
+    };
+
+    setRegularTestReportLinks((prev) => [newLink, ...prev]);
+
+    try {
+      await supabase.from('regular_test_report_links').upsert({
+        id: newLink.id,
+        report_id: reportId,
+        attempt_id: attemptId,
+        test_id: newLink.testId,
+        student_id: newLink.studentId,
+      });
+    } catch (err) {
+      console.warn('Link test to report notice:', err);
+    }
+  };
+
   const activeCourses = courses.filter((c) =>
     currentUser?.role === 'teacher'
       ? c.teacherId === currentUser.id
@@ -2905,6 +3627,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notifications,
         markNotificationRead,
         addActivity,
+        // Regular Tests & Strict Exam Mode
+        regularTests,
+        regularTestAttempts,
+        regularTestReportLinks,
+        activeExamAttempt,
+        setActiveExamAttempt,
+        createRegularTest,
+        updateRegularTest,
+        publishRegularTest,
+        closeRegularTest,
+        archiveRegularTest,
+        deleteRegularTest,
+        startRegularTestAttempt,
+        saveRegularTestAnswers,
+        submitRegularTestAttempt,
+        logRegularTestEvents,
+        gradeRegularTestAttempt,
+        grantRegularTestExtraTime,
+        forceSubmitRegularTestAttempt,
+        linkRegularTestToMonthlyReport,
         activeTab,
         setActiveTab,
         selectedCourseId,

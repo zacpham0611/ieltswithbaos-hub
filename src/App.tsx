@@ -13,11 +13,21 @@ import { TuitionView } from './views/TuitionView';
 import { AiAssistantView } from './views/AiAssistantView';
 import { ProgressView } from './views/ProgressView';
 import { SettingsView } from './views/SettingsView';
+import { RegularTestsView } from './views/RegularTestsView';
+import { RegularTestExamView } from './views/regular-tests/RegularTestExamView';
 import { AuthView } from './views/AuthView';
 import { useI18n } from './i18n/context';
 
 export const AppContent: React.FC = () => {
-  const { currentUser, loadingAuth, activeTab, setActiveTab } = useApp();
+  const {
+    currentUser,
+    loadingAuth,
+    activeTab,
+    setActiveTab,
+    activeExamAttempt,
+    regularTests,
+    setActiveExamAttempt,
+  } = useApp();
   const { t } = useI18n();
 
   if (loadingAuth) {
@@ -37,6 +47,20 @@ export const AppContent: React.FC = () => {
     return <AuthView onAuthSuccess={() => setActiveTab('dashboard')} />;
   }
 
+  // Active Exam Takes Over Entire Viewport (Desktop Distraction-Free)
+  if (activeExamAttempt) {
+    const examTest = regularTests.find((t) => t.id === activeExamAttempt.testId);
+    if (examTest) {
+      return (
+        <RegularTestExamView
+          test={examTest}
+          attempt={activeExamAttempt}
+          onExit={() => setActiveExamAttempt(null)}
+        />
+      );
+    }
+  }
+
   const isTeacher = currentUser.role === 'teacher';
 
   const renderContent = () => {
@@ -51,6 +75,8 @@ export const AppContent: React.FC = () => {
         return <ResourcesView />;
       case 'assignments':
         return <AssignmentsView />;
+      case 'regular_tests':
+        return <RegularTestsView />;
       case 'assessments':
         return <AssessmentsView />;
       case 'tuition':

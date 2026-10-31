@@ -12,6 +12,7 @@ import {
   Settings,
   Compass,
   LineChart,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -46,6 +47,7 @@ export const Sidebar: React.FC = () => {
     { id: 'courses', label: t('nav.myCourses'), icon: BookOpen },
     { id: 'resources', label: t('nav.resources'), icon: FolderArchive },
     { id: 'assignments', label: t('nav.assignments'), icon: FileCheck2 },
+    { id: 'regular_tests', label: t('nav.regularTests'), icon: ShieldCheck },
     { id: 'assessments', label: t('nav.monthlyAssessments'), icon: Award },
     { id: 'tuition', label: t('nav.tuition'), icon: WalletCards },
     { id: 'ai_assistant', label: t('nav.aiAssistant'), icon: Sparkles, badge: 'AI' },
@@ -57,6 +59,7 @@ export const Sidebar: React.FC = () => {
     { id: 'courses', label: t('nav.myCourses'), icon: BookOpen },
     { id: 'find_course', label: t('nav.findCourse'), icon: Compass },
     { id: 'assignments', label: t('nav.assignments'), icon: FileCheck2 },
+    { id: 'regular_tests', label: t('nav.regularTests'), icon: ShieldCheck },
     { id: 'progress', label: t('nav.myProgress'), icon: LineChart },
     { id: 'assessments', label: t('nav.monthlyReports'), icon: Award },
     { id: 'tuition', label: t('nav.tuition'), icon: WalletCards },

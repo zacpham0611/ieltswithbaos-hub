@@ -44,6 +44,9 @@ export const AssessmentsView: React.FC = () => {
     deleteMonthlyReport,
     selectedReportId,
     setSelectedReportId,
+    regularTests,
+    regularTestAttempts,
+    regularTestReportLinks,
   } = useApp();
 
   const { t } = useI18n();
@@ -245,6 +248,17 @@ export const AssessmentsView: React.FC = () => {
     const overallEstimatedBand = availableBands.length > 0
       ? Math.round((availableBands.reduce((a, b) => a + b, 0) / availableBands.length) * 2) / 2
       : activeReport.learningEvidence?.skillBreakdown?.overallEstimatedBand;
+
+    const linkedAttemptIds = (regularTestReportLinks || [])
+      .filter((l) => l.reportId === activeReport.id)
+      .map((l) => l.attemptId);
+
+    const relevantTestAttempts = (regularTestAttempts || []).filter((a) => {
+      if (a.studentId !== activeReport.studentId) return false;
+      if (linkedAttemptIds.includes(a.id)) return true;
+      if (a.submittedAt && a.submittedAt.startsWith(activeReport.month)) return true;
+      return false;
+    });
 
     return (
       <div className="space-y-6 max-w-7xl mx-auto w-full">
@@ -633,6 +647,97 @@ export const AssessmentsView: React.FC = () => {
                             <p className="line-clamp-2 leading-relaxed">
                               {sub.comments || 'Bài làm đã được ghi nhận vào hồ sơ định kỳ.'}
                             </p>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Section 3B: Periodic Test Performance (Independent from assignment averages) */}
+          <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs print-avoid-break">
+            <div className="bg-slate-100/90 px-6 py-3.5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <ShieldCheck className="w-4 h-4 text-blue-600" />
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                  {t('regularTests.periodicTestSection')} (Periodic Test Performance)
+                </h3>
+              </div>
+              <span className="text-xs text-slate-500 font-medium">
+                {relevantTestAttempts.length} bài thi định kỳ được ghi nhận
+              </span>
+            </div>
+
+            {relevantTestAttempts.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                Chưa có dữ liệu bài kiểm tra định kỳ nào trong kỳ này.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 uppercase font-bold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4 w-12 text-center">#</th>
+                      <th className="py-3 px-4 min-w-[200px]">Tên bài kiểm tra</th>
+                      <th className="py-3 px-4 w-32">Ngày nộp</th>
+                      <th className="py-3 px-4 w-28">Trạng thái</th>
+                      <th className="py-3 px-4 w-32">Reading Band</th>
+                      <th className="py-3 px-4 w-32">Writing Band</th>
+                      <th className="py-3 px-4 w-32">Overall Band</th>
+                      <th className="py-3 px-4 min-w-[200px]">Chế độ phòng thi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {relevantTestAttempts.map((att, idx) => {
+                      const test = regularTests.find((t) => t.id === att.testId);
+                      return (
+                        <tr key={att.id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                          <td className="py-3 px-4">
+                            <span className="font-bold text-slate-900 block leading-snug">{att.testTitle || test?.title || 'Regular Test'}</span>
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 text-[11px] whitespace-nowrap">
+                            {att.submittedAt || '-'}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block bg-emerald-100 text-emerald-800 uppercase">
+                              {att.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {att.scores?.reading?.band !== undefined ? (
+                              <span className="px-2 py-0.5 bg-blue-50 border border-blue-300 text-blue-800 font-black rounded text-xs">
+                                Band {att.scores.reading.band.toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {att.scores?.writing?.band !== undefined ? (
+                              <span className="px-2 py-0.5 bg-indigo-50 border border-indigo-300 text-indigo-800 font-black rounded text-xs">
+                                Band {att.scores.writing.band.toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {att.scores?.overall !== undefined ? (
+                              <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-800 font-black rounded text-xs">
+                                Band {att.scores.overall.toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600 text-[11px]">
+                            <span className="inline-flex items-center gap-1 font-semibold uppercase text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                              Strict: {test?.strictPreset || 'Standard'}
+                            </span>
                           </td>
                         </tr>
                       );

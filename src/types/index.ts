@@ -538,3 +538,193 @@ export interface NotificationItem {
   type: 'info' | 'success' | 'warning';
   linkTarget?: string;
 }
+
+// =============================================================================
+// REGULAR TEST & STRICT EXAM MODE TYPES
+// =============================================================================
+
+export type StrictExamPreset = 'off' | 'standard' | 'strict';
+
+export interface StrictExamSettings {
+  desktopOnly: boolean;
+  fullscreenRequired: boolean;
+  blockCopyReading: boolean;
+  blockPasteWriting: boolean;
+  readingInactivitySeconds: number;
+  disableSpellcheck: boolean;
+  watermark: boolean;
+  preventDevTools: boolean;
+  sessionPolicy: 'takeover' | 'block_new';
+  ipAllowlist?: string[];
+}
+
+export type RegularTestStatus = 'draft' | 'scheduled' | 'live' | 'completed' | 'closed' | 'archived';
+
+export type RegularTestTimingMode = 'overall_timer' | 'per_section';
+
+export interface RegularTestReleaseSettings {
+  timing: 'immediate' | 'auto_graded' | 'manual_review';
+  detailLevel: 'score_only' | 'with_corrections' | 'with_answers';
+  feedbackReleased: boolean;
+}
+
+export interface RegularTestSection {
+  id: string;
+  skill: 'reading' | 'writing';
+  title: string;
+  durationMinutes?: number;
+  instructions?: string;
+  resourceId?: string; // Materials Library reference
+  // Reading Payload
+  readingPassage?: string;
+  passages?: ParsedPassage[];
+  readingQuestions?: ReadingQuestion[];
+  questionGroups?: QuestionGroup[];
+  readingTestType?: ReadingTestType;
+  // Writing Payload
+  writingTaskType?: 'task1' | 'task2';
+  writingTaskCategory?: WritingTaskCategory;
+  writingPrompt?: string;
+  writingMinWords?: number;
+  task1ImageUrl?: string;
+  modelAnswer?: string;
+}
+
+export interface RegularTest {
+  id: string;
+  courseId: string;
+  courseName?: string;
+  teacherId: string;
+  teacherName?: string;
+  title: string;
+  instructions: string;
+  skills: ('reading' | 'writing')[];
+  availabilityStart?: string;
+  availabilityEnd?: string;
+  hardDeadline?: string;
+  durationMinutes: number;
+  timingMode: RegularTestTimingMode;
+  sectionTimers?: Record<string, number>;
+  eligibleStudentIds?: string[];
+  maxAttempts: number;
+  accessCodeEnabled: boolean;
+  accessCodeHash?: string;
+  strictPreset: StrictExamPreset;
+  strictSettings: StrictExamSettings;
+  status: RegularTestStatus;
+  currentVersion: number;
+  releaseSettings: RegularTestReleaseSettings;
+  sections?: RegularTestSection[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RegularTestAttemptStatus = 'in_progress' | 'submitted' | 'auto_submitted' | 'overdue';
+
+export interface RegularTestAttempt {
+  id: string;
+  testId: string;
+  testTitle?: string;
+  versionId: string;
+  studentId: string;
+  studentName?: string;
+  studentEmail?: string;
+  courseId: string;
+  courseName?: string;
+  attemptNumber: number;
+  serverStartTime: string;
+  serverDeadline: string;
+  extraTimeMinutes: number;
+  currentSectionIndex: number;
+  status: RegularTestAttemptStatus;
+  submittedAt?: string;
+  autoSubmitted: boolean;
+  sessionToken: string;
+  answers: {
+    reading?: Record<string, string>;
+    writing?: { text: string; wordCount: number };
+    [key: string]: any;
+  };
+  flaggedQuestions: Record<string, boolean>;
+  writingRevisions?: Array<{
+    timestamp: string;
+    wordCount: number;
+    length: number;
+    text?: string;
+  }>;
+  saveRevisionSequence?: number;
+  scores?: {
+    reading?: {
+      raw: number;
+      max: number;
+      band: number;
+      errorAnalysis?: Array<{
+        questionId: string;
+        userAnswer: string;
+        correctAnswer: string;
+        isCorrect: boolean;
+        explanation?: string;
+      }>;
+    };
+    writing?: {
+      band: number;
+      rubricScores?: Array<{
+        criterion: string;
+        score: number;
+        descriptor: string;
+      }>;
+      strengths?: string;
+      areasToImprove?: string;
+      nextSteps?: string;
+    };
+    overall?: number;
+  };
+  gradingStatus: 'pending' | 'auto_graded' | 'pending_manual' | 'fully_graded';
+  isReleased: boolean;
+  releasedAt?: string;
+  scoreAdjustments?: Array<{
+    timestamp: string;
+    adjustedBy: string;
+    reason: string;
+    previousScores: any;
+    newScores: any;
+  }>;
+  eventCount?: number;
+  riskLevel?: 'low' | 'medium' | 'high';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RegularTestEvent {
+  id: string;
+  attemptId: string;
+  testId: string;
+  studentId: string;
+  studentName?: string;
+  eventType: string;
+  category: 'objective' | 'indicator' | 'teacher_action';
+  severity: 'info' | 'low' | 'medium' | 'high';
+  serverTimestamp: string;
+  clientTimestamp?: string;
+  durationSeconds: number;
+  metadata: Record<string, any>;
+  reviewStatus: 'unreviewed' | 'acknowledged' | 'dismissed';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  createdAt?: string;
+}
+
+export interface RegularTestReportLink {
+  id: string;
+  reportId: string;
+  attemptId: string;
+  testId: string;
+  studentId: string;
+  testTitle?: string;
+  submittedAt?: string;
+  scores?: any;
+  status?: string;
+  createdAt?: string;
+}
+
