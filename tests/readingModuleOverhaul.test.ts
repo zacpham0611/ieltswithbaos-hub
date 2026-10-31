@@ -398,6 +398,80 @@ console.log('Test 9: Yes / No / Not Given Mapping & Isolation from Summary Compl
   console.log('✓ Passed: Yes/No/Not Given mapping and complete isolation from completion groups.');
 }
 
+// -------------------------------------------------------------
+// Test 10: Multi-Passage Automatic Question Partitioning & Alignment
+// -------------------------------------------------------------
+console.log('Test 10: Multi-Passage Automatic Question Partitioning & Alignment');
+{
+  const mockAssignment3Passages = {
+    id: 'test_bamboo_3_passages',
+    title: 'IELTS Academic Reading: 3 Passages',
+    passages: [
+      {
+        id: 'p_1',
+        title: 'Bamboo: A Wonder Plant',
+        content: 'Passage 1 content...',
+        questions: Array.from({ length: 13 }, (_, i) => ({ id: `q_${i + 1}`, prompt: `Prompt ${i + 1}` })),
+      },
+      {
+        id: 'p_2',
+        title: 'Renewable Energy',
+        content: 'Passage 2 content...',
+        questions: Array.from({ length: 13 }, (_, i) => ({ id: `q_${i + 14}`, prompt: `Prompt ${i + 14}` })),
+      },
+      {
+        id: 'p_3',
+        title: 'Global Warming in New Zealand',
+        content: 'Passage 3 content...',
+        questions: Array.from({ length: 14 }, (_, i) => ({ id: `q_${i + 27}`, prompt: `Prompt ${i + 27}` })),
+      },
+    ],
+    readingQuestions: Array.from({ length: 40 }, (_, i) => ({
+      id: `q_${i + 1}`,
+      type: i < 7 ? 'matching_information' : i < 13 ? 'true_false_not_given' : i < 26 ? 'sentence_completion' : 'yes_no_not_given',
+      prompt: `Global prompt for question ${i + 1}`,
+      correctAnswer: 'A',
+    })),
+  };
+
+  const extracted = extractAllNormalizedQuestions(mockAssignment3Passages);
+  assert.strictEqual(extracted.questions.length, 40, 'Total questions must be exactly 40');
+  
+  // Verify passage mapping:
+  // Q1..Q13 -> Passage 0
+  for (let i = 1; i <= 13; i++) {
+    assert.strictEqual(extracted.passageMap[`q_${i}`], 0, `Q${i} must be mapped to Passage 0`);
+  }
+  // Q14..Q26 -> Passage 1
+  for (let i = 14; i <= 26; i++) {
+    assert.strictEqual(extracted.passageMap[`q_${i}`], 1, `Q${i} must be mapped to Passage 1`);
+  }
+  // Q27..Q40 -> Passage 2
+  for (let i = 27; i <= 40; i++) {
+    assert.strictEqual(extracted.passageMap[`q_${i}`], 2, `Q${i} must be mapped to Passage 2`);
+  }
+
+  // Filter for Passage 1: Navigator & list has only Q1..Q13
+  const p1Qs = extracted.questions.filter((q) => extracted.passageMap[q.id] === 0);
+  assert.strictEqual(p1Qs.length, 13, 'Passage 1 must filter down to exactly 13 questions');
+  assert.strictEqual(p1Qs[0].id, 'q_1');
+  assert.strictEqual(p1Qs[12].id, 'q_13');
+
+  // Filter for Passage 2: Navigator & list has only Q14..Q26
+  const p2Qs = extracted.questions.filter((q) => extracted.passageMap[q.id] === 1);
+  assert.strictEqual(p2Qs.length, 13, 'Passage 2 must filter down to exactly 13 questions');
+  assert.strictEqual(p2Qs[0].id, 'q_14');
+  assert.strictEqual(p2Qs[12].id, 'q_26');
+
+  // Filter for Passage 3: Navigator & list has only Q27..Q40
+  const p3Qs = extracted.questions.filter((q) => extracted.passageMap[q.id] === 2);
+  assert.strictEqual(p3Qs.length, 14, 'Passage 3 must filter down to exactly 14 questions');
+  assert.strictEqual(p3Qs[0].id, 'q_27');
+  assert.strictEqual(p3Qs[13].id, 'q_40');
+
+  console.log('✓ Passed: Multi-Passage automatic question partitioning & 100% accurate passage filtering.');
+}
+
 console.log('\n========================================');
 console.log('ALL READING MODULE OVERHAUL TESTS PASSED! 🎉');
 console.log('========================================\n');

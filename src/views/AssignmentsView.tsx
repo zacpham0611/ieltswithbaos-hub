@@ -102,6 +102,7 @@ import {
   ArrowDown,
   CheckSquare,
   Eraser,
+  Strikethrough,
 } from 'lucide-react';
 
 export type PastelMarkerColor =
@@ -169,6 +170,48 @@ export const PASTEL_MARKER_COLORS: Array<{
     dotClass: 'bg-[#e1bee7] border-[#ba68c8]',
   },
 ];
+
+/**
+ * Computes exact character offsets for a window.getSelection() within a specific root element
+ * by traversing text nodes in document tree order.
+ */
+function getSelectionCharacterOffsetsWithin(element: HTMLElement): { startIndex: number; endIndex: number } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) {
+    return null;
+  }
+
+  const treeWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  let charIndex = 0;
+  let startIndex = -1;
+  let endIndex = -1;
+
+  let currentNode = treeWalker.nextNode();
+  while (currentNode) {
+    const textLen = (currentNode as Text).length;
+
+    if (currentNode === range.startContainer) {
+      startIndex = charIndex + range.startOffset;
+    }
+    if (currentNode === range.endContainer) {
+      endIndex = charIndex + range.endOffset;
+      break;
+    }
+
+    charIndex += textLen;
+    currentNode = treeWalker.nextNode();
+  }
+
+  if (startIndex !== -1 && endIndex !== -1 && startIndex < endIndex) {
+    return { startIndex, endIndex };
+  }
+
+  return null;
+}
 
 export const AssignmentsView: React.FC = () => {
   const {
@@ -353,6 +396,8 @@ export const AssignmentsView: React.FC = () => {
   const [newAnnotationSuggestion, setNewAnnotationSuggestion] = useState('');
   const [draftSaveNotice, setDraftSaveNotice] = useState(false);
   const [activeInspectedAnnotation, setActiveInspectedAnnotation] = useState<InlineAnnotation | null>(null);
+  const [activeOverlappingAnnotations, setActiveOverlappingAnnotations] = useState<InlineAnnotation[]>([]);
+  const essayContainerRef = useRef<HTMLDivElement>(null);
   const studentAnnotationPopupRef = useRef<HTMLDivElement>(null);
 
   // Handle click outside of student annotation popup to dismiss
@@ -372,6 +417,7 @@ export const AssignmentsView: React.FC = () => {
       // Otherwise dismiss popup and clear ring
       setActiveInspectedAnnotation(null);
       setActiveHighlightedAnnotationId(null);
+      setActiveOverlappingAnnotations([]);
     };
 
     document.addEventListener('mousedown', handleOutsideClick);
@@ -943,29 +989,70 @@ export const AssignmentsView: React.FC = () => {
     setOverallScore(newOverall);
   };
 
-  // Teacher Annotation Selection Handlers
+  // Teacher Annotation Selection Handlers (Single punctuation, single word, phrase, sentence, or blank space)
   const handleTextMouseUp = () => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       return;
     }
 
-    const selectedText = selection.toString().trim();
-    if (selectedText.length < 2) return;
+    const container = essayContainerRef.current;
+    if (!container) return;
+
+    const range = selection.getRangeAt(0);
+    if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) {
+      return;
+    }
+
+    const offsets = getSelectionCharacterOffsetsWithin(container);
+    if (!offsets) return;
 
     const fullText = currentSubmission?.writingText || '';
-    const startIndex = fullText.indexOf(selectedText);
-    if (startIndex !== -1) {
-      setActiveSelection({
-        text: selectedText,
-        startIndex,
-        endIndex: startIndex + selectedText.length,
-      });
-    }
+    const selectedText = fullText.substring(offsets.startIndex, offsets.endIndex);
+    if (!selectedText || selectedText.length === 0) return;
+
+    setActiveSelection({
+      text: selectedText,
+      startIndex: offsets.startIndex,
+      endIndex: offsets.endIndex,
+    });
   };
 
+  // Strikethrough / Deletion annotation creator
+  const applyDeletionAnnotation = (sel: { text: string; startIndex: number; endIndex: number }) => {
+    const newAnnot: InlineAnnotation = {
+      id: `annot-${Date.now()}`,
+      startIndex: sel.startIndex,
+      endIndex: sel.endIndex,
+      selectedText: sel.text,
+      type: 'deletion',
+      comment: 'Yêu cầu gạch bỏ nội dung này (Delete / Remove)',
+      suggestion: '',
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+    setAnnotations((prev) => [...prev, newAnnot]);
+    setActiveSelection(null);
+  };
+
+  // Keyboard shortcut: Backspace or Delete on active selection applies strikethrough/deletion
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Backspace' || e.key === 'Delete') && activeSelection) {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+          return;
+        }
+        e.preventDefault();
+        applyDeletionAnnotation(activeSelection);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSelection]);
+
   const handleAddAnnotation = () => {
-    if (!activeSelection || !newAnnotationComment.trim()) return;
+    if (!activeSelection) return;
+    if (newAnnotationType !== 'deletion' && !newAnnotationComment.trim()) return;
 
     const newAnnot: InlineAnnotation = {
       id: `annot-${Date.now()}`,
@@ -973,8 +1060,8 @@ export const AssignmentsView: React.FC = () => {
       endIndex: activeSelection.endIndex,
       selectedText: activeSelection.text,
       type: newAnnotationType,
-      comment: newAnnotationComment.trim(),
-      suggestion: newAnnotationSuggestion.trim() || undefined,
+      comment: newAnnotationComment.trim() || (newAnnotationType === 'deletion' ? 'Yêu cầu gạch bỏ nội dung này (Delete / Remove)' : 'Correction'),
+      suggestion: newAnnotationType === 'deletion' ? '' : (newAnnotationSuggestion.trim() || undefined),
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
     };
 
@@ -989,14 +1076,16 @@ export const AssignmentsView: React.FC = () => {
     if (activeInspectedAnnotation?.id === id) {
       setActiveInspectedAnnotation(null);
     }
+    setActiveOverlappingAnnotations((prev) => prev.filter((a) => a.id !== id));
   };
 
-  // Safe highlighted text renderer for annotations
+  // Safe highlighted text renderer with true multi-overlapping annotations & deletion support
   const renderAnnotatedText = (
     text: string,
     annots: InlineAnnotation[] = [],
     interactive = false
   ) => {
+    if (!text) return null;
     if (!annots || annots.length === 0) {
       return <span>{text}</span>;
     }
@@ -1006,64 +1095,102 @@ export const AssignmentsView: React.FC = () => {
       return <span>{text}</span>;
     }
 
-    const nonOverlapping: typeof normalized = [];
-    let lastEnd = 0;
-    for (const a of normalized) {
-      if (a.resolvedStart >= lastEnd) {
-        nonOverlapping.push(a);
-        lastEnd = a.resolvedEnd;
-      }
-    }
-
-    const parts: React.ReactNode[] = [];
-    let cursor = 0;
-
     const typeHighlightMap: Record<InlineAnnotation['type'], string> = {
       correction: 'bg-red-100 text-red-900 border-b-2 border-red-500 hover:bg-red-200',
       grammar: 'bg-amber-100 text-amber-900 border-b-2 border-amber-500 hover:bg-amber-200',
       vocabulary: 'bg-purple-100 text-purple-900 border-b-2 border-purple-500 hover:bg-purple-200',
       suggestion: 'bg-blue-100 text-blue-900 border-b-2 border-blue-500 hover:bg-blue-200',
       praise: 'bg-emerald-100 text-emerald-900 border-b-2 border-emerald-500 hover:bg-emerald-200',
+      deletion: 'line-through decoration-rose-600 decoration-2 bg-rose-100 text-rose-950 border-b-2 border-rose-500 hover:bg-rose-200 font-medium',
     };
 
-    nonOverlapping.forEach((a, idx) => {
-      if (a.resolvedStart > cursor) {
-        parts.push(<span key={`text-${cursor}`}>{text.substring(cursor, a.resolvedStart)}</span>);
-      }
-
-      const isCurrentActive =
-        activeInspectedAnnotation?.id === a.id || activeHighlightedAnnotationId === a.id;
-
-      parts.push(
-        <mark
-          key={`annot-${a.id || idx}`}
-          id={`annotation_${a.id}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (interactive) {
-              if (activeInspectedAnnotation?.id === a.id) {
-                setActiveInspectedAnnotation(null);
-                setActiveHighlightedAnnotationId(null);
-              } else {
-                setActiveHighlightedAnnotationId(a.id);
-                setActiveInspectedAnnotation(a);
-              }
-            }
-          }}
-          className={`px-1 py-0.5 rounded-xs transition-all font-sans font-medium cursor-pointer ${
-            typeHighlightMap[a.type] || typeHighlightMap.correction
-          } ${isCurrentActive ? 'ring-2 ring-blue-600 scale-105 inline-block shadow-xs font-semibold' : ''}`}
-          title={`${a.type.toUpperCase()}: ${a.comment}${a.suggestion ? ` (Gợi ý sửa: ${a.suggestion})` : ''}`}
-        >
-          {text.substring(a.resolvedStart, a.resolvedEnd)}
-        </mark>
-      );
-
-      cursor = a.resolvedEnd;
+    // Collect all boundary points to partition text into atomic disjoint intervals
+    const boundarySet = new Set<number>([0, text.length]);
+    normalized.forEach((a) => {
+      if (a.resolvedStart >= 0 && a.resolvedStart <= text.length) boundarySet.add(a.resolvedStart);
+      if (a.resolvedEnd >= 0 && a.resolvedEnd <= text.length) boundarySet.add(a.resolvedEnd);
     });
 
-    if (cursor < text.length) {
-      parts.push(<span key="text-tail">{text.substring(cursor)}</span>);
+    const sortedBoundaries = Array.from(boundarySet).sort((a, b) => a - b);
+    const parts: React.ReactNode[] = [];
+
+    for (let i = 0; i < sortedBoundaries.length - 1; i++) {
+      const segStart = sortedBoundaries[i];
+      const segEnd = sortedBoundaries[i + 1];
+      const segText = text.substring(segStart, segEnd);
+      if (!segText) continue;
+
+      const covering = normalized.filter(
+        (a) => a.resolvedStart <= segStart && a.resolvedEnd >= segEnd
+      );
+
+      if (covering.length === 0) {
+        parts.push(<span key={`txt_${segStart}_${segEnd}`}>{segText}</span>);
+      } else if (covering.length === 1) {
+        const a = covering[0];
+        const isCurrentActive =
+          activeInspectedAnnotation?.id === a.id || activeHighlightedAnnotationId === a.id;
+        const isDeletion = a.type === 'deletion';
+
+        parts.push(
+          <mark
+            key={`annot_${segStart}_${segEnd}_${a.id}`}
+            id={`annotation_${a.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (interactive) {
+                if (activeInspectedAnnotation?.id === a.id) {
+                  setActiveInspectedAnnotation(null);
+                  setActiveHighlightedAnnotationId(null);
+                  setActiveOverlappingAnnotations([]);
+                } else {
+                  setActiveHighlightedAnnotationId(a.id);
+                  setActiveInspectedAnnotation(a);
+                  setActiveOverlappingAnnotations([a]);
+                }
+              }
+            }}
+            className={`px-1 py-0.5 rounded-xs transition-all font-sans cursor-pointer ${
+              typeHighlightMap[a.type] || typeHighlightMap.correction
+            } ${isDeletion ? 'line-through decoration-rose-600 decoration-2' : ''} ${
+              isCurrentActive ? 'ring-2 ring-blue-600 scale-105 inline-block shadow-xs font-semibold' : ''
+            }`}
+            title={`${a.type.toUpperCase()}: ${a.comment}${a.suggestion ? ` (Gợi ý sửa: ${a.suggestion})` : ''}`}
+          >
+            {segText}
+          </mark>
+        );
+      } else {
+        // Multi-overlapping annotations
+        const hasDeletion = covering.some((a) => a.type === 'deletion');
+        const isAnyActive = covering.some(
+          (a) => activeInspectedAnnotation?.id === a.id || activeHighlightedAnnotationId === a.id
+        );
+
+        parts.push(
+          <mark
+            key={`annot_multi_${segStart}_${segEnd}`}
+            id={`annotation_${covering[0].id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (interactive) {
+                setActiveOverlappingAnnotations(covering);
+                setActiveInspectedAnnotation(covering[0]);
+                setActiveHighlightedAnnotationId(covering[0].id);
+              }
+            }}
+            className={`px-1 py-0.5 rounded-xs transition-all font-sans cursor-pointer bg-gradient-to-r from-amber-100 via-purple-100 to-blue-100 text-slate-900 border-b-2 border-dashed border-indigo-600 hover:brightness-95 ${
+              hasDeletion ? 'line-through decoration-rose-600 decoration-2' : ''
+            } ${isAnyActive ? 'ring-2 ring-indigo-600 scale-105 inline-block shadow-xs font-semibold' : ''}`}
+            title={`Trùng lặp (${covering.length} nhận xét): ${covering.map((c) => c.comment).join(' | ')}`}
+          >
+            {segText}
+            <span className="inline-flex items-center justify-center text-[10px] font-bold bg-indigo-600 text-white rounded-full px-1.5 py-0.2 mx-0.5 align-middle shadow-2xs select-none not-italic no-underline">
+              {covering.length}
+            </span>
+          </mark>
+        );
+      }
     }
 
     return parts;
@@ -1834,8 +1961,10 @@ export const AssignmentsView: React.FC = () => {
 
               {/* Essay Text with Highlights */}
               <div
+                ref={essayContainerRef}
                 onMouseUp={handleTextMouseUp}
-                className="bg-slate-50 p-5 rounded-lg border border-slate-200 text-base text-slate-800 font-sans leading-relaxed whitespace-pre-wrap select-text cursor-text"
+                tabIndex={0}
+                className="bg-slate-50 p-5 rounded-lg border border-slate-200 text-base text-slate-800 font-sans leading-relaxed whitespace-pre-wrap select-text cursor-text focus:outline-hidden"
               >
                 {renderAnnotatedText(currentSubmission.writingText || '', annotations, true)}
               </div>
@@ -1874,50 +2003,65 @@ export const AssignmentsView: React.FC = () => {
                         <option value="vocabulary">{t('assignments.typeVocabulary')}</option>
                         <option value="suggestion">{t('assignments.typeSuggestion')}</option>
                         <option value="praise">{t('assignments.typePraise')}</option>
+                        <option value="deletion">Gạch bỏ / Xóa (Deletion)</option>
                       </select>
                     </div>
 
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-600 mb-1">
-                        {t('assignments.annotationComment')} *
+                        {t('assignments.annotationComment')} {newAnnotationType !== 'deletion' && '*'}
                       </label>
-                      <input
-                        type="text"
+                      <textarea
+                        rows={2}
                         value={newAnnotationComment}
                         onChange={(e) => setNewAnnotationComment(e.target.value)}
-                        placeholder="e.g. Inappropriate collocation; refine to academic register."
-                        className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                        placeholder={newAnnotationType === 'deletion' ? 'Lý do gạch bỏ (hoặc để trống)...' : 'e.g. Inappropriate collocation; refine to academic register.'}
+                        className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white break-words whitespace-pre-wrap resize-y outline-hidden"
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      {t('assignments.annotationSuggestion')}
-                    </label>
-                    <input
-                      type="text"
-                      value={newAnnotationSuggestion}
-                      onChange={(e) => setNewAnnotationSuggestion(e.target.value)}
-                      placeholder="e.g. substantial growth"
-                      className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                    />
-                  </div>
+                  {newAnnotationType !== 'deletion' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        {t('assignments.annotationSuggestion')}
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={newAnnotationSuggestion}
+                        onChange={(e) => setNewAnnotationSuggestion(e.target.value)}
+                        placeholder="e.g. substantial growth"
+                        className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white break-words whitespace-pre-wrap resize-y outline-hidden"
+                      />
+                    </div>
+                  )}
 
-                  <div className="flex justify-end space-x-2 pt-1">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1 border-t border-slate-100">
                     <button
-                      onClick={() => setActiveSelection(null)}
-                      className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                      type="button"
+                      onClick={() => applyDeletionAnnotation(activeSelection)}
+                      className="w-full sm:w-auto px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                      title="Gạch bỏ đoạn này (hoặc bấm phím Backspace)"
                     >
-                      {t('assignments.cancelAnnotation')}
+                      <Strikethrough className="w-3.5 h-3.5" />
+                      <span>Gạch bỏ (Backspace)</span>
                     </button>
-                    <button
-                      onClick={handleAddAnnotation}
-                      disabled={!newAnnotationComment.trim()}
-                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs"
-                    >
-                      {t('assignments.addAnnotationBtn')}
-                    </button>
+
+                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                      <button
+                        onClick={() => setActiveSelection(null)}
+                        className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                      >
+                        {t('assignments.cancelAnnotation')}
+                      </button>
+                      <button
+                        onClick={handleAddAnnotation}
+                        disabled={newAnnotationType !== 'deletion' && !newAnnotationComment.trim()}
+                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer"
+                      >
+                        {t('assignments.addAnnotationBtn')}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1925,10 +2069,17 @@ export const AssignmentsView: React.FC = () => {
               {/* List of existing annotations */}
               {annotations.length > 0 && (
                 <div className="space-y-2 pt-2">
-                  <h4 className="text-sm font-bold text-slate-700 flex items-center space-x-1.5">
-                    <MessageSquare className="w-4 h-4 text-slate-500" />
-                    <span>{t('assignments.inlineAnnotationsTitle')} ({annotations.length})</span>
-                  </h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-bold text-slate-700 flex items-center space-x-1.5">
+                      <MessageSquare className="w-4 h-4 text-slate-500" />
+                      <span>{t('assignments.inlineAnnotationsTitle')} ({annotations.length})</span>
+                    </h4>
+                    {activeOverlappingAnnotations.length > 1 && (
+                      <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                        Đang chọn vùng có {activeOverlappingAnnotations.length} nhận xét trùng
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     {annotations.map((annot) => (
                       <div
@@ -1936,7 +2087,7 @@ export const AssignmentsView: React.FC = () => {
                         onClick={() => setActiveInspectedAnnotation(annot)}
                         className={`p-3 rounded-lg border text-sm transition-all cursor-pointer ${
                           activeInspectedAnnotation?.id === annot.id
-                            ? 'border-blue-500 bg-blue-50/50 shadow-xs'
+                            ? 'border-blue-500 bg-blue-50/50 shadow-xs ring-1 ring-blue-400'
                             : 'border-slate-200 bg-white hover:bg-slate-50'
                         }`}
                       >
@@ -1945,6 +2096,8 @@ export const AssignmentsView: React.FC = () => {
                             className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase ${
                               annot.type === 'correction'
                                 ? 'bg-red-100 text-red-800'
+                                : annot.type === 'deletion'
+                                ? 'bg-rose-100 text-rose-800 font-bold'
                                 : annot.type === 'grammar'
                                 ? 'bg-amber-100 text-amber-800'
                                 : annot.type === 'vocabulary'
@@ -1954,7 +2107,7 @@ export const AssignmentsView: React.FC = () => {
                                 : 'bg-blue-100 text-blue-800'
                             }`}
                           >
-                            {annot.type}
+                            {annot.type === 'deletion' ? 'Deletion' : annot.type}
                           </span>
                           <button
                             onClick={(e) => {
@@ -2241,22 +2394,23 @@ export const AssignmentsView: React.FC = () => {
                       </select>
                     </div>
                   </div>
-                  <input
-                    type="text"
+                  <textarea
+                    rows={2}
                     value={r.descriptor}
                     onChange={(e) => {
                       const newRubrics = [...gradingRubrics];
                       newRubrics[idx].descriptor = e.target.value;
                       setGradingRubrics(newRubrics);
                     }}
-                    className="w-full p-2 border border-slate-300 rounded text-xs bg-white outline-hidden"
+                    placeholder="Criterion-specific examiner feedback and descriptor notes..."
+                    className="w-full p-2 border border-slate-300 rounded text-xs bg-white outline-hidden break-words whitespace-pre-wrap resize-y"
                   />
                 </div>
               ))}
             </div>
           )}
 
-          {/* Feedback Sections: Strengths, Areas to improve, Next Steps */}
+          {/* Feedback Sections: Strengths, Areas to improve, Next Steps (Preserving 2-column layout & removing duplicated general comments) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
               <label className="block font-semibold text-emerald-800 mb-1">{t('assignments.keyStrengths')}</label>
@@ -2265,7 +2419,7 @@ export const AssignmentsView: React.FC = () => {
                 value={teacherStrengths}
                 onChange={(e) => setTeacherStrengths(e.target.value)}
                 placeholder="What did the student do particularly well?"
-                className="w-full p-2.5 border border-emerald-300 rounded-lg outline-hidden bg-emerald-50/20 text-sm"
+                className="w-full p-2.5 border border-emerald-300 rounded-lg outline-hidden bg-emerald-50/20 text-sm break-words whitespace-pre-wrap resize-y"
               />
             </div>
 
@@ -2276,30 +2430,19 @@ export const AssignmentsView: React.FC = () => {
                 value={teacherAreasToImprove}
                 onChange={(e) => setTeacherAreasToImprove(e.target.value)}
                 placeholder="Specific linguistic or structural gaps..."
-                className="w-full p-2.5 border border-amber-300 rounded-lg outline-hidden bg-amber-50/20 text-sm"
+                className="w-full p-2.5 border border-amber-300 rounded-lg outline-hidden bg-amber-50/20 text-sm break-words whitespace-pre-wrap resize-y"
               />
             </div>
           </div>
 
           <div className="text-sm">
-            <label className="block font-semibold text-slate-700 mb-1">{t('assignments.teacherProfComments')}</label>
+            <label className="block font-semibold text-slate-700 mb-1">{t('assignments.recommendedNextSteps')}</label>
             <textarea
               rows={2}
-              value={teacherGeneralComments}
-              onChange={(e) => setTeacherGeneralComments(e.target.value)}
-              placeholder="Final encouraging and constructive feedback..."
-              className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm"
-            />
-          </div>
-
-          <div className="text-sm">
-            <label className="block font-semibold text-slate-700 mb-1">{t('assignments.recommendedNextSteps')}</label>
-            <input
-              type="text"
               value={teacherNextSteps}
               onChange={(e) => setTeacherNextSteps(e.target.value)}
               placeholder="e.g. Redo paragraph 3 with counter-argument concession; practice 10-minute speed outline."
-              className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm"
+              className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden text-sm break-words whitespace-pre-wrap resize-y"
             />
           </div>
 
@@ -2466,23 +2609,53 @@ export const AssignmentsView: React.FC = () => {
       }, 4000);
     };
 
+    // Helper to resolve passage index for any question
+    const resolvePassageIndexForQuestion = (q: ReadingQuestion, absoluteIdx: number): number => {
+      if (passageMap[q.id] !== undefined) {
+        return passageMap[q.id];
+      }
+      const rawPIdx = (q as any).passageIndex ?? (q as any).passage_index;
+      if (typeof rawPIdx === 'number' && !isNaN(rawPIdx)) {
+        if (rawPIdx >= 1 && activeAssignment?.passages && rawPIdx <= activeAssignment.passages.length) {
+          return rawPIdx - 1;
+        }
+        if (rawPIdx >= 0) return rawPIdx;
+      }
+      if (activeAssignment?.passages && activeAssignment.passages.length > 0) {
+        for (let pIdx = 0; pIdx < activeAssignment.passages.length; pIdx++) {
+          const p = activeAssignment.passages[pIdx];
+          const hasQ = p.questions?.some((pq: any) => pq.id === q.id || (pq.prompt && pq.prompt === q.prompt));
+          if (hasQ) return pIdx;
+          const hasInGroup = p.questionGroups?.some((g: any) =>
+            g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
+          );
+          if (hasInGroup) return pIdx;
+        }
+
+        let offset = 0;
+        for (let pIdx = 0; pIdx < activeAssignment.passages.length; pIdx++) {
+          const pCount = activeAssignment.passages[pIdx].questions?.length || 0;
+          if (pCount > 0 && absoluteIdx >= offset && absoluteIdx < offset + pCount) {
+            return pIdx;
+          }
+          offset += pCount;
+        }
+      }
+      return 0;
+    };
+
     // Indexed questions with dynamic passage assignment
     const allQuestionsIndexed = questions.map((q, absoluteIdx) => ({
       q,
       absoluteIdx,
-      passageIndex: passageMap[q.id] !== undefined ? passageMap[q.id] : ((q as any).passageIndex ?? 0),
+      passageIndex: resolvePassageIndexForQuestion(q, absoluteIdx),
     }));
 
     const hasMultiPassages = Boolean(activeAssignment.passages && activeAssignment.passages.length > 1);
 
-    const currentPassageQuestionsWithIndex = hasMultiPassages
+    const activePassageQuestions = hasMultiPassages
       ? allQuestionsIndexed.filter((item) => item.passageIndex === safePassageIndex)
       : allQuestionsIndexed;
-
-    const activePassageQuestions =
-      currentPassageQuestionsWithIndex.length > 0
-        ? currentPassageQuestionsWithIndex
-        : allQuestionsIndexed;
 
     const questionRenderGroups = buildQuestionRenderGroups(activePassageQuestions);
 
@@ -2853,7 +3026,7 @@ export const AssignmentsView: React.FC = () => {
                         const isCompletionGroup = Boolean(
                           (group.groupType && COMPLETION_TYPES.has(group.groupType) && !BUTTON_TYPES.has(group.groupType)) ||
                           (group.questions.length > 0 &&
-                            group.questions.every(({ q }) => COMPLETION_TYPES.has(q.type)) &&
+                            group.questions.some(({ q }) => COMPLETION_TYPES.has(q.type)) &&
                             !group.questions.some(({ q }) => BUTTON_TYPES.has(q.type)))
                         );
 
@@ -2951,12 +3124,12 @@ export const AssignmentsView: React.FC = () => {
                                 </div>
                               )}
 
-                              {/* 3. Compact Answer Fields (showing ONLY Question Number + Input) */}
+                              {/* 3. Compact Answer Fields (showing ONLY Question Number + Input, strictly one per row) */}
                               <div className="space-y-2.5 pt-1">
                                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                                   Answer Fields:
                                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="flex flex-col gap-2.5">
                                   {group.questions.map(({ q, idx }) => {
                                     const answer = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
                                     const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
@@ -2975,9 +3148,9 @@ export const AssignmentsView: React.FC = () => {
                                             : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
                                         }`}
                                       >
-                                        <div className="flex items-center justify-between gap-2">
-                                          <div className="flex items-center space-x-2.5 flex-1 min-w-0">
-                                            <span className="font-mono text-xs font-extrabold text-blue-900 bg-blue-50 border border-blue-200 px-2.5 py-1.5 rounded-lg shrink-0">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                          <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                            <span className="font-mono text-xs font-extrabold text-blue-900 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg shrink-0">
                                               Question {idx + 1}
                                             </span>
                                             {effectiveWordList && effectiveWordList.length > 0 ? (
@@ -2985,7 +3158,7 @@ export const AssignmentsView: React.FC = () => {
                                                 disabled={isReadOnly}
                                                 value={answer}
                                                 onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                                className="flex-1 min-w-0 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                                className="w-full sm:max-w-md px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
                                               >
                                                 <option value="">-- Choose (A–{String.fromCharCode(64 + effectiveWordList.length)}) --</option>
                                                 {effectiveWordList.map((opt) => {
@@ -3005,31 +3178,32 @@ export const AssignmentsView: React.FC = () => {
                                                 value={answer}
                                                 onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                                                 placeholder="Type answer..."
-                                                className="flex-1 min-w-0 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                                className="w-full sm:max-w-md px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
                                               />
                                             )}
                                           </div>
 
-                                          <div className="flex items-center space-x-1.5 shrink-0">
+                                          <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                                            {result && canSeeAnswers && (
+                                              <span
+                                                className={`text-xs font-bold uppercase px-2.5 py-1 rounded ${
+                                                  result.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                                }`}
+                                              >
+                                                {result.isCorrect ? t('assignments.correct') : t('assignments.incorrect')}
+                                              </span>
+                                            )}
                                             <button
                                               type="button"
                                               onClick={() => setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })}
-                                              className={`p-1 rounded text-xs flex items-center space-x-1 ${
+                                              className={`p-1.5 rounded text-xs flex items-center space-x-1 ${
                                                 isFlag ? 'text-amber-600 bg-amber-50 font-semibold' : 'text-slate-400 hover:text-slate-600'
                                               }`}
                                               title="Flag for review"
                                             >
                                               <Flag className="w-3.5 h-3.5" />
+                                              <span className="text-[11px]">{isFlag ? 'Flagged' : 'Flag'}</span>
                                             </button>
-                                            {result && canSeeAnswers && (
-                                              <span
-                                                className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded ${
-                                                  result.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                                                }`}
-                                              >
-                                                {result.isCorrect ? '✓' : '✗'}
-                                              </span>
-                                            )}
                                           </div>
                                         </div>
 
@@ -3270,10 +3444,10 @@ export const AssignmentsView: React.FC = () => {
                                                   type="button"
                                                   disabled={isReadOnly}
                                                   onClick={() => handleAnswerChange(q.id, letter)}
-                                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                                  className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition-all ${
                                                     isSelected
                                                       ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
                                                   }`}
                                                 >
                                                   Paragraph {letter}
@@ -3281,6 +3455,16 @@ export const AssignmentsView: React.FC = () => {
                                               );
                                             })}
                                           </div>
+
+                                          {/* Selected answer status (clean single mechanism, no redundant dropdown) */}
+                                          {answer && (
+                                            <div className="flex items-center space-x-2 pt-1.5 text-xs">
+                                              <span className="text-slate-500 font-medium">Selected paragraph:</span>
+                                              <span className="font-extrabold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-md">
+                                                Paragraph {answer.toUpperCase()}
+                                              </span>
+                                            </div>
+                                          )}
                                         </div>
                                       );
                                     })()
@@ -3374,7 +3558,7 @@ export const AssignmentsView: React.FC = () => {
                                         );
                                       })}
                                     </div>
-                                  ) : (q.type === 'summary_completion' || group.wordList) && (group.wordList || (q.options && q.options.length > 0)) ? (
+                                  ) : (COMPLETION_TYPES.has(q.type) || group.wordList) && (group.wordList || (q.options && q.options.length > 0)) ? (
                                     <div className="space-y-2 pt-1">
                                       <select
                                         disabled={isReadOnly}
@@ -3918,6 +4102,31 @@ export const AssignmentsView: React.FC = () => {
                     ref={studentAnnotationPopupRef}
                     className="sticky top-4 z-30 p-4 rounded-xl bg-gradient-to-r from-blue-50/95 via-indigo-50/95 to-white/95 backdrop-blur-xs border-2 border-blue-400 shadow-md space-y-2.5 transition-all animate-in fade-in zoom-in-95 font-sans"
                   >
+                    {activeOverlappingAnnotations.length > 1 && (
+                      <div className="flex items-center space-x-1.5 pb-2 border-b border-blue-200/70 overflow-x-auto">
+                        <span className="text-[11px] font-bold text-indigo-900 shrink-0">
+                          Đoạn này có {activeOverlappingAnnotations.length} nhận xét:
+                        </span>
+                        {activeOverlappingAnnotations.map((item, idx) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveInspectedAnnotation(item);
+                              setActiveHighlightedAnnotationId(item.id);
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all shrink-0 ${
+                              activeInspectedAnnotation.id === item.id
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            #{idx + 1} {item.type}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <Eye className="w-4 h-4 text-blue-600 shrink-0" />
@@ -3928,6 +4137,7 @@ export const AssignmentsView: React.FC = () => {
                           const type = (activeInspectedAnnotation.type || 'feedback').toLowerCase();
                           const typeBadgeMap: Record<string, { label: string; bg: string; text: string; border: string }> = {
                             correction: { label: 'Correction', bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-200' },
+                            deletion: { label: 'Deletion (Gạch bỏ)', bg: 'bg-rose-100', text: 'text-rose-800', border: 'border-rose-200' },
                             grammar: { label: 'Grammar', bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
                             vocabulary: { label: 'Vocabulary', bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
                             suggestion: { label: 'Suggestion', bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
@@ -3961,11 +4171,18 @@ export const AssignmentsView: React.FC = () => {
                     <div className="text-sm font-semibold text-slate-900 leading-snug font-sans">
                       {activeInspectedAnnotation.comment}
                     </div>
-                    {activeInspectedAnnotation.suggestion && (
-                      <div className="text-xs bg-emerald-100/90 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
-                        <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
-                        <span><strong className="text-emerald-900">Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
+                    {activeInspectedAnnotation.type === 'deletion' ? (
+                      <div className="text-xs bg-rose-50 border border-rose-200 text-rose-900 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
+                        <span className="font-bold">Yêu cầu giáo viên:</span>
+                        <span>Đoạn này nên được gạch bỏ / xóa để câu văn súc tích, tránh thừa ý hoặc lỗi ngữ pháp.</span>
                       </div>
+                    ) : (
+                      activeInspectedAnnotation.suggestion && (
+                        <div className="text-xs bg-emerald-100/90 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
+                          <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
+                          <span><strong className="text-emerald-900">Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
+                        </div>
+                      )
                     )}
                   </div>
                 )}
@@ -4069,6 +4286,31 @@ export const AssignmentsView: React.FC = () => {
                     ref={studentAnnotationPopupRef}
                     className="sticky top-4 z-30 p-4 rounded-xl bg-gradient-to-r from-blue-50/95 via-indigo-50/95 to-white/95 backdrop-blur-xs border-2 border-blue-400 shadow-md space-y-2.5 transition-all animate-in fade-in zoom-in-95 font-sans"
                   >
+                    {activeOverlappingAnnotations.length > 1 && (
+                      <div className="flex items-center space-x-1.5 pb-2 border-b border-blue-200/70 overflow-x-auto">
+                        <span className="text-[11px] font-bold text-indigo-900 shrink-0">
+                          Đoạn này có {activeOverlappingAnnotations.length} nhận xét:
+                        </span>
+                        {activeOverlappingAnnotations.map((item, idx) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveInspectedAnnotation(item);
+                              setActiveHighlightedAnnotationId(item.id);
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all shrink-0 ${
+                              activeInspectedAnnotation.id === item.id
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            #{idx + 1} {item.type}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <Eye className="w-4 h-4 text-blue-600 shrink-0" />
@@ -4079,6 +4321,7 @@ export const AssignmentsView: React.FC = () => {
                           const type = (activeInspectedAnnotation.type || 'feedback').toLowerCase();
                           const typeBadgeMap: Record<string, { label: string; bg: string; text: string; border: string }> = {
                             correction: { label: 'Correction', bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-200' },
+                            deletion: { label: 'Deletion (Gạch bỏ)', bg: 'bg-rose-100', text: 'text-rose-800', border: 'border-rose-200' },
                             grammar: { label: 'Grammar', bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
                             vocabulary: { label: 'Vocabulary', bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
                             suggestion: { label: 'Suggestion', bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
@@ -4112,11 +4355,18 @@ export const AssignmentsView: React.FC = () => {
                     <div className="text-sm font-semibold text-slate-900 leading-snug font-sans">
                       {activeInspectedAnnotation.comment}
                     </div>
-                    {activeInspectedAnnotation.suggestion && (
-                      <div className="text-xs bg-emerald-100/90 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
-                        <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
-                        <span><strong className="text-emerald-900">Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
+                    {activeInspectedAnnotation.type === 'deletion' ? (
+                      <div className="text-xs bg-rose-50 border border-rose-200 text-rose-900 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
+                        <span className="font-bold">Yêu cầu giáo viên:</span>
+                        <span>Đoạn này nên được gạch bỏ / xóa để câu văn súc tích, tránh thừa ý hoặc lỗi ngữ pháp.</span>
                       </div>
+                    ) : (
+                      activeInspectedAnnotation.suggestion && (
+                        <div className="text-xs bg-emerald-100/90 border border-emerald-300 text-emerald-950 p-2.5 rounded-lg font-medium flex items-center space-x-2 font-sans shadow-2xs">
+                          <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
+                          <span><strong className="text-emerald-900">Gợi ý sửa:</strong> {activeInspectedAnnotation.suggestion}</span>
+                        </div>
+                      )
                     )}
                   </div>
                 )}

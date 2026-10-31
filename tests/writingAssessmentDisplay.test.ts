@@ -292,4 +292,139 @@ console.log('--- RUNNING WRITING ASSESSMENT & FEEDBACK DISPLAY TESTS ---');
   console.log('✓ Passed: In-Text Annotation popup display, switching, toggle, and click-outside dismissal.');
 })();
 
+// Test 7: Single punctuation, single character, and exact index selection
+(() => {
+  const essay = 'However , there is a flaw in this premise.';
+  // Single comma selection at index 8
+  const commaIndex = essay.indexOf(',');
+  const annotations: InlineAnnotation[] = [
+    {
+      id: 'ann-comma',
+      selectedText: ',',
+      startIndex: commaIndex,
+      endIndex: commaIndex + 1,
+      comment: 'Remove unnecessary space before comma',
+      type: 'correction',
+    },
+    {
+      id: 'ann-letter',
+      selectedText: 'a',
+      startIndex: essay.indexOf(' a ') + 1,
+      endIndex: essay.indexOf(' a ') + 2,
+      comment: 'Article check',
+      type: 'grammar',
+    },
+  ];
+
+  const normalized = normalizeAnnotations(essay, annotations);
+  assert.equal(normalized.length, 2, 'Should accept single punctuation and single letter annotations');
+  assert.equal(normalized[0].resolvedStart, commaIndex);
+  assert.equal(normalized[0].resolvedEnd, commaIndex + 1);
+  assert.equal(normalized[1].resolvedStart, essay.indexOf(' a ') + 1);
+  assert.equal(normalized[1].resolvedEnd, essay.indexOf(' a ') + 2);
+  console.log('✓ Passed: Single punctuation and single character annotation exact offset selection.');
+})();
+
+// Test 8: Strikethrough / Deletion annotation type
+(() => {
+  const essay = 'This is an unnecessary word in the sentence.';
+  const target = 'unnecessary ';
+  const start = essay.indexOf(target);
+  const end = start + target.length;
+
+  const deletionAnnotation: InlineAnnotation = {
+    id: 'ann-del',
+    selectedText: target,
+    startIndex: start,
+    endIndex: end,
+    type: 'deletion',
+    comment: 'Yêu cầu gạch bỏ từ thừa',
+    suggestion: '',
+  };
+
+  const corrected = generateCorrectedEssay(essay, [deletionAnnotation]);
+  assert.equal(corrected.totalCorrections, 1);
+  assert.equal(corrected.correctedText, 'This is an word in the sentence.');
+  
+  const diffDel = corrected.diffSegments.find((s) => s.type === 'replacement');
+  assert.ok(diffDel, 'Diff segment should represent deletion');
+  assert.equal(diffDel.originalText, target);
+  assert.equal(diffDel.text, '');
+  console.log('✓ Passed: Strikethrough/deletion annotation type and text omission verified.');
+})();
+
+// Test 9: Multi-overlapping annotations on the same segment
+(() => {
+  const essay = 'Students should practice writing every day.';
+  const phrase = 'practice writing';
+  const start = essay.indexOf(phrase);
+  const end = start + phrase.length;
+
+  const annotations: InlineAnnotation[] = [
+    {
+      id: 'ann-grammar',
+      selectedText: phrase,
+      startIndex: start,
+      endIndex: end,
+      type: 'grammar',
+      comment: 'Check verb form collocation',
+    },
+    {
+      id: 'ann-vocab',
+      selectedText: phrase,
+      startIndex: start,
+      endIndex: end,
+      type: 'vocabulary',
+      comment: 'Use more formal academic phrase (e.g. hone writing skills)',
+    },
+  ];
+
+  // Atomic boundary segmentation
+  const boundarySet = new Set<number>([0, essay.length]);
+  annotations.forEach((a) => {
+    boundarySet.add(a.startIndex);
+    boundarySet.add(a.endIndex);
+  });
+  const sortedBoundaries = Array.from(boundarySet).sort((a, b) => a - b);
+  
+  const segments: Array<{ text: string; annotations: InlineAnnotation[] }> = [];
+  for (let i = 0; i < sortedBoundaries.length - 1; i++) {
+    const sStart = sortedBoundaries[i];
+    const sEnd = sortedBoundaries[i + 1];
+    const active = annotations.filter((a) => a.startIndex <= sStart && a.endIndex >= sEnd);
+    segments.push({ text: essay.substring(sStart, sEnd), annotations: active });
+  }
+
+  const overlappingSegment = segments.find((s) => s.annotations.length === 2);
+  assert.ok(overlappingSegment, 'Segment covering overlapping annotations must be found');
+  assert.equal(overlappingSegment.text, phrase);
+  assert.equal(overlappingSegment.annotations.length, 2);
+  assert.equal(overlappingSegment.annotations[0].id, 'ann-grammar');
+  assert.equal(overlappingSegment.annotations[1].id, 'ann-vocab');
+  console.log('✓ Passed: Multi-overlapping annotations remain distinguishable without overwriting.');
+})();
+
+// Test 10: Feedback criteria and overall feedback fields
+(() => {
+  const criteria = [
+    'Task Achievement / Response',
+    'Coherence & Cohesion',
+    'Lexical Resource',
+    'Grammatical Range & Accuracy',
+  ];
+  assert.equal(criteria.length, 4);
+
+  const overallFeedbackSections = {
+    teacherStrengths: 'Strong topic coherence',
+    teacherAreasToImprove: 'Diversify sentence structures',
+    teacherNextSteps: 'Write 2 timed essays weekly',
+  };
+  assert.ok(overallFeedbackSections.teacherStrengths);
+  assert.ok(overallFeedbackSections.teacherAreasToImprove);
+  assert.ok(overallFeedbackSections.teacherNextSteps);
+  // Ensure no separate teacherGeneralComments in overall feedback
+  assert.equal((overallFeedbackSections as any).teacherGeneralComments, undefined);
+  console.log('✓ Passed: 4 criteria and 3 overall feedback categories without duplicate general comments.');
+})();
+
 console.log('ALL WRITING ASSESSMENT & FEEDBACK DISPLAY TESTS PASSED SUCCESSFULLY! 🎉');

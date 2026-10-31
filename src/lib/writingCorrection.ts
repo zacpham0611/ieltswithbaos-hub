@@ -31,7 +31,16 @@ export function normalizeAnnotations(
     let start = Number(ann.startIndex);
     let end = Number(ann.endIndex);
 
-    const isDirectMatch =
+    const isExactMatch =
+      !isNaN(start) &&
+      !isNaN(end) &&
+      start >= 0 &&
+      end <= text.length &&
+      start < end &&
+      text.substring(start, end) === ann.selectedText;
+
+    const isTrimmedMatch =
+      !isExactMatch &&
       !isNaN(start) &&
       !isNaN(end) &&
       start >= 0 &&
@@ -39,12 +48,20 @@ export function normalizeAnnotations(
       start < end &&
       text.substring(start, end).trim().toLowerCase() === (ann.selectedText || '').trim().toLowerCase();
 
-    if (!isDirectMatch && ann.selectedText && ann.selectedText.trim()) {
-      const target = ann.selectedText.trim();
-      const foundIdx = text.toLowerCase().indexOf(target.toLowerCase());
+    const isDirectMatch = isExactMatch || isTrimmedMatch;
+
+    if (!isDirectMatch && ann.selectedText && ann.selectedText.length > 0) {
+      const target = ann.selectedText;
+      const foundIdx = text.indexOf(target);
       if (foundIdx !== -1) {
         start = foundIdx;
         end = foundIdx + target.length;
+      } else {
+        const foundTrimmed = text.toLowerCase().indexOf(target.trim().toLowerCase());
+        if (foundTrimmed !== -1) {
+          start = foundTrimmed;
+          end = foundTrimmed + target.trim().length;
+        }
       }
     }
 
@@ -75,7 +92,9 @@ export function generateCorrectedEssay(
 
   const validAnnots = normalizeAnnotations(originalText, annotations);
   const withSuggestions = validAnnots.filter(
-    (a) => a.suggestion && a.suggestion.trim().length > 0 && a.suggestion.trim() !== a.selectedText.trim()
+    (a) =>
+      a.type === 'deletion' ||
+      (a.suggestion && a.suggestion.trim().length > 0 && a.suggestion.trim() !== a.selectedText.trim())
   );
 
   if (withSuggestions.length === 0) {
@@ -107,7 +126,7 @@ export function generateCorrectedEssay(
       fullCorrected += plainChunk;
     }
 
-    const correctedChunk = a.suggestion!.trim();
+    const correctedChunk = a.type === 'deletion' ? '' : (a.suggestion ? a.suggestion.trim() : '');
     const originalChunk = originalText.substring(a.resolvedStart, a.resolvedEnd);
 
     diffSegments.push({

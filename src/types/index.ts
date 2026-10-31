@@ -363,7 +363,7 @@ export interface InlineAnnotation {
   endIndex: number;
   selectedText: string;
   comment: string;
-  type: 'correction' | 'suggestion' | 'grammar' | 'vocabulary' | 'praise';
+  type: 'correction' | 'suggestion' | 'grammar' | 'vocabulary' | 'praise' | 'deletion';
   suggestion?: string;
   createdAt: string;
 }

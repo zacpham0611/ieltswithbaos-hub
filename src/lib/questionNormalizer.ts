@@ -436,13 +436,38 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
   // Helper to add a question safely without duplication
   const addQuestion = (rawQ: any, pIdx?: number) => {
     if (!rawQ) return;
-    const norm = normalizeReadingQuestion(rawQ, resultQuestions.length + 1, pIdx);
-    if (!seenIds.has(norm.id)) {
-      seenIds.add(norm.id);
-      if (pIdx !== undefined) {
-        passageMap[norm.id] = pIdx;
+    let resolvedPIdx = pIdx;
+    if (resolvedPIdx === undefined) {
+      const qPassage = (rawQ as any).passageIndex ?? (rawQ as any).passage_index;
+      if (typeof qPassage === 'number' && !isNaN(qPassage)) {
+        if (passages.length > 1 && qPassage >= 1 && qPassage <= passages.length) {
+          resolvedPIdx = qPassage - 1;
+        } else if (qPassage >= 0) {
+          resolvedPIdx = qPassage;
+        }
+      }
+    }
+
+    const norm = normalizeReadingQuestion(rawQ, resultQuestions.length + 1, resolvedPIdx);
+    let finalId = norm.id;
+    if (seenIds.has(finalId) && resolvedPIdx !== undefined) {
+      const altId = `${finalId}_p${resolvedPIdx + 1}`;
+      if (!seenIds.has(altId)) {
+        finalId = altId;
+        norm.id = altId;
+      }
+    }
+
+    if (!seenIds.has(finalId)) {
+      seenIds.add(finalId);
+      if (resolvedPIdx !== undefined) {
+        passageMap[finalId] = resolvedPIdx;
+        (norm as any).passageIndex = resolvedPIdx;
       }
       resultQuestions.push(norm);
+    } else if (resolvedPIdx !== undefined && passageMap[finalId] === undefined) {
+      passageMap[finalId] = resolvedPIdx;
+      (norm as any).passageIndex = resolvedPIdx;
     }
   };
 
@@ -467,8 +492,17 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
   // 2. Process top-level question groups
   if (questionGroups.length > 0) {
     questionGroups.forEach((g) => {
+      const gPassage = (g as any).passageIndex ?? (g as any).passage_index;
+      let gPIdx: number | undefined = undefined;
+      if (typeof gPassage === 'number' && !isNaN(gPassage)) {
+        if (passages.length > 1 && gPassage >= 1 && gPassage <= passages.length) {
+          gPIdx = gPassage - 1;
+        } else if (gPassage >= 0) {
+          gPIdx = gPassage;
+        }
+      }
       if (Array.isArray(g.questions)) {
-        g.questions.forEach((q) => addQuestion(q, undefined));
+        g.questions.forEach((q) => addQuestion(q, gPIdx));
       }
     });
   }
@@ -476,6 +510,37 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
   // 3. Process top-level readingQuestions
   if (Array.isArray(assignment.readingQuestions)) {
     assignment.readingQuestions.forEach((q: any) => addQuestion(q, undefined));
+  }
+
+  // 4. Multi-passage alignment fallback: ensure every question in resultQuestions has passageMap entry
+  if (passages.length > 1 && resultQuestions.length > 0) {
+    const totalPQuestions = passages.reduce((sum, p) => sum + (p.questions?.length || 0), 0);
+    if (totalPQuestions === resultQuestions.length) {
+      let offset = 0;
+      passages.forEach((p, pIdx) => {
+        const count = p.questions?.length || 0;
+        for (let i = offset; i < offset + count && i < resultQuestions.length; i++) {
+          const qId = resultQuestions[i].id;
+          passageMap[qId] = pIdx;
+          (resultQuestions[i] as any).passageIndex = pIdx;
+        }
+        offset += count;
+      });
+    } else {
+      resultQuestions.forEach((q, qIdx) => {
+        if (passageMap[q.id] === undefined) {
+          for (let pIdx = 0; pIdx < passages.length; pIdx++) {
+            const p = passages[pIdx];
+            const hasMatch = p.questions?.some((pq: any) => pq.id === q.id || (pq.prompt && pq.prompt === q.prompt));
+            if (hasMatch) {
+              passageMap[q.id] = pIdx;
+              (q as any).passageIndex = pIdx;
+              break;
+            }
+          }
+        }
+      });
+    }
   }
 
   return {
