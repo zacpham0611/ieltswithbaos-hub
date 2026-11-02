@@ -396,10 +396,9 @@ export function detectQuestionType(
 
   // Multiple Select & Multiple Choice (evaluated early if explicit MCQ indicators or options exist)
   if (
-    combined.includes('choose two') ||
-    combined.includes('choose three') ||
-    combined.includes('which two') ||
-    combined.includes('which three')
+    /(?:choose|select|which|write)\s+(?:the\s+)?(two|three|four|five|six|[2-9])\b/i.test(combined) ||
+    /\b(two|three|four|five|six|[2-9])\s+(?:of\s+the\s+following|letters|statements|answers|options|reasons|features)\b/i.test(combined) ||
+    /chọn\s+(hai|ba|bốn|năm|2|3|4|5)\b/i.test(combined)
   ) {
     return 'multiple_select';
   }
@@ -494,6 +493,54 @@ export function detectQuestionType(
   }
 
   return 'short_answer';
+}
+
+/**
+ * Extracts the required number of answers for Multiple Selection questions (e.g. "Choose TWO" -> 2).
+ */
+export function parseMultipleSelectCount(text: string): number {
+  const lower = (text || '').toLowerCase();
+  const match =
+    lower.match(/(?:choose|select|which|write)\s+(?:the\s+)?(two|three|four|five|six|[2-9])\b/i) ||
+    lower.match(/\b(two|three|four|five|six|[2-9])\s+(?:of\s+the\s+following|letters|statements|answers|options|reasons|features)\b/i) ||
+    lower.match(/chọn\s+(hai|ba|bốn|năm|[2-9])\b/i);
+
+  if (match) {
+    const val = match[1].toLowerCase();
+    if (val === 'two' || val === '2' || val === 'hai') return 2;
+    if (val === 'three' || val === '3' || val === 'ba') return 3;
+    if (val === 'four' || val === '4' || val === 'bốn') return 4;
+    if (val === 'five' || val === '5' || val === 'năm') return 5;
+    if (val === 'six' || val === '6') return 6;
+    const n = parseInt(val, 10);
+    if (!isNaN(n) && n >= 2 && n <= 10) return n;
+  }
+  return 2;
+}
+
+/**
+ * Parses question numbers from question group header ranges (e.g. "Questions 14 and 15" -> [14, 15]).
+ */
+export function parseQuestionNumbersFromRange(titleOrInstruction: string): number[] {
+  const clean = (titleOrInstruction || '').trim();
+  const rangeMatch = clean.match(/q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+(\d+)\s*(?:and|\&|\-|\–|to|\,)\s*(\d+)/i);
+  if (rangeMatch) {
+    const start = parseInt(rangeMatch[1], 10);
+    const end = parseInt(rangeMatch[2], 10);
+    if (!isNaN(start) && !isNaN(end) && end >= start && end - start <= 10) {
+      const numbers: number[] = [];
+      for (let i = start; i <= end; i++) numbers.push(i);
+      return numbers;
+    }
+  }
+
+  const singleMatch = clean.match(/q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+(\d+)/i);
+  if (singleMatch) {
+    const n = parseInt(singleMatch[1], 10);
+    if (!isNaN(n)) return [n];
+  }
+
+  return [];
 }
 
 /**
@@ -1201,7 +1248,7 @@ function parseSinglePassage(
   let currentGroupLines: string[] = [];
 
   for (const qLine of questionLines) {
-    const qGroupMatch = qLine.match(/^(?:dạng\s+câu\s+hỏi.*)?(q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+(?:[\s\-\–to]+\d+)?)/i);
+    const qGroupMatch = qLine.match(/^(?:dạng\s+câu\s+hỏi.*)?(q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+(?:[\s\-\–to\,and\&]+\d+)?)/i);
     if (qGroupMatch) {
       if (currentGroupLines.length > 0) {
         groupRanges.push({ title: currentGroupTitle, lines: currentGroupLines });
@@ -1476,6 +1523,66 @@ function parseSinglePassage(
     const fullInstruction =
       groupInstructions.join(' ').trim() || 'Read the text and answer the questions below.';
     const instructionType = detectQuestionType('', fullInstruction);
+
+    // Special handling for Multiple Selection groups (e.g. Questions 14 and 15: Choose TWO letters)
+    if (instructionType === 'multiple_select') {
+      const reqCount = parseMultipleSelectCount(fullInstruction);
+      const rangeNums = parseQuestionNumbersFromRange(gRange.title);
+
+      if (groupQuestions.length === 0) {
+        const detectedOptions: string[] = [];
+        const promptCandidates: string[] = [];
+
+        for (const line of gRange.lines) {
+          const optMatch = line.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+          if (optMatch) {
+            detectedOptions.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
+          } else if (
+            !/^(?:questions?|\d+[\.\:\)]|choose|write\s+the|which\s+(?:two|three|four)|select)/i.test(line) &&
+            line.length > 5
+          ) {
+            promptCandidates.push(line);
+          } else if (/^(?:which|what|select|choose)\b/i.test(line)) {
+            promptCandidates.push(line);
+          }
+        }
+
+        const qPrompt = promptCandidates.join(' ').trim() || gRange.title;
+        const targetNums = rangeNums.length > 0 ? rangeNums : [allQuestions.length + 1];
+
+        for (const n of targetNums) {
+          const detailItem = effectiveDetails[String(n)];
+          const assignedKey = detailItem?.answer || effectiveAnswerKeys[String(n)] || '';
+          const assignedSource = detailItem || effectiveAnswerKeys[String(n)] ? 'answer_key_extracted' : 'extracted_from_doc';
+
+          const msQ: ReadingQuestion = {
+            id: `q_${n}`,
+            type: 'multiple_select',
+            prompt: qPrompt,
+            options: detectedOptions.length > 0 ? detectedOptions : undefined,
+            correctAnswer: assignedKey,
+            citation: detailItem?.citation,
+            points: 1,
+            source: assignedSource,
+            answerKeyConfidence: assignedKey ? 'high' : 'needs_teacher_review',
+            needsReview: !assignedKey,
+            explanation: detailItem?.citation ? `Citation: ${detailItem.citation}` : 'Extracted Multiple Selection.',
+          };
+          msQ.multipleSelectCount = reqCount;
+          (msQ as any).questionRange = targetNums;
+          groupQuestions.push(msQ);
+        }
+      } else {
+        groupQuestions.forEach((q) => {
+          q.type = 'multiple_select';
+          q.multipleSelectCount = reqCount;
+          if (rangeNums.length > 0) {
+            (q as any).questionRange = rangeNums;
+          }
+        });
+      }
+    }
+
     let primaryType =
       (instructionType !== 'short_answer' ? instructionType : null) ||
       groupQuestions.find((q) => q.type !== 'short_answer')?.type ||

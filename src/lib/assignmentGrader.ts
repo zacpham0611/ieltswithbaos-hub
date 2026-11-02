@@ -195,23 +195,40 @@ export function gradeSingleQuestion(
     const keySet = parseTokens(key);
 
     let isCorrect = false;
-    if (userSet.size === keySet.size && userSet.size > 0) {
-      isCorrect = true;
-      for (const item of userSet) {
-        if (!keySet.has(item)) {
-          isCorrect = false;
-          break;
+    let earnedPoints = 0;
+
+    if (keySet.size === 1) {
+      const singleKey = Array.from(keySet)[0];
+      if (userSet.has(singleKey)) {
+        isCorrect = true;
+        earnedPoints = maxPoints;
+      }
+    } else if (keySet.size > 1) {
+      // For multiple_select: the user MUST select exactly the right answers.
+      // Selecting extra answers (even if they include all correct ones) is wrong.
+      if (userSet.size === keySet.size) {
+        let matchedCount = 0;
+        for (const item of userSet) {
+          if (keySet.has(item)) matchedCount++;
+        }
+        if (matchedCount === keySet.size) {
+          isCorrect = true;
+          earnedPoints = maxPoints;
+        } else if (matchedCount > 0) {
+          // Partial credit: correct count matches but not all are right
+          earnedPoints = Math.round((matchedCount / keySet.size) * maxPoints * 10) / 10;
         }
       }
+      // If userSet.size !== keySet.size (too many or too few selected), isCorrect stays false
     }
 
     return {
       questionId: qId,
       userAnswer: userAns,
       correctAnswer: key,
-      isCorrect,
+      isCorrect: isCorrect || earnedPoints >= maxPoints,
       isPendingReview: false,
-      earnedPoints: isCorrect ? maxPoints : 0,
+      earnedPoints,
       maxPoints,
       explanation,
     };

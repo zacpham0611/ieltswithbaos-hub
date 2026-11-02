@@ -146,6 +146,8 @@ export interface ReadingQuestion {
   diagramUrl?: string;
   wordLimit?: string;
   maxWords?: number;
+  /** For multiple_select: how many options the student must choose (e.g. 2, 3). */
+  multipleSelectCount?: number;
   correctAnswer: string;
   explanation: string;
   points?: number;

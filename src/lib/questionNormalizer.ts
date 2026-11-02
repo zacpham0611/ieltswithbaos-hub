@@ -270,7 +270,11 @@ export function normalizeReadingQuestion(
       ? raw.maxWords
       : parseMaxWordsFromLimit(wordLimit) || undefined;
 
-  const id = String(raw.id || raw._id || `q_${index ?? 1}_${Date.now()}`);
+  const id = String(
+    raw.id ||
+      raw._id ||
+      (raw.questionNumber ? `q_${raw.questionNumber}` : `q_${index ?? 1}`)
+  );
 
   const correctAnswer = String(
     raw.correctAnswer ??
@@ -363,6 +367,11 @@ export function normalizeReadingQuestion(
   if (raw.answerKeyConfidence) normalized.answerKeyConfidence = raw.answerKeyConfidence;
   if (raw.needsReview !== undefined) normalized.needsReview = Boolean(raw.needsReview);
   if (passageIndex !== undefined) normalized.passageIndex = passageIndex;
+  // Preserve multipleSelectCount for multiple_select questions
+  const rawMultiCount = raw.multipleSelectCount ?? raw.multiple_select_count ?? raw.selectCount;
+  if (type === 'multiple_select' && rawMultiCount != null && Number(rawMultiCount) > 0) {
+    normalized.multipleSelectCount = Number(rawMultiCount);
+  }
 
   return normalized;
 }
@@ -417,6 +426,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
   const resultQuestions: ReadingQuestion[] = [];
   const passageMap: Record<string, number> = {};
   const seenIds = new Set<string>();
+  const seenContentKeys = new Set<string>();
 
   if (!assignment) {
     return {
@@ -449,26 +459,34 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     }
 
     const norm = normalizeReadingQuestion(rawQ, resultQuestions.length + 1, resolvedPIdx);
-    let finalId = norm.id;
-    if (seenIds.has(finalId) && resolvedPIdx !== undefined) {
-      const altId = `${finalId}_p${resolvedPIdx + 1}`;
-      if (!seenIds.has(altId)) {
-        finalId = altId;
-        norm.id = altId;
+    const finalId = norm.id;
+    const contentKey = `${norm.type}:${(norm.prompt || '').trim().toLowerCase()}`;
+
+    // Deduplicate: If ID or prompt is already in resultQuestions, do NOT add duplicate!
+    if (seenIds.has(finalId) || (norm.prompt && norm.prompt.length > 5 && seenContentKeys.has(contentKey))) {
+      // If passage index was previously missing or undefined, update passageMap
+      if (resolvedPIdx !== undefined) {
+        if (passageMap[finalId] === undefined) {
+          passageMap[finalId] = resolvedPIdx;
+        }
+        const existingQ = resultQuestions.find((q) => q.id === finalId);
+        if (existingQ && (existingQ as any).passageIndex === undefined) {
+          (existingQ as any).passageIndex = resolvedPIdx;
+        }
       }
+      return;
     }
 
-    if (!seenIds.has(finalId)) {
-      seenIds.add(finalId);
-      if (resolvedPIdx !== undefined) {
-        passageMap[finalId] = resolvedPIdx;
-        (norm as any).passageIndex = resolvedPIdx;
-      }
-      resultQuestions.push(norm);
-    } else if (resolvedPIdx !== undefined && passageMap[finalId] === undefined) {
+    seenIds.add(finalId);
+    if (norm.prompt && norm.prompt.length > 5) {
+      seenContentKeys.add(contentKey);
+    }
+
+    if (resolvedPIdx !== undefined) {
       passageMap[finalId] = resolvedPIdx;
       (norm as any).passageIndex = resolvedPIdx;
     }
+    resultQuestions.push(norm);
   };
 
   // 1. Process passages if present
@@ -531,7 +549,11 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
         if (passageMap[q.id] === undefined) {
           for (let pIdx = 0; pIdx < passages.length; pIdx++) {
             const p = passages[pIdx];
-            const hasMatch = p.questions?.some((pq: any) => pq.id === q.id || (pq.prompt && pq.prompt === q.prompt));
+            const hasMatch =
+              p.questions?.some((pq: any) => pq.id === q.id || (pq.prompt && pq.prompt === q.prompt)) ||
+              p.questionGroups?.some((g: any) =>
+                g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
+              );
             if (hasMatch) {
               passageMap[q.id] = pIdx;
               (q as any).passageIndex = pIdx;
@@ -540,6 +562,19 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
           }
         }
       });
+
+      // Sequential partition fallback for any unmapped questions across passages
+      const unmapped = resultQuestions.filter((q) => passageMap[q.id] === undefined);
+      if (unmapped.length > 0) {
+        const perPassage = Math.ceil(resultQuestions.length / passages.length);
+        resultQuestions.forEach((q, qIdx) => {
+          if (passageMap[q.id] === undefined) {
+            const calculatedPIdx = Math.min(Math.floor(qIdx / perPassage), passages.length - 1);
+            passageMap[q.id] = calculatedPIdx;
+            (q as any).passageIndex = calculatedPIdx;
+          }
+        });
+      }
     }
   }
 

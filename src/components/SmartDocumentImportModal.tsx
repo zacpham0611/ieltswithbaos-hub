@@ -953,8 +953,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
   return (
     <Portal>
-      <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
+      <div className={`fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center ${currentStep === 'preview' ? 'p-0' : 'p-4 overflow-y-auto'}`}>
+      <div className={`relative z-10 bg-white border border-slate-200 w-full flex flex-col overflow-hidden ${currentStep === 'preview' ? 'h-full rounded-none shadow-none' : 'rounded-2xl shadow-2xl max-w-5xl my-8 max-h-[90vh]'}`}>
         {/* ==========================================
             MODAL HEADER & STEP PROGRESS
         ========================================== */}
@@ -1055,7 +1055,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         {/* ==========================================
             MODAL BODY CONTENT BY STEP
         ========================================== */}
-        <div className="p-6 flex-1 overflow-y-auto space-y-6">
+        <div className={`flex-1 overflow-y-auto ${currentStep === 'preview' ? 'p-0' : 'p-6 space-y-6'}`}>
           {/* --------------------------------------
               STEP 1: UPLOAD
           --------------------------------------- */}
@@ -1650,84 +1650,44 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
               STEP 2: PREVIEW & EDIT EXTRACTED TEXT (READING)
           --------------------------------------- */}
           {currentStep === 'preview' && activeDoc && importSkillType !== 'speaking' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Previewing: {activeDoc.name}
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Review or correct extracted headings, passages, and questions before proceeding.
-                  </p>
+            <div className="h-full flex flex-col p-6 space-y-4">
+              {/* Toolbar row */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3 shrink-0">
+                <div className="flex items-center space-x-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Previewing: {activeDoc.name}</h3>
+                    <p className="text-xs text-slate-500">Review or correct extracted headings, passages, and questions before proceeding.</p>
+                  </div>
+                  <input
+                    type="text"
+                    value={editedTitle}
+                    onChange={(e) => setEditedTitle(e.target.value)}
+                    className="hidden sm:block p-1.5 border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden w-56"
+                    placeholder="Assignment title…"
+                  />
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="bg-slate-100 p-0.5 rounded-lg flex text-xs font-semibold">
-                    <button
-                      onClick={() => setPreviewTab('structured')}
-                      className={`px-3 py-1 rounded-md transition-colors ${
-                        previewTab === 'structured' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'
-                      }`}
-                    >
-                      Structured View
-                    </button>
-                    <button
-                      onClick={() => setPreviewTab('raw')}
-                      className={`px-3 py-1 rounded-md transition-colors ${
-                        previewTab === 'raw' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'
-                      }`}
-                    >
-                      Raw Text Editor
-                    </button>
+                    <button onClick={() => setPreviewTab('structured')} className={`px-3 py-1 rounded-md transition-colors ${previewTab === 'structured' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'}`}>Structured View</button>
+                    <button onClick={() => setPreviewTab('raw')} className={`px-3 py-1 rounded-md transition-colors ${previewTab === 'raw' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'}`}>Raw Text Editor</button>
                   </div>
                 </div>
               </div>
 
-              {/* Title Input */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Document / Assignment Title
-                </label>
-                <input
-                  type="text"
-                  value={editedTitle}
-                  onChange={(e) => setEditedTitle(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                />
+              {/* Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs shrink-0">
+                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Total Pages</span><p className="font-mono font-bold text-slate-800 text-sm">{activeDoc.pageCount || 1}</p></div>
+                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Tests Detected</span><p className="font-mono font-bold text-blue-600 text-sm">{activeDoc.detectedStructure?.tests?.length || 1}</p></div>
+                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Total Passages</span><p className="font-mono font-bold text-indigo-600 text-sm">{activeDoc.detectedStructure?.tests?.reduce((s, t) => s + t.passages.length, 0) || activeDoc.detectedStructure?.candidateTests?.length || 1}</p></div>
+                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Total Questions</span><p className="font-mono font-bold text-emerald-600 text-sm">{activeDoc.detectedStructure?.questions.length || 0}</p></div>
               </div>
 
               {previewTab === 'structured' ? (
-                <div className="space-y-4">
-                  {/* Overall Document Statistics Header */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Total Pages</span>
-                      <p className="font-mono font-bold text-slate-800 text-sm">{activeDoc.pageCount || 1}</p>
-                    </div>
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Tests Detected</span>
-                      <p className="font-mono font-bold text-blue-600 text-sm">
-                        {activeDoc.detectedStructure?.tests?.length || 1}
-                      </p>
-                    </div>
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Total Passages</span>
-                      <p className="font-mono font-bold text-indigo-600 text-sm">
-                        {activeDoc.detectedStructure?.tests?.reduce((s, t) => s + t.passages.length, 0) ||
-                          activeDoc.detectedStructure?.candidateTests?.length ||
-                          1}
-                      </p>
-                    </div>
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-400 font-semibold uppercase">Total Questions</span>
-                      <p className="font-mono font-bold text-emerald-600 text-sm">
-                        {activeDoc.detectedStructure?.questions.length || 0}
-                      </p>
-                    </div>
-                  </div>
+                <div className="flex-1 flex flex-col overflow-hidden space-y-4 min-h-0">
 
-                  {/* Hierarchical Document Tree View */}
+                  {/* Multi-passage tree */}
                   {activeDoc.detectedStructure?.tests && activeDoc.detectedStructure.tests.length > 0 ? (
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shrink-0">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-100 gap-2">
                         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
                           <Layers className="w-4 h-4 text-blue-600" />
@@ -1735,102 +1695,40 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                         </span>
                         <div className="flex items-center space-x-2 flex-wrap">
                           {activeDoc.detectedStructure?.tests?.[0] && (
-                            <button
-                              type="button"
-                              onClick={() => activeDoc.detectedStructure?.tests?.[0] && handleRenumberTestContinuous(activeDoc.detectedStructure.tests[0].id)}
-                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-xs font-bold border border-amber-200 transition-colors flex items-center space-x-1"
-                              title="Đánh số lại câu hỏi liên tục 1–40 trên toàn bộ các passage"
-                            >
-                              <span>Đánh số liên tục 1–40</span>
-                            </button>
+                            <button type="button" onClick={() => activeDoc.detectedStructure?.tests?.[0] && handleRenumberTestContinuous(activeDoc.detectedStructure.tests[0].id)} className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-xs font-bold border border-amber-200 transition-colors">Đánh số liên tục 1–40</button>
                           )}
-                          <button
-                            type="button"
-                            onClick={handleBatchSaveAllTestsToLibrary}
-                            disabled={isPublishingAssignment}
-                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors"
-                          >
-                            Save Full Test to Library
-                          </button>
+                          <button type="button" onClick={handleBatchSaveAllTestsToLibrary} disabled={isPublishingAssignment} className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors">Save Full Test to Library</button>
                         </div>
                       </div>
-
-                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                         {activeDoc.detectedStructure.tests.map((test) => {
                           const isExpanded = Boolean(expandedTestIds[test.id]);
                           return (
                             <div key={test.id} className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
-                              <div
-                                onClick={() => handleToggleExpandTest(test.id)}
-                                className="p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors"
-                              >
+                              <div onClick={() => handleToggleExpandTest(test.id)} className="p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors">
                                 <div className="flex items-center space-x-2">
-                                  {isExpanded ? (
-                                    <ChevronDown className="w-4 h-4 text-slate-500" />
-                                  ) : (
-                                    <ChevronRight className="w-4 h-4 text-slate-500" />
-                                  )}
+                                  {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
                                   <span className="text-xs font-bold text-slate-900">{test.title}</span>
                                 </div>
-                                <span className="text-[11px] font-mono font-semibold text-slate-500">
-                                  {test.passages.length} Passages • {test.questionCount} Questions
-                                </span>
+                                <span className="text-[11px] font-mono font-semibold text-slate-500">{test.passages.length} Passages • {test.questionCount} Questions</span>
                               </div>
-
                               {isExpanded && (
                                 <div className="p-2 pt-0 space-y-1.5 pl-6 bg-white border-t border-slate-100">
                                   {test.passages.map((p, pIdx) => {
                                     const isSelected = selectedPassageId === p.id;
                                     return (
-                                      <div
-                                        key={p.id}
-                                        onClick={() => handleSelectPassageFromTree(test.id, p.id)}
-                                        className={`p-2 rounded-lg cursor-pointer transition-all flex items-center justify-between text-xs ${
-                                          isSelected
-                                            ? 'bg-blue-50 border border-blue-300 text-blue-900 font-bold'
-                                            : 'hover:bg-slate-50 text-slate-700'
-                                        }`}
-                                      >
+                                      <div key={p.id} onClick={() => handleSelectPassageFromTree(test.id, p.id)} className={`p-2 rounded-lg cursor-pointer transition-all flex items-center justify-between text-xs ${isSelected ? 'bg-blue-50 border border-blue-300 text-blue-900 font-bold' : 'hover:bg-slate-50 text-slate-700'}`}>
                                         <div className="flex items-center space-x-2">
                                           <BookOpen className="w-3.5 h-3.5 text-blue-500" />
                                           <span className="truncate">{p.title}</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
-                                          {/* Passage Reordering Controls */}
                                           <div className="flex items-center space-x-0.5 bg-slate-100 rounded px-1">
-                                            <button
-                                              type="button"
-                                              disabled={pIdx === 0}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleMovePassage(test.id, pIdx, 'up');
-                                              }}
-                                              className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30"
-                                              title="Move passage up"
-                                            >
-                                              ▲
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={pIdx === test.passages.length - 1}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleMovePassage(test.id, pIdx, 'down');
-                                              }}
-                                              className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30"
-                                              title="Move passage down"
-                                            >
-                                              ▼
-                                            </button>
+                                            <button type="button" disabled={pIdx === 0} onClick={(e) => { e.stopPropagation(); handleMovePassage(test.id, pIdx, 'up'); }} className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30">▲</button>
+                                            <button type="button" disabled={pIdx === test.passages.length - 1} onClick={(e) => { e.stopPropagation(); handleMovePassage(test.id, pIdx, 'down'); }} className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30">▼</button>
                                           </div>
-                                          {p.questionGroups && p.questionGroups.length > 0 && (
-                                            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono">
-                                              {p.questionGroups.length} Groups
-                                            </span>
-                                          )}
-                                          <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-mono font-bold">
-                                            {p.questions?.length || 0} Qs
-                                          </span>
+                                          {p.questionGroups && p.questionGroups.length > 0 && <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono">{p.questionGroups.length} Groups</span>}
+                                          <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-mono font-bold">{p.questions?.length || 0} Qs</span>
                                         </div>
                                       </div>
                                     );
@@ -1843,84 +1741,55 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                       </div>
                     </div>
                   ) : activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 ? (
-                    <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2">
+                    <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2 shrink-0">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5">
-                          <Layers className="w-4 h-4 text-blue-600" />
-                          <span>
-                            Detected {activeDoc.detectedStructure.candidateTests.length} Reading Passages
-                          </span>
-                        </span>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            type="button"
-                            onClick={handleGroupCandidateTestsIntoFullTest}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
-                          >
-                            Gộp thành 1 đề Full Test (Passages 1–{activeDoc.detectedStructure.candidateTests.length})
-                          </button>
-                        </div>
+                        <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5"><Layers className="w-4 h-4 text-blue-600" /><span>Detected {activeDoc.detectedStructure.candidateTests.length} Reading Passages</span></span>
+                        <button type="button" onClick={handleGroupCandidateTestsIntoFullTest} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors">Gộp thành 1 đề Full Test (Passages 1–{activeDoc.detectedStructure.candidateTests.length})</button>
                       </div>
                       <div className="flex flex-wrap gap-2 pt-1">
                         {activeDoc.detectedStructure.candidateTests.map((ct) => (
-                          <button
-                            key={ct.id}
-                            type="button"
-                            onClick={() => handleSelectCandidateTest(ct.id)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1.5 ${
-                              selectedCandidateTestId === ct.id
-                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                            }`}
-                          >
+                          <button key={ct.id} type="button" onClick={() => handleSelectCandidateTest(ct.id)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1.5 ${selectedCandidateTestId === ct.id ? 'bg-blue-600 text-white border-blue-600 shadow-xs' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}>
                             <span>{ct.title}</span>
-                            <span
-                              className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                                selectedCandidateTestId === ct.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
-                              }`}
-                            >
-                              {ct.questionCount} Qs
-                            </span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${selectedCandidateTestId === ct.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>{ct.questionCount} Qs</span>
                           </button>
                         ))}
                       </div>
                     </div>
                   ) : null}
 
-                  {/* Passage Preview */}
-                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
-                        <BookOpen className="w-4 h-4 text-blue-600" />
-                        <span>Reading Passage Text</span>
-                      </span>
-                      <span className="text-[11px] text-slate-500 font-semibold font-mono">
-                        {editedPassage.split(/\s+/).filter(Boolean).length} words
-                      </span>
+                  {/* ── TWO-PANEL EDITOR – fills remaining space ── */}
+                  <div className="flex flex-1 border border-slate-200 rounded-xl overflow-hidden min-h-0" style={{minHeight: '55vh'}}>
+
+                    {/* LEFT PANEL: Passage Text */}
+                    <div className="w-2/5 flex flex-col border-r border-slate-200 bg-slate-50/40">
+                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-white shrink-0">
+                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                          <BookOpen className="w-4 h-4 text-blue-600" />
+                          <span>Reading Passage Text</span>
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-semibold font-mono">{editedPassage.split(/\s+/).filter(Boolean).length} words</span>
+                      </div>
+                      <textarea
+                        value={editedPassage}
+                        onChange={(e) => setEditedPassage(e.target.value)}
+                        className="flex-1 p-4 bg-transparent border-0 text-xs font-mono text-slate-800 leading-relaxed focus:ring-0 focus:outline-hidden resize-none"
+                        placeholder="Passage text will appear here…"
+                      />
                     </div>
-                    <textarea
-                      rows={6}
-                      value={editedPassage}
-                      onChange={(e) => setEditedPassage(e.target.value)}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-lg text-xs font-mono text-slate-800 leading-relaxed focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                      placeholder="Passage text will appear here..."
-                    />
-                  </div>
 
-                  {/* In-Place Editable Questions Summary */}
-                  <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
-                        <HelpCircle className="w-4 h-4 text-indigo-600" />
-                        <span>Interactive Questions ({editableQuestions.length})</span>
-                      </span>
-
-                      <div className="flex items-center space-x-2">
+                    {/* RIGHT PANEL: Question Editor */}
+                    <div className="flex-1 flex flex-col bg-white min-w-0">
+                      {/* Header */}
+                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 shrink-0">
+                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                          <HelpCircle className="w-4 h-4 text-indigo-600" />
+                          <span>Questions ({editableQuestions.length})</span>
+                        </span>
                         <button
                           type="button"
                           onClick={() => {
                             const newQ: ReadingQuestion = {
-                              id: `q_${editableQuestions.length + 1}`,
+                              id: `q_new_${Date.now()}`,
                               type: 'sentence_completion',
                               prompt: `New Question ${editableQuestions.length + 1}`,
                               correctAnswer: '',
@@ -1937,161 +1806,195 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                           <span>Add Question</span>
                         </button>
                       </div>
-                    </div>
 
-                    {editableQuestions.length > 0 ? (
-                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                        {editableQuestions.map((q, idx) => (
-                          <div
-                            key={q.id || idx}
-                            className="p-3 rounded-xl border border-slate-200 bg-slate-50/40 text-xs space-y-2"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center space-x-2">
-                                <span className="font-bold text-slate-800">#{idx + 1}</span>
-                                <select
-                                  value={q.type}
-                                  onChange={(e) => {
-                                    const updated = [...editableQuestions];
-                                    updated[idx] = { ...updated[idx], type: e.target.value as QuestionType };
-                                    setEditableQuestions(updated);
-                                  }}
-                                  className="p-1 border border-slate-300 rounded text-xs bg-white text-slate-900 font-semibold"
-                                >
-                                  <option value="multiple_choice">Multiple Choice</option>
-                                  <option value="multiple_select">Multiple Select</option>
-                                  <option value="true_false_not_given">True / False / Not Given</option>
-                                  <option value="yes_no_not_given">Yes / No / Not Given</option>
-                                  <option value="matching_information">Matching Information</option>
-                                  <option value="matching_information">Matching Information</option>
-                                  <option value="matching_headings">Matching Headings</option>
-                                  <option value="matching_features">Matching Features</option>
-                                  <option value="matching_sentence_endings">Matching Sentence Endings</option>
-                                  <option value="sentence_completion">Sentence Completion</option>
-                                  <option value="summary_completion">Summary Completion</option>
-                                  <option value="note_completion">Note Completion</option>
-                                  <option value="table_completion">Table Completion</option>
-                                  <option value="short_answer">Short Answer</option>
-                                </select>
+                      {/* Question list – fills all available height */}
+                      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                        {editableQuestions.length > 0 ? (
+                          editableQuestions.map((q, idx) => {
+                            const updateQ = (patch: Partial<ReadingQuestion>) => {
+                              const updated = [...editableQuestions];
+                              updated[idx] = { ...updated[idx], ...patch, isTeacherEdited: true };
+                              setEditableQuestions(updated);
+                            };
+                            const updateOption = (optIdx: number, val: string) => {
+                              const opts = [...(q.options || [])];
+                              opts[optIdx] = val;
+                              updateQ({ options: opts });
+                            };
+                            const addOption = () => updateQ({ options: [...(q.options || []), ''] });
+                            const removeOption = (optIdx: number) => updateQ({ options: (q.options || []).filter((_, i) => i !== optIdx) });
+                            const isMC = q.type === 'multiple_choice' || q.type === 'multiple_select';
+                            const isTFNG = q.type === 'true_false_not_given' || q.type === 'yes_no_not_given';
+                            const isCompletion = ['sentence_completion', 'summary_completion', 'note_completion', 'table_completion'].includes(q.type);
+                            const isMatchingQ = ['matching_headings', 'matching_features', 'matching_information', 'matching_sentence_endings'].includes(q.type);
 
-                                {/* Answer Status Badge */}
-                                {q.isTeacherEdited ? (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">
-                                    Teacher Edited
-                                  </span>
-                                ) : q.source === 'source_extracted' ? (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
-                                    Source Extracted
-                                  </span>
-                                ) : q.correctAnswer && (q.source === 'answer_key_extracted' || q.answerKeyConfidence === 'high') ? (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center space-x-1">
-                                    <Check className="w-3 h-3 text-emerald-600" />
-                                    <span>Answer Key Extracted</span>
-                                  </span>
-                                ) : (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 flex items-center space-x-1">
-                                    <AlertCircle className="w-3 h-3 text-amber-600" />
-                                    <span>Review Key Needed</span>
-                                  </span>
+                            return (
+                              <div key={q.id || idx} className="p-3 rounded-xl border border-slate-200 bg-slate-50/40 text-xs space-y-2.5">
+                                {/* Row 1: num / type / badge / answer key / delete */}
+                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                    <span className="font-bold text-slate-800 shrink-0">#{idx + 1}</span>
+                                    <select
+                                      value={q.type}
+                                      onChange={(e) => updateQ({ type: e.target.value as QuestionType })}
+                                      className="p-1 border border-slate-300 rounded text-xs bg-white text-slate-900 font-semibold"
+                                    >
+                                      <option value="multiple_choice">Multiple Choice (Single)</option>
+                                      <option value="multiple_select">Multiple Select (Choose N)</option>
+                                      <option value="true_false_not_given">True / False / Not Given</option>
+                                      <option value="yes_no_not_given">Yes / No / Not Given</option>
+                                      <option value="matching_information">Matching Information</option>
+                                      <option value="matching_headings">Matching Headings</option>
+                                      <option value="matching_features">Matching Features</option>
+                                      <option value="matching_sentence_endings">Matching Sentence Endings</option>
+                                      <option value="sentence_completion">Sentence Completion</option>
+                                      <option value="summary_completion">Summary Completion</option>
+                                      <option value="note_completion">Note Completion</option>
+                                      <option value="table_completion">Table Completion</option>
+                                      <option value="short_answer">Short Answer</option>
+                                    </select>
+                                    {q.isTeacherEdited ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">Teacher Edited</span>
+                                    ) : q.source === 'source_extracted' ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">Source Extracted</span>
+                                    ) : q.correctAnswer && (q.source === 'answer_key_extracted' || q.answerKeyConfidence === 'high') ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center space-x-1"><Check className="w-3 h-3 text-emerald-600" /><span>Answer Key Extracted</span></span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 flex items-center space-x-1"><AlertCircle className="w-3 h-3 text-amber-600" /><span>Review Key Needed</span></span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center space-x-2 shrink-0">
+                                    {q.type === 'multiple_select' && (
+                                      <label className="flex items-center space-x-1 text-[10px] font-semibold text-slate-600">
+                                        <span>Select</span>
+                                        <input type="number" min={1} max={q.options?.length || 6} value={q.multipleSelectCount ?? 2} onChange={(e) => updateQ({ multipleSelectCount: Math.max(1, parseInt(e.target.value) || 2) })} className="w-10 p-0.5 border border-indigo-300 rounded text-center text-xs font-bold bg-indigo-50" />
+                                        <span>answers</span>
+                                      </label>
+                                    )}
+                                    <input type="text" placeholder="Answer Key" value={q.correctAnswer || ''} onChange={(e) => updateQ({ correctAnswer: e.target.value, answerKeyConfidence: 'high', needsReview: false })} className="p-1 border border-emerald-300 rounded text-xs font-mono font-bold text-emerald-800 w-28 bg-emerald-50/40" />
+                                    <button type="button" onClick={() => setEditableQuestions(editableQuestions.filter((_, i) => i !== idx))} className="p-1 text-slate-400 hover:text-red-500 rounded" title="Delete question"><Trash2 className="w-3.5 h-3.5" /></button>
+                                  </div>
+                                </div>
+
+                                {q.citation && <p className="text-[10px] text-slate-500 italic">Citation: {q.citation}</p>}
+
+                                {/* Prompt */}
+                                <input type="text" value={q.prompt} onChange={(e) => updateQ({ prompt: e.target.value })} className="w-full p-2 border border-slate-200 rounded text-xs font-medium text-slate-800 bg-white" placeholder="Question prompt / statement…" />
+
+                                {/* TYPE-SPECIFIC CONTROLS */}
+
+                                {/* MC / Multiple Select: options */}
+                                {isMC && (
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Answer Options</span>
+                                      <button type="button" onClick={addOption} className="text-[10px] px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded font-bold">+ Add Option</button>
+                                    </div>
+                                    {(q.options || []).map((opt, optIdx) => (
+                                      <div key={optIdx} className="flex items-center space-x-1">
+                                        <span className="text-[10px] font-bold text-slate-400 w-5 shrink-0">{String.fromCharCode(65 + optIdx)}.</span>
+                                        <input type="text" value={opt} onChange={(e) => updateOption(optIdx, e.target.value)} className="flex-1 p-1 border border-slate-200 rounded text-xs bg-white" placeholder={`Option ${String.fromCharCode(65 + optIdx)}…`} />
+                                        <button type="button" onClick={() => removeOption(optIdx)} className="text-slate-300 hover:text-red-500 p-0.5"><Trash2 className="w-3 h-3" /></button>
+                                      </div>
+                                    ))}
+                                    {(!q.options || q.options.length === 0) && <p className="text-[10px] text-slate-400 italic pl-1">No options yet — click &ldquo;+ Add Option&rdquo; above.</p>}
+                                  </div>
+                                )}
+
+                                {/* T/F/NG */}
+                                {isTFNG && (
+                                  <div className="bg-slate-50 rounded p-2 text-[10px] text-slate-500">
+                                    <span className="font-bold text-slate-600">Accepted answers: </span>{q.type === 'true_false_not_given' ? 'TRUE, FALSE, NOT GIVEN' : 'YES, NO, NOT GIVEN'}
+                                  </div>
+                                )}
+
+                                {/* Completion: word bank */}
+                                {isCompletion && (
+                                  <div className="space-y-1">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Word Bank (optional)</span>
+                                    <input type="text" value={(q.options || []).join(', ')} onChange={(e) => updateQ({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} className="w-full p-1.5 border border-slate-200 rounded text-xs bg-white" placeholder="Word, phrase, another word… (comma-separated)" />
+                                    <p className="text-[10px] text-slate-400 italic">Word limit: {q.wordLimit || q.maxWords ? `${q.wordLimit || q.maxWords} word(s)` : 'not set'}</p>
+                                  </div>
+                                )}
+
+                                {/* Matching */}
+                                {isMatchingQ && (
+                                  <div className="space-y-1.5">
+                                    {q.type === 'matching_headings' && (
+                                      <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Headings List</span>
+                                          <button type="button" onClick={() => updateQ({ headingsList: [...(q.headingsList || []), ''] })} className="text-[10px] px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded font-bold">+ Add Heading</button>
+                                        </div>
+                                        {(q.headingsList || []).map((h, hIdx) => (
+                                          <div key={hIdx} className="flex items-center space-x-1">
+                                            <span className="text-[10px] text-slate-400 font-bold w-5 shrink-0">{hIdx + 1}.</span>
+                                            <input type="text" value={h} onChange={(e) => { const list = [...(q.headingsList || [])]; list[hIdx] = e.target.value; updateQ({ headingsList: list }); }} className="flex-1 p-1 border border-slate-200 rounded text-xs bg-white" />
+                                            <button type="button" onClick={() => updateQ({ headingsList: (q.headingsList || []).filter((_, i) => i !== hIdx) })} className="text-slate-300 hover:text-red-500 p-0.5"><Trash2 className="w-3 h-3" /></button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {q.type === 'matching_features' && (
+                                      <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Features List</span>
+                                          <button type="button" onClick={() => updateQ({ featuresList: [...(q.featuresList || []), ''] })} className="text-[10px] px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded font-bold">+ Add Feature</button>
+                                        </div>
+                                        {(q.featuresList || []).map((f, fIdx) => (
+                                          <div key={fIdx} className="flex items-center space-x-1">
+                                            <span className="text-[10px] text-slate-400 font-bold w-5 shrink-0">{String.fromCharCode(65 + fIdx)}.</span>
+                                            <input type="text" value={f} onChange={(e) => { const list = [...(q.featuresList || [])]; list[fIdx] = e.target.value; updateQ({ featuresList: list }); }} className="flex-1 p-1 border border-slate-200 rounded text-xs bg-white" />
+                                            <button type="button" onClick={() => updateQ({ featuresList: (q.featuresList || []).filter((_, i) => i !== fIdx) })} className="text-slate-300 hover:text-red-500 p-0.5"><Trash2 className="w-3 h-3" /></button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {(q.type === 'matching_information' || q.type === 'matching_sentence_endings') && (
+                                      <div className="bg-slate-50 rounded p-2 text-[10px] text-slate-500">
+                                        <span className="font-bold text-slate-600">Answer key format: </span>{q.type === 'matching_information' ? 'Paragraph letter (e.g. A, B, C…)' : 'Sentence ending label (e.g. A, B, C…)'}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Short answer */}
+                                {q.type === 'short_answer' && (
+                                  <div className="space-y-1">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Accepted Answers (comma-separated)</span>
+                                    <input type="text" value={q.correctAnswer || ''} onChange={(e) => updateQ({ correctAnswer: e.target.value, answerKeyConfidence: 'high', needsReview: false })} className="w-full p-1.5 border border-emerald-300 rounded text-xs font-mono bg-emerald-50/40 text-emerald-800 font-bold" placeholder="answer1, answer2, …" />
+                                    {q.wordLimit && <p className="text-[10px] text-slate-400 italic">Word limit: {q.wordLimit}</p>}
+                                  </div>
                                 )}
                               </div>
-
-                              <div className="flex items-center space-x-2">
-                                <input
-                                  type="text"
-                                  placeholder="Answer Key"
-                                  value={q.correctAnswer || ''}
-                                  onChange={(e) => {
-                                    const updated = [...editableQuestions];
-                                    updated[idx] = {
-                                      ...updated[idx],
-                                      correctAnswer: e.target.value,
-                                      isTeacherEdited: true,
-                                      answerKeyConfidence: 'high',
-                                      needsReview: false,
-                                    };
-                                    setEditableQuestions(updated);
-                                  }}
-                                  className="p-1 border border-emerald-300 rounded text-xs font-mono font-bold text-emerald-800 w-32 bg-emerald-50/40"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditableQuestions(editableQuestions.filter((_, i) => i !== idx));
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-red-500 rounded"
-                                  title="Delete question"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            {q.citation && (
-                              <p className="text-[10px] text-slate-500 italic">Citation: {q.citation}</p>
-                            )}
-
-                            <input
-                              type="text"
-                              value={q.prompt}
-                              onChange={(e) => {
-                                const updated = [...editableQuestions];
-                                updated[idx] = { ...updated[idx], prompt: e.target.value };
-                                setEditableQuestions(updated);
-                              }}
-                              className="w-full p-2 border border-slate-200 rounded text-xs font-medium text-slate-800 bg-white"
-                            />
-                          </div>
-                        ))}
+                            );
+                          })
+                        ) : (
+                          <p className="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-lg">No questions in this section. Add questions manually or let AI generate them in the next step.</p>
+                        )}
                       </div>
-                    ) : (
-                      <p className="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-lg">
-                        No questions in this section. You can add questions manually or let AI generate them in the next step.
-                      </p>
-                    )}
-                  </div>
 
-                  {/* Quick Action Footer in Preview Step */}
-                  <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-blue-900">Target Course:</span>
-                      <select
-                        value={assignCourseId}
-                        onChange={(e) => setAssignCourseId(e.target.value)}
-                        className="p-1.5 border border-blue-200 rounded-lg bg-white text-xs font-semibold"
-                      >
-                        {courses.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        disabled={isPublishingAssignment}
-                        onClick={handleAssignCurrentPassageDirectly}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center space-x-1"
-                      >
-                        <span>Assign This Passage Now</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Footer */}
+                      <div className="px-4 py-3 bg-blue-50/60 border-t border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shrink-0">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-blue-900">Target Course:</span>
+                          <select value={assignCourseId} onChange={(e) => setAssignCourseId(e.target.value)} className="p-1.5 border border-blue-200 rounded-lg bg-white text-xs font-semibold">
+                            {courses.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                          </select>
+                        </div>
+                        <button type="button" disabled={isPublishingAssignment} onClick={handleAssignCurrentPassageDirectly} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center space-x-1">
+                          <span>Assign This Passage Now</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Raw Document Text (Full Content)
-                  </label>
-                  <textarea
-                    rows={12}
-                    value={editedRawText}
-                    onChange={(e) => setEditedRawText(e.target.value)}
-                    className="w-full p-3 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 leading-relaxed focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                  />
+                /* Raw Text Editor */
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Raw Document Text (Full Content)</label>
+                  <textarea rows={20} value={editedRawText} onChange={(e) => setEditedRawText(e.target.value)} className="w-full p-3 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 leading-relaxed focus:ring-2 focus:ring-blue-500 focus:outline-hidden" />
                 </div>
               )}
             </div>

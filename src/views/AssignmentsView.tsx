@@ -2905,29 +2905,30 @@ export const AssignmentsView: React.FC = () => {
                 {/* Multi-Passage Tabs (If test contains multiple passages) */}
                 {activeAssignment.passages && activeAssignment.passages.length > 1 && (
                   <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-2 overflow-x-auto">
-                    {activeAssignment.passages.map((p, pIdx) => (
-                      <button
-                        key={p.id || pIdx}
-                        type="button"
-                        onClick={() => setActivePassageTab(pIdx)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 ${
-                          activePassageTab === pIdx
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
-                      >
-                        <span>{p.title || `Passage ${pIdx + 1}`}</span>
-                        {p.questions && (
+                    {activeAssignment.passages.map((p, pIdx) => {
+                      const pQuestionCount = allQuestionsIndexed.filter((item) => item.passageIndex === pIdx).length;
+                      return (
+                        <button
+                          key={p.id || pIdx}
+                          type="button"
+                          onClick={() => setActivePassageTab(pIdx)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 ${
+                            activePassageTab === pIdx
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          <span>{p.title || `Passage ${pIdx + 1}`}</span>
                           <span
                             className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
                               activePassageTab === pIdx ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'
                             }`}
                           >
-                            {p.questions.length} Qs
+                            {pQuestionCount} Qs
                           </span>
-                        )}
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -2974,32 +2975,95 @@ export const AssignmentsView: React.FC = () => {
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                    {activePassageQuestions.map(({ q, absoluteIdx }) => {
-                      const isAns = Boolean(readingAnswers[q.id]?.trim());
-                      const isFlag = Boolean(flaggedQuestions[q.id]);
-                      return (
-                        <button
-                          key={q.id}
-                          type="button"
-                          onClick={() => {
-                            const el = document.getElementById(`q_${q.id}`);
-                            el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }}
-                          className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
-                            isFlag
-                              ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
-                              : isAns
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
-                          title={`Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
-                        >
-                          {absoluteIdx + 1}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {hasMultiPassages ? (
+                    <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                      {(activeAssignment.passages ?? []).map((p, pIdx) => {
+                        const pQuestions = allQuestionsIndexed.filter((item) => item.passageIndex === pIdx);
+                        if (pQuestions.length === 0) return null;
+                        const isCurrentPassage = activePassageTab === pIdx;
+                        const pAnsweredCount = pQuestions.filter(({ q }) => Boolean(readingAnswers[q.id]?.trim())).length;
+
+                        return (
+                          <div key={p.id || pIdx} className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold">
+                              <span className={isCurrentPassage ? 'text-blue-600 font-bold' : ''}>
+                                {p.title || `Passage ${pIdx + 1}`} ({pAnsweredCount}/{pQuestions.length})
+                              </span>
+                              {!isCurrentPassage && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActivePassageTab(pIdx)}
+                                  className="text-[10px] text-blue-500 hover:underline"
+                                >
+                                  Go to passage
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {pQuestions.map(({ q, absoluteIdx }) => {
+                                const isAns = Boolean(readingAnswers[q.id]?.trim());
+                                const isFlag = Boolean(flaggedQuestions[q.id]);
+                                return (
+                                  <button
+                                    key={q.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (activePassageTab !== pIdx) {
+                                        setActivePassageTab(pIdx);
+                                      }
+                                      setTimeout(() => {
+                                        const el = document.getElementById(`q_${q.id}`);
+                                        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                      }, 50);
+                                    }}
+                                    className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
+                                      isFlag
+                                        ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
+                                        : isAns
+                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        : isCurrentPassage
+                                        ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                        : 'bg-slate-50 text-slate-400 hover:bg-slate-200'
+                                    }`}
+                                    title={`Passage ${pIdx + 1} - Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
+                                  >
+                                    {absoluteIdx + 1}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                      {activePassageQuestions.map(({ q, absoluteIdx }) => {
+                        const isAns = Boolean(readingAnswers[q.id]?.trim());
+                        const isFlag = Boolean(flaggedQuestions[q.id]);
+                        return (
+                          <button
+                            key={q.id}
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById(`q_${q.id}`);
+                              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }}
+                            className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
+                              isFlag
+                                ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
+                                : isAns
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                            title={`Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
+                          >
+                            {absoluteIdx + 1}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Independent Questions Scroll Body */}
@@ -3526,37 +3590,56 @@ export const AssignmentsView: React.FC = () => {
                                     </div>
                                   ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
                                     <div className="space-y-1.5">
-                                      {q.options.map((opt) => {
-                                        const selectedList = answer ? answer.split(',').map((s) => s.trim()) : [];
-                                        const isChecked = selectedList.includes(opt);
+                                      {(() => {
+                                        const requiredCount = q.multipleSelectCount ?? 2;
+                                        const selectedList = answer ? answer.split(',').map((s) => s.trim()).filter(Boolean) : [];
+                                        const atLimit = selectedList.length >= requiredCount;
                                         return (
-                                          <label
-                                            key={opt}
-                                            className={`flex items-center space-x-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
-                                              isChecked
-                                                ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
-                                                : 'hover:bg-slate-100'
-                                            }`}
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              disabled={isReadOnly}
-                                              checked={isChecked}
-                                              onChange={(e) => {
-                                                let updated = [...selectedList];
-                                                if (e.target.checked) {
-                                                  updated.push(opt);
-                                                } else {
-                                                  updated = updated.filter((item) => item !== opt);
-                                                }
-                                                handleAnswerChange(q.id, updated.join(', '));
-                                              }}
-                                              className="text-blue-600 rounded"
-                                            />
-                                            <span>{opt}</span>
-                                          </label>
+                                          <>
+                                            <p className="text-[11px] font-semibold text-indigo-700">
+                                              Select {requiredCount} answer{requiredCount !== 1 ? 's' : ''}&nbsp;
+                                              <span className={`font-bold ${atLimit ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                ({selectedList.length}/{requiredCount} selected)
+                                              </span>
+                                            </p>
+                                            {q.options.map((opt) => {
+                                              const isChecked = selectedList.includes(opt);
+                                              const isDisabledByLimit = !isChecked && atLimit;
+                                              return (
+                                                <label
+                                                  key={opt}
+                                                  className={`flex items-center space-x-2.5 p-2 rounded-lg transition-colors ${
+                                                    isReadOnly || isDisabledByLimit ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+                                                  } ${
+                                                    isChecked
+                                                      ? 'bg-blue-50 border border-blue-300 text-blue-900 font-semibold'
+                                                      : 'hover:bg-slate-100'
+                                                  }`}
+                                                >
+                                                  <input
+                                                    type="checkbox"
+                                                    disabled={isReadOnly || isDisabledByLimit}
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                      let updated = [...selectedList];
+                                                      if (e.target.checked) {
+                                                        if (updated.length < requiredCount) {
+                                                          updated.push(opt);
+                                                        }
+                                                      } else {
+                                                        updated = updated.filter((item) => item !== opt);
+                                                      }
+                                                      handleAnswerChange(q.id, updated.join(', '));
+                                                    }}
+                                                    className="text-blue-600 rounded"
+                                                  />
+                                                  <span>{opt}</span>
+                                                </label>
+                                              );
+                                            })}
+                                          </>
                                         );
-                                      })}
+                                      })()}
                                     </div>
                                   ) : (COMPLETION_TYPES.has(q.type) || group.wordList) && (group.wordList || (q.options && q.options.length > 0)) ? (
                                     <div className="space-y-2 pt-1">
