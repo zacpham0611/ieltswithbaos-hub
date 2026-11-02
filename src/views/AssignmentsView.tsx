@@ -289,6 +289,8 @@ export const AssignmentsView: React.FC = () => {
   const [formSpeakingQuestions, setFormSpeakingQuestions] = useState<string[]>([]);
   const [formSpeakingPart3Groups, setFormSpeakingPart3Groups] = useState<SpeakingPart3Group[]>([]);
   const [formSpeakingSelectedExerciseIds, setFormSpeakingSelectedExerciseIds] = useState<string[]>([]);
+  const [formSpeakingLinkedPart2Topic, setFormSpeakingLinkedPart2Topic] = useState<string | null>(null);
+  const [candidatePart2CueCards, setCandidatePart2CueCards] = useState<{ topic: string; points: string[]; resourceTitle?: string }[]>([]);
   const [selectedSpeakingResource, setSelectedSpeakingResource] = useState<any | null>(null);
   const [showSpeakingLibraryPicker, setShowSpeakingLibraryPicker] = useState<boolean>(false);
   const [duplicateAssignmentWarning, setDuplicateAssignmentWarning] = useState<{
@@ -1438,6 +1440,59 @@ export const AssignmentsView: React.FC = () => {
     if (matched.length > 0) {
       setFormSpeakingPart3Groups(matched);
       setFormSpeakingQuestions(matched.flatMap((g) => g.questions || []));
+    }
+  };
+
+  // Auto-link Part 2 Cue Card when Part 3 groups or questions are selected
+  const linkCueCardForPart3 = (groups: SpeakingPart3Group[], sourceRes?: any) => {
+    if (!groups || groups.length === 0) return;
+    const targetTopics = groups
+      .map((g) => g.cueCardTopic?.trim())
+      .filter(Boolean) as string[];
+    if (targetTopics.length === 0) return;
+
+    const candidateCards: { topic: string; points: string[]; resourceTitle?: string }[] = [];
+
+    const inspectResource = (r: any) => {
+      let cueCards: any[] = r.speakingPart2?.cueCards || [];
+      if (cueCards.length === 0 && r.content) {
+        try {
+          const parsed = typeof r.content === 'string' ? JSON.parse(r.content) : r.content;
+          cueCards = parsed.cueCards || parsed.speakingPart2?.cueCards || [];
+        } catch {}
+      }
+      cueCards.forEach((c: any) => {
+        if (!c.topic) return;
+        const cNorm = c.topic.toLowerCase().trim();
+        const isMatch = targetTopics.some((t) => {
+          const tNorm = t.toLowerCase().trim();
+          return (
+            cNorm.includes(tNorm.slice(0, 15)) ||
+            tNorm.includes(cNorm.slice(0, 15)) ||
+            cNorm === tNorm
+          );
+        });
+        if (isMatch) {
+          candidateCards.push({
+            topic: c.topic,
+            points: c.points || ['What it is', 'Why it matters', 'How you feel about it'],
+            resourceTitle: r.title,
+          });
+        }
+      });
+    };
+
+    if (sourceRes) inspectResource(sourceRes);
+    resources.filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking').forEach(inspectResource);
+
+    // Deduplicate candidates
+    const unique = Array.from(new Map(candidateCards.map((item) => [item.topic, item])).values());
+    if (unique.length > 0) {
+      const topMatch = unique[0];
+      setFormSpeakingTopic(topMatch.topic);
+      setFormSpeakingPoints(Array.isArray(topMatch.points) ? topMatch.points.join('\n') : '');
+      setFormSpeakingLinkedPart2Topic(topMatch.topic);
+      setCandidatePart2CueCards(unique);
     }
   };
 
@@ -6914,6 +6969,8 @@ export const AssignmentsView: React.FC = () => {
                                 const groupsToApply = selected.length > 0 ? selected : part3Groups;
                                 setFormSpeakingPart3Groups(groupsToApply);
                                 setFormSpeakingQuestions(groupsToApply.flatMap((g: any) => g.questions));
+                                // Auto-link Part 2 Cue Card from Question Library
+                                linkCueCardForPart3(groupsToApply, res);
                               }
                               if (!formTitle.trim()) {
                                 setFormTitle(res.title);
@@ -7210,6 +7267,30 @@ export const AssignmentsView: React.FC = () => {
                   {/* PART 3 CONFIGURATION */}
                   {formSpeakingParts.includes('part3') && (
                     <div className="space-y-3 pt-1">
+                      {/* Auto-linked Part 2 Cue Card Notification */}
+                      {formSpeakingLinkedPart2Topic && (
+                        <div className="p-3 bg-emerald-50/90 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-xs text-emerald-900">
+                          <div className="flex items-start space-x-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                            <div>
+                              <span className="font-bold">Đã tự động liên kết Cue Card Part 2 từ Thư viện:</span>
+                              <span className="block font-medium text-emerald-800 text-[11px] mt-0.5">
+                                "{formSpeakingLinkedPart2Topic}"
+                              </span>
+                            </div>
+                          </div>
+                          {!formSpeakingParts.includes('part2') && (
+                            <button
+                              type="button"
+                              onClick={() => setFormSpeakingParts((prev) => Array.from(new Set([...prev, 'part2'])))}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shadow-2xs transition-colors shrink-0"
+                            >
+                              + Bật thêm Part 2
+                            </button>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-purple-900 uppercase">
                           Câu hỏi thảo luận Part 3 ({formSpeakingQuestions.length} câu)

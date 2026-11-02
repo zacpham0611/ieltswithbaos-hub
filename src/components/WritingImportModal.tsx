@@ -17,6 +17,12 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { uploadMediaFile } from '../lib/mediaStorage';
+import { Portal } from './Portal';
+import {
+  parseWritingDocument,
+  type ExtractedWritingDocument,
+  type ExtractedWritingTask,
+} from '../lib/writingDocumentExtractor';
 
 interface WritingImportModalProps {
   isOpen: boolean;
@@ -49,6 +55,8 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
   // Extracted Writing Data
   const [fileName, setFileName] = useState('');
   const [rawText, setRawText] = useState('');
+  const [extractedDoc, setExtractedDoc] = useState<ExtractedWritingDocument | null>(null);
+  const [activeTaskIndex, setActiveTaskIndex] = useState<number>(0);
   const [taskType, setTaskType] = useState<WritingTaskType>('task1');
   const [chartType, setChartType] = useState<ChartType>('Bar Chart');
   const [prompt, setPrompt] = useState('');
@@ -87,6 +95,19 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
     await processWritingFile(file);
   };
 
+  const applyWritingTask = (task: ExtractedWritingTask, currentFileName: string = fileName) => {
+    setTaskType(task.taskType);
+    if (task.chartType) {
+      setChartType(task.chartType);
+    }
+    setPrompt(task.prompt);
+    setMinWords(task.minWords);
+    setModelAnswer(task.sampleAnswers[0]?.content || '');
+    setTargetTitle(
+      `${task.taskType === 'task1' ? `Task 1: ${task.chartType || 'Report'}` : 'Task 2: Essay'} - ${currentFileName.replace(/\.[^/.]+$/, '')}`
+    );
+  };
+
   const processWritingFile = async (file: File) => {
     setErrorMsg(null);
     setIsProcessing(true);
@@ -101,7 +122,7 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
       const extractedImgs: string[] = [];
 
       if (extension === 'docx') {
-        setProcessStatus('Trích xuất văn bản và ảnh nhúng từ DOCX...');
+        setProcessStatus('Trích xuất văn bản, bảng số liệu và ảnh nhúng từ DOCX...');
         const mammothModule = await import('mammoth');
         const mammoth = (mammothModule as any).default || mammothModule;
 
@@ -118,10 +139,19 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
           }
         );
 
-        text = (res.value || '')
-          .replace(/<[^>]+>/g, ' ')
+        let html = res.value || '';
+        // Convert HTML tables into Markdown tables so tabular data is fully preserved
+        html = html.replace(/<tr[^>]*>([\s\S]*?)<\/tr>/gi, (_: string, rowContent: string) => {
+          const cells = Array.from(rowContent.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)).map((m: any) =>
+            m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+          );
+          return cells.length > 0 ? `\n| ${cells.join(' | ')} |\n` : '';
+        });
+        html = html.replace(/<p[^>]*>/gi, '\n').replace(/<\/p>/gi, '\n');
+        text = html
+          .replace(/<[^>]+>/g, '')
           .replace(/&nbsp;/g, ' ')
-          .replace(/\s+/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
           .trim();
       } else if (extension === 'pdf') {
         setProcessStatus('Đang đọc trang PDF và render biểu đồ...');
@@ -177,49 +207,14 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
       setSelectedImageIndex(0);
       setCustomImageUrl(extractedImgs[0] || null);
 
-      // Analyze and classify Task 1 vs Task 2
-      const lower = text.toLowerCase();
-      const isTask2 =
-        lower.includes('task 2') ||
-        lower.includes('to what extent do you agree') ||
-        lower.includes('discuss both views') ||
-        lower.includes('advantages and disadvantages') ||
-        lower.includes('causes and solutions') ||
-        lower.includes('at least 250 words') ||
-        lower.includes('write an essay');
+      // Advanced multi-task document parser
+      const parsedDoc = parseWritingDocument(text, file.name);
+      setExtractedDoc(parsedDoc);
+      setActiveTaskIndex(0);
 
-      const detectedType: WritingTaskType = isTask2 ? 'task2' : 'task1';
-      setTaskType(detectedType);
-      setMinWords(detectedType === 'task1' ? 150 : 250);
-
-      // Detect Chart Type for Task 1
-      let detectedChart: ChartType = 'Bar Chart';
-      if (lower.includes('pie chart')) detectedChart = 'Pie Chart';
-      else if (lower.includes('line graph') || lower.includes('lines graph')) detectedChart = 'Line Graph';
-      else if (lower.includes('table')) detectedChart = 'Table';
-      else if (lower.includes('map') || lower.includes('maps') || lower.includes('town')) detectedChart = 'Map';
-      else if (lower.includes('process') || lower.includes('diagram') || lower.includes('flow chart') || lower.includes('cycle')) detectedChart = 'Process / Diagram';
-      else if ((lower.includes('chart') && lower.includes('table')) || (lower.includes('pie') && lower.includes('bar'))) detectedChart = 'Mixed Charts';
-      setChartType(detectedChart);
-
-      // Clean Prompt
-      let cleanPrompt = text;
-      // Strip common IELTS headers
-      cleanPrompt = cleanPrompt
-        .replace(/WRITING\s+TASK\s+[12]/gi, '')
-        .replace(/You\s+should\s+spend\s+about\s+\d+\s+minutes\s+on\s+this\s+task\.?/gi, '')
-        .replace(/Write\s+at\s+least\s+\d+\s+words\.?/gi, '')
-        .trim();
-
-      // If text is very long, extract the relevant prompt instruction
-      if (cleanPrompt.length > 500) {
-        cleanPrompt = cleanPrompt.slice(0, 500) + '...';
+      if (parsedDoc.tasks.length > 0) {
+        applyWritingTask(parsedDoc.tasks[0], file.name);
       }
-
-      setPrompt(cleanPrompt || text.slice(0, 300));
-      setTargetTitle(
-        `${detectedType === 'task1' ? `Task 1: ${detectedChart}` : 'Task 2: Essay'} - ${file.name.replace(/\.[^/.]+$/, '')}`
-      );
 
       setStep('review');
     } catch (err: any) {
@@ -322,8 +317,9 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
   const activeDiagramUrl = customImageUrl || detectedImages[selectedImageIndex];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+    <Portal containerId="modal-root">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-emerald-50/60 to-white">
           <div className="flex items-center space-x-3">
@@ -409,6 +405,37 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
           {/* STEP 2: REVIEW & EDIT */}
           {step === 'review' && (
             <div className="space-y-6">
+              {/* Multi-Task Switcher (when file contains both Task 1 & Task 2) */}
+              {extractedDoc && extractedDoc.tasks.length > 1 && (
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Phát hiện {extractedDoc.tasks.length} phần thi trong tài liệu:
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {extractedDoc.tasks.map((taskItem, tIdx) => (
+                      <button
+                        key={taskItem.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveTaskIndex(tIdx);
+                          applyWritingTask(taskItem);
+                        }}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          activeTaskIndex === tIdx
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-white text-slate-700 hover:bg-emerald-100 border border-slate-200'
+                        }`}
+                      >
+                        {taskItem.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Task Classification Bar */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center space-x-3">
@@ -683,5 +710,6 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
         </div>
       </div>
     </div>
-  );
+  </Portal>
+);
 };

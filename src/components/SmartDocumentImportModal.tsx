@@ -63,6 +63,7 @@ interface SmartDocumentImportModalProps {
   onClose: () => void;
   onAssignmentCreated?: () => void;
   onResourceCreated?: () => void;
+  initialSkill?: 'reading' | 'speaking';
 }
 
 type WizardStep = 'upload' | 'preview' | 'choose_output' | 'config_word' | 'config_assignment' | 'review_assignment';
@@ -72,6 +73,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   onClose,
   onAssignmentCreated,
   onResourceCreated,
+  initialSkill = 'reading',
 }) => {
   const { currentUser, courses, createAssignment, addResource } = useApp();
   const { t } = useI18n();
@@ -133,7 +135,11 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [isPublishingAssignment, setIsPublishingAssignment] = useState(false);
 
   // Document Type Selection: Reading vs Speaking
-  const [importSkillType, setImportSkillType] = useState<'reading' | 'speaking'>('reading');
+  const [importSkillType, setImportSkillType] = useState<'reading' | 'speaking'>(initialSkill);
+
+  React.useEffect(() => {
+    setImportSkillType(initialSkill);
+  }, [initialSkill]);
 
   // Speaking Smart Import State
   const [extractedSpeakingDoc, setExtractedSpeakingDoc] = useState<ExtractedSpeakingDocument | null>(null);

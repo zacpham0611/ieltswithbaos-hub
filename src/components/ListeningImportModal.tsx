@@ -20,6 +20,7 @@ import { useApp } from '../context/AppContext';
 import { processDocumentFile } from '../lib/documentExtractor';
 import { parseListeningDocument } from '../lib/listeningExtractor';
 import { uploadMediaFile } from '../lib/mediaStorage';
+import { Portal } from './Portal';
 import type { ListeningTestContent, ListeningPart, ListeningQuestion } from '../types/index.ts';
 
 interface ListeningImportModalProps {
@@ -248,8 +249,9 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
   const activePart = content?.parts[activePartIndex];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+    <Portal containerId="modal-root">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-purple-50/60 to-white">
           <div className="flex items-center space-x-3">
@@ -679,5 +681,6 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
         </div>
       </div>
     </div>
-  );
+  </Portal>
+);
 };

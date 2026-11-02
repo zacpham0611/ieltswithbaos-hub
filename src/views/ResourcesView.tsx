@@ -37,6 +37,7 @@ import {
   List,
   ChevronDown,
   PenTool,
+  Mic,
 } from 'lucide-react';
 import { ListeningImportModal } from '../components/ListeningImportModal';
 import { WritingImportModal } from '../components/WritingImportModal';
@@ -94,25 +95,11 @@ export const ResourcesView: React.FC = () => {
   const [showAddResModal, setShowAddResModal] = useState(false);
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
   const [showAiLessonModal, setShowAiLessonModal] = useState(false);
+  const [showSkillSelectModal, setShowSkillSelectModal] = useState(false);
+  const [smartImportSkill, setSmartImportSkill] = useState<'reading' | 'speaking'>('reading');
   const [showSmartImportModal, setShowSmartImportModal] = useState(false);
   const [showListeningImportModal, setShowListeningImportModal] = useState(false);
   const [showWritingImportModal, setShowWritingImportModal] = useState(false);
-  const [showImportDropdown, setShowImportDropdown] = useState(false);
-  const importDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (importDropdownRef.current && !importDropdownRef.current.contains(e.target as Node)) {
-        setShowImportDropdown(false);
-      }
-    };
-    if (showImportDropdown) {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-    };
-  }, [showImportDropdown]);
 
   // New Resource Form
   const [resTitle, setResTitle] = useState('');
@@ -478,80 +465,15 @@ export const ResourcesView: React.FC = () => {
 
         {isTeacher && (
           <div className="flex flex-wrap items-center gap-2">
-            {/* Consolidated Import Button with Dropdown */}
-            <div className="relative" ref={importDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setShowImportDropdown((prev) => !prev)}
-                className="px-4 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-2 cursor-pointer"
-              >
-                <FileUp className="w-4 h-4 text-white" />
-                <span>Import Document / Nhập tài liệu</span>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showImportDropdown ? 'rotate-180' : ''}`} />
-              </button>
-
-              {showImportDropdown && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="px-3.5 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                    Chọn loại tài liệu nhập
-                  </div>
-
-                  {/* Reading / Smart Document Import */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowImportDropdown(false);
-                      setShowSmartImportModal(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2.5 hover:bg-blue-50/70 transition-colors flex items-start space-x-3 text-xs group cursor-pointer"
-                  >
-                    <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform">
-                      <BookOpen className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-slate-900 group-hover:text-blue-700">Reading / Smart Document</div>
-                      <div className="text-[11px] text-slate-500 leading-tight">Nhập tài liệu đọc (PDF/DOCX), tự tạo bài làm trực tuyến & Word</div>
-                    </div>
-                  </button>
-
-                  {/* Listening Document */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowImportDropdown(false);
-                      setShowListeningImportModal(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2.5 hover:bg-purple-50/70 transition-colors flex items-start space-x-3 text-xs group cursor-pointer"
-                  >
-                    <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform">
-                      <Headphones className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-slate-900 group-hover:text-purple-700">Listening Document</div>
-                      <div className="text-[11px] text-slate-500 leading-tight">Nhập đề Listening (PDF/DOCX), gắn audio đề hoặc từng Section</div>
-                    </div>
-                  </button>
-
-                  {/* Writing Document */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowImportDropdown(false);
-                      setShowWritingImportModal(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50/70 transition-colors flex items-start space-x-3 text-xs group cursor-pointer"
-                  >
-                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform">
-                      <PenTool className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-slate-900 group-hover:text-emerald-700">Writing Document</div>
-                      <div className="text-[11px] text-slate-500 leading-tight">Nhận diện Task 1/2, trích xuất biểu đồ / hình ảnh tự động</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* Unified Smart Document Import Button */}
+            <button
+              type="button"
+              onClick={() => setShowSkillSelectModal(true)}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all flex items-center space-x-2 cursor-pointer"
+            >
+              <FileUp className="w-4 h-4 text-white" />
+              <span>Smart Document Import</span>
+            </button>
 
             <button
               onClick={() => setShowAiLessonModal(true)}
@@ -577,21 +499,21 @@ export const ResourcesView: React.FC = () => {
                   Smart Document Import & Converter
                 </h3>
                 <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.2 rounded-full">
-                  NEW
+                  ALL SKILLS
                 </span>
               </div>
               <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
-                Import PDF, DOCX, TXT or Markdown files. Convert them into formatted <strong>Word (.docx)</strong> documents with answer keys, or transform them into <strong>Interactive Online Assignments</strong> for students.
+                Import PDF, DOCX, TXT or Markdown files for <strong>Listening, Reading, Writing, and Speaking</strong>. Reconstruct authentic task structures, extract answer keys, and auto-convert into library resources and interactive tests.
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2 shrink-0">
             <button
-              onClick={() => setShowSmartImportModal(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+              onClick={() => setShowSkillSelectModal(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
             >
-              <span>Import Document</span>
+              <span>Smart Document Import</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -2106,12 +2028,147 @@ export const ResourcesView: React.FC = () => {
         </Portal>
       )}
 
+      {/* Skill Selection Modal for Unified Smart Document Import */}
+      {showSkillSelectModal && (
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-6 py-4.5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md">
+                    <FileUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm tracking-tight">Smart Document Import</h3>
+                    <p className="text-[11px] text-slate-300">Chọn kỹ năng của tài liệu để khởi chạy pipeline xử lý</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSkillSelectModal(false)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-3 bg-slate-50/50">
+                {/* Listening Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSkillSelectModal(false);
+                    setShowListeningImportModal(true);
+                  }}
+                  className="w-full text-left p-3.5 bg-white rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50/40 hover:shadow-sm transition-all flex items-start space-x-3.5 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform shadow-xs">
+                    <Headphones className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-xs group-hover:text-purple-700">Listening Document</span>
+                      <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">4 Sections</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Nhập đề thi Listening (PDF/Word), trích xuất 40 câu hỏi, table/notes completion, audio và bảng đáp án.
+                    </div>
+                  </div>
+                </button>
+
+                {/* Reading Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSkillSelectModal(false);
+                    setSmartImportSkill('reading');
+                    setShowSmartImportModal(true);
+                  }}
+                  className="w-full text-left p-3.5 bg-white rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 hover:shadow-sm transition-all flex items-start space-x-3.5 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform shadow-xs">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-xs group-hover:text-blue-700">Reading Document</span>
+                      <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">3 Passages</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Nhập đề Reading (PDF/Word), nhận diện đoạn văn theo nhãn A-G, nhóm câu hỏi, xuất bài kiểm tra và Word.
+                    </div>
+                  </div>
+                </button>
+
+                {/* Writing Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSkillSelectModal(false);
+                    setShowWritingImportModal(true);
+                  }}
+                  className="w-full text-left p-3.5 bg-white rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/40 hover:shadow-sm transition-all flex items-start space-x-3.5 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform shadow-xs">
+                    <PenTool className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-xs group-hover:text-emerald-700">Writing Document</span>
+                      <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Task 1 & 2</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Tự động phân tách Task 1 & Task 2, bảo toàn bảng số liệu, biểu đồ hình ảnh và trích xuất Sample Answer.
+                    </div>
+                  </div>
+                </button>
+
+                {/* Speaking Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSkillSelectModal(false);
+                    setSmartImportSkill('speaking');
+                    setShowSmartImportModal(true);
+                  }}
+                  className="w-full text-left p-3.5 bg-white rounded-xl border border-slate-200 hover:border-amber-500 hover:bg-amber-50/40 hover:shadow-sm transition-all flex items-start space-x-3.5 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform shadow-xs">
+                    <Mic className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-xs group-hover:text-amber-700">Speaking Document</span>
+                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Part 1, 2 & 3</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Nhập tài liệu Speaking Forecast, trích xuất chủ đề Part 1, Cue Cards Part 2 và liên kết câu hỏi Part 3.
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              <div className="px-6 py-3 bg-white border-t border-slate-100 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowSkillSelectModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
       {/* Smart Document Import & Conversion Modal (Lazy Loaded) */}
       {showSmartImportModal && (
         <React.Suspense fallback={null}>
           <SmartDocumentImportModal
             isOpen={showSmartImportModal}
             onClose={() => setShowSmartImportModal(false)}
+            initialSkill={smartImportSkill}
           />
         </React.Suspense>
       )}
