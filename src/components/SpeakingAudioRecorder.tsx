@@ -10,6 +10,7 @@ import {
   AlertCircle,
   Volume2,
   FileAudio,
+  Lock,
 } from 'lucide-react';
 
 interface SpeakingAudioRecorderProps {
@@ -20,6 +21,8 @@ interface SpeakingAudioRecorderProps {
   disabled?: boolean;
   label?: string;
   maxSeconds?: number;
+  allowReRecord?: boolean;
+  isLocked?: boolean;
 }
 
 export const SpeakingAudioRecorder: React.FC<SpeakingAudioRecorderProps> = ({
@@ -30,6 +33,8 @@ export const SpeakingAudioRecorder: React.FC<SpeakingAudioRecorderProps> = ({
   disabled = false,
   label,
   maxSeconds = 180,
+  allowReRecord = true,
+  isLocked = false,
 }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -335,22 +340,31 @@ export const SpeakingAudioRecorder: React.FC<SpeakingAudioRecorderProps> = ({
 
             {!disabled && (
               <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={handleResetAudio}
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors shadow-2xs"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Ghi âm lại</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors shadow-2xs"
-                >
-                  <Upload className="w-3.5 h-3.5 text-purple-600" />
-                  <span>Đổi tệp</span>
-                </button>
+                {isLocked || !allowReRecord ? (
+                  <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-300">
+                    <Lock className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Đã khóa bài làm (Chỉ ghi âm 1 lần duy nhất)</span>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleResetAudio}
+                      className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors shadow-2xs"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Ghi âm lại</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors shadow-2xs"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Đổi tệp</span>
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

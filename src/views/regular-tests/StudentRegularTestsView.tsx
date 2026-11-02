@@ -455,6 +455,14 @@ export const StudentRegularTestsView: React.FC = () => {
                     </div>
                   </div>
                 )}
+                {viewingResultAttempt.attempt.scores?.speaking && (
+                  <div>
+                    <div className="text-slate-500 font-semibold uppercase text-[10px]">Speaking Band</div>
+                    <div className="text-2xl font-black text-purple-700 mt-1">
+                      {viewingResultAttempt.attempt.scores.speaking.band}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <div className="text-slate-500 font-semibold uppercase text-[10px]">Overall Band</div>
                   <div className="text-3xl font-black text-slate-900 mt-1">
@@ -500,6 +508,47 @@ export const StudentRegularTestsView: React.FC = () => {
                   <h4 className="font-bold text-blue-800">Định hướng rèn luyện tiếp theo (Next Steps)</h4>
                   <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
                     {viewingResultAttempt.attempt.scores.writing.nextSteps}
+                  </p>
+                </div>
+              )}
+
+              {/* Speaking Criteria Breakdown */}
+              {viewingResultAttempt.attempt.scores?.speaking?.rubricScores && (
+                <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                  <h4 className="font-bold text-slate-800">Speaking Criteria Breakdown</h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {viewingResultAttempt.attempt.scores.speaking.rubricScores.map((r, i) => (
+                      <div key={i} className="p-2 bg-purple-50 rounded-lg flex justify-between">
+                        <span className="text-purple-900 font-medium">{r.criterion}:</span>
+                        <span className="font-bold text-purple-700">Band {r.score}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Speaking Feedback */}
+              {viewingResultAttempt.attempt.scores?.speaking?.strengths && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+                  <h4 className="font-bold text-emerald-800">Điểm mạnh phần Speaking (Speaking Strengths)</h4>
+                  <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {viewingResultAttempt.attempt.scores.speaking.strengths}
+                  </p>
+                </div>
+              )}
+              {viewingResultAttempt.attempt.scores?.speaking?.areasToImprove && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
+                  <h4 className="font-bold text-amber-800">Các điểm cần khắc phục Speaking (Areas to Improve)</h4>
+                  <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {viewingResultAttempt.attempt.scores.speaking.areasToImprove}
+                  </p>
+                </div>
+              )}
+              {viewingResultAttempt.attempt.scores?.speaking?.nextSteps && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-1">
+                  <h4 className="font-bold text-blue-800">Kế hoạch cải thiện Speaking (Next Steps)</h4>
+                  <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {viewingResultAttempt.attempt.scores.speaking.nextSteps}
                   </p>
                 </div>
               )}

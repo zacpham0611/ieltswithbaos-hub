@@ -74,7 +74,7 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
   id: string;
   title: string;
   instructions: string;
-  skills: ('reading' | 'writing')[];
+  skills: ('reading' | 'writing' | 'speaking')[];
   durationMinutes: number;
   timingMode: RegularTest['timingMode'];
   sectionTimers?: Record<string, number>;
@@ -105,6 +105,20 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
         passages: sec.passages || [],
         readingQuestions: sanitizedQuestions,
         questionGroups: sec.questionGroups || [],
+      };
+    } else if (sec.skill === 'speaking') {
+      return {
+        id: sec.id || `sec_speaking_${idx}`,
+        title: sec.title || `Speaking Section ${idx + 1}`,
+        skill: 'speaking',
+        durationMinutes: sec.durationMinutes || 15,
+        speakingPart: sec.speakingPart,
+        speakingTopics: sec.speakingTopics,
+        speakingTopicCount: sec.speakingTopicCount,
+        speakingCueCard: sec.speakingCueCard,
+        speakingTopic: sec.speakingTopic,
+        speakingPoints: sec.speakingPoints,
+        speakingQuestions: sec.speakingQuestions,
       };
     } else {
       return {

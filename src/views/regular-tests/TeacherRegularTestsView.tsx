@@ -6,9 +6,16 @@ import type {
   RegularTestSection,
   RegularTestTimingMode,
   StrictExamPreset,
+  WritingTaskCategory,
+  SpeakingTopic,
+  SpeakingCueCard,
+  ReadingQuestion,
+  QuestionGroup,
 } from '../../types';
 import { TeacherLiveDashboardModal } from './TeacherLiveDashboardModal';
 import { TeacherGradingModal } from './TeacherGradingModal';
+import { extractAllNormalizedQuestions } from '../../lib/questionNormalizer';
+import { parseDocumentStructure } from '../../lib/documentExtractor';
 import {
   ShieldCheck,
   Plus,
@@ -30,6 +37,17 @@ import {
   CheckCircle,
   X,
   Library,
+  Mic,
+  ArrowUp,
+  ArrowDown,
+  FileText,
+  Image as ImageIcon,
+  Check,
+  ChevronRight,
+  HelpCircle,
+  Info,
+  Maximize2,
+  FolderPlus,
 } from 'lucide-react';
 
 export const TeacherRegularTestsView: React.FC = () => {
@@ -62,7 +80,7 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [formTitle, setFormTitle] = useState<string>('');
   const [formInstructions, setFormInstructions] = useState<string>('');
   const [formCourseId, setFormCourseId] = useState<string>(courses[0]?.id || '');
-  const [formSkills, setFormSkills] = useState<('reading' | 'writing')[]>(['reading']);
+  const [formSkills, setFormSkills] = useState<('reading' | 'writing' | 'speaking')[]>(['reading']);
   const [formDuration, setFormDuration] = useState<number>(60);
   const [formTimingMode, setFormTimingMode] = useState<RegularTestTimingMode>('overall_timer');
   const [formAvailabilityStart, setFormAvailabilityStart] = useState<string>('');
@@ -73,9 +91,31 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [formAccessCodeEnabled, setFormAccessCodeEnabled] = useState<boolean>(false);
   const [formAccessCode, setFormAccessCode] = useState<string>('');
   const [formSections, setFormSections] = useState<RegularTestSection[]>([]);
-  const [showLibraryPicker, setShowLibraryPicker] = useState<'reading' | 'writing' | null>(null);
   const [savingTest, setSavingTest] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Sub-Modals for Section Creation & Preview
+  const [showReadingPicker, setShowReadingPicker] = useState<boolean>(false);
+  const [previewReadingSection, setPreviewReadingSection] = useState<RegularTestSection | null>(null);
+  const [previewActivePassageTab, setPreviewActivePassageTab] = useState<number>(0);
+
+  // Writing Manual Modal
+  const [showWritingModal, setShowWritingModal] = useState<boolean>(false);
+  const [editingWritingSecId, setEditingWritingSecId] = useState<string | null>(null);
+  const [writingTaskCategory, setWritingTaskCategory] = useState<WritingTaskCategory>('task2');
+  const [writingPrompt, setWritingPrompt] = useState<string>('');
+  const [writingMinWords, setWritingMinWords] = useState<number>(250);
+  const [writingImageUrl, setWritingImageUrl] = useState<string>('');
+  const [writingModelAnswer, setWritingModelAnswer] = useState<string>('');
+  const [writingSectionDuration, setWritingSectionDuration] = useState<number>(40);
+
+  // Speaking Part Pickers
+  const [speakingPickerPart, setSpeakingPickerPart] = useState<'part1' | 'part2' | 'part3' | null>(null);
+  const [selectedSpeakingResource, setSelectedSpeakingResource] = useState<any | null>(null);
+  const [selectedPart1TopicIds, setSelectedPart1TopicIds] = useState<Record<string, boolean>>({});
+  const [part1TopicCount, setPart1TopicCount] = useState<number>(3);
+  const [selectedCueCardIndex, setSelectedCueCardIndex] = useState<number>(0);
+  const [selectedPart3QuestionIndices, setSelectedPart3QuestionIndices] = useState<Record<number, boolean>>({});
 
   // Filtered Tests
   const filteredTests = regularTests.filter((test) => {
@@ -117,7 +157,7 @@ export const TeacherRegularTestsView: React.FC = () => {
     setFormTitle(test.title);
     setFormInstructions(test.instructions);
     setFormCourseId(test.courseId);
-    setFormSkills(test.skills);
+    setFormSkills(test.skills || ['reading']);
     setFormDuration(test.durationMinutes);
     setFormTimingMode(test.timingMode);
     setFormAvailabilityStart(test.availabilityStart || '');
@@ -133,11 +173,15 @@ export const TeacherRegularTestsView: React.FC = () => {
 
   const handleSaveTest = async () => {
     if (!formTitle.trim()) {
-      setFormError('Test title is required');
+      setFormError('Vui lòng nhập tiêu đề bài kiểm tra (Test title is required)');
       return;
     }
     if (!formCourseId) {
-      setFormError('Please select a course');
+      setFormError('Vui lòng chọn khóa học áp dụng');
+      return;
+    }
+    if (formSections.length === 0) {
+      setFormError('Vui lòng thêm ít nhất một phần thi (Reading, Writing hoặc Speaking)');
       return;
     }
 
@@ -145,12 +189,17 @@ export const TeacherRegularTestsView: React.FC = () => {
       setSavingTest(true);
       setFormError(null);
 
+      // Auto derive skills from added sections
+      const activeSkills: ('reading' | 'writing' | 'speaking')[] = Array.from(
+        new Set(formSections.map((s) => s.skill))
+      );
+
       if (editingTest) {
         await updateRegularTest(editingTest.id, {
           title: formTitle.trim(),
           instructions: formInstructions.trim(),
           courseId: formCourseId,
-          skills: formSkills,
+          skills: activeSkills.length > 0 ? activeSkills : formSkills,
           durationMinutes: formDuration,
           timingMode: formTimingMode,
           availabilityStart: formAvailabilityStart || undefined,
@@ -167,7 +216,7 @@ export const TeacherRegularTestsView: React.FC = () => {
           title: formTitle.trim(),
           instructions: formInstructions.trim(),
           courseId: formCourseId,
-          skills: formSkills,
+          skills: activeSkills.length > 0 ? activeSkills : formSkills,
           durationMinutes: formDuration,
           timingMode: formTimingMode,
           availabilityStart: formAvailabilityStart || undefined,
@@ -184,50 +233,291 @@ export const TeacherRegularTestsView: React.FC = () => {
       setShowCreatorModal(false);
       resetForm();
     } catch (err: any) {
-      setFormError(err.message || 'Failed to save test');
+      setFormError(err.message || 'Không thể lưu bài kiểm tra');
     } finally {
       setSavingTest(false);
     }
   };
 
-  const handleAddSectionFromLibrary = (resource: any) => {
-    if (resource.skill === 'reading' || resource.type === 'reading') {
-      const newSec: RegularTestSection = {
-        id: `sec_${Date.now()}`,
-        skill: 'reading',
-        title: resource.title || 'Reading Section',
-        resourceId: resource.id,
-        durationMinutes: 60,
-        readingPassage: resource.content || '',
-        readingQuestions: resource.readingQuestions || [],
-        questionGroups: resource.questionGroups || [],
-        passages: resource.passages || [],
-      };
-      setFormSections((prev) => [...prev, newSec]);
-      if (!formSkills.includes('reading')) {
-        setFormSkills((prev) => [...prev, 'reading']);
+  // Section Reordering
+  const moveSectionUp = (idx: number) => {
+    if (idx === 0) return;
+    setFormSections((prev) => {
+      const copy = [...prev];
+      const temp = copy[idx - 1];
+      copy[idx - 1] = copy[idx];
+      copy[idx] = temp;
+      return copy;
+    });
+  };
+
+  const moveSectionDown = (idx: number) => {
+    if (idx === formSections.length - 1) return;
+    setFormSections((prev) => {
+      const copy = [...prev];
+      const temp = copy[idx + 1];
+      copy[idx + 1] = copy[idx];
+      copy[idx] = temp;
+      return copy;
+    });
+  };
+
+  const removeSection = (idx: number) => {
+    setFormSections((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // 1. Reading Import from Materials Library
+  const handleImportReadingResource = (resource: any) => {
+    let readingPassage = resource.content || '';
+    let readingQuestions: ReadingQuestion[] = [];
+    let questionGroups: QuestionGroup[] = [];
+    let passages: any[] = [];
+    let title = resource.title || 'IELTS Reading Section';
+
+    if (resource.content && (resource.content.trim().startsWith('{') || resource.content.trim().startsWith('['))) {
+      try {
+        const parsed = JSON.parse(resource.content);
+        if (parsed.title) title = parsed.title;
+        const extracted = extractAllNormalizedQuestions(parsed);
+        if (extracted.questions && extracted.questions.length > 0) {
+          readingQuestions = extracted.questions;
+          questionGroups = extracted.questionGroups;
+          passages = extracted.passages;
+        }
+
+        if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
+          passages = parsed.passages;
+          readingPassage = parsed.passages[0]?.content || '';
+        } else if (parsed.readingPassage || parsed.passageText || parsed.content) {
+          readingPassage = parsed.readingPassage || parsed.passageText || parsed.content || '';
+        }
+      } catch {
+        // Plain text fallback
       }
+    }
+
+    if (readingQuestions.length === 0 && readingPassage) {
+      const docStruct = parseDocumentStructure(readingPassage, title);
+      if (docStruct.questions && docStruct.questions.length > 0) {
+        readingQuestions = docStruct.questions;
+        if (docStruct.candidateTests && docStruct.candidateTests.length > 0) {
+          questionGroups = docStruct.candidateTests[0]?.questionGroups || [];
+          if (passages.length === 0 && docStruct.candidateTests[0]?.passageText) {
+            passages = [
+              {
+                id: 'p_1',
+                passageIndex: 0,
+                title: docStruct.candidateTests[0].title || 'Passage 1',
+                content: docStruct.candidateTests[0].passageText,
+                questions: docStruct.candidateTests[0].questions || [],
+                questionGroups: docStruct.candidateTests[0].questionGroups || [],
+              },
+            ];
+          }
+        }
+      }
+    }
+
+    const newSec: RegularTestSection = {
+      id: `sec_${Date.now()}_reading`,
+      skill: 'reading',
+      title,
+      resourceId: resource.id,
+      durationMinutes: 60,
+      readingPassage,
+      readingQuestions,
+      questionGroups,
+      passages: passages.length > 0 ? passages : undefined,
+      readingTestType: 'academic',
+    };
+
+    setFormSections((prev) => [...prev, newSec]);
+    if (!formSkills.includes('reading')) {
+      setFormSkills((prev) => [...prev, 'reading']);
+    }
+    setShowReadingPicker(false);
+  };
+
+  // 2. Writing Manual Creator
+  const openCreateWritingModal = (existingSec?: RegularTestSection) => {
+    if (existingSec) {
+      setEditingWritingSecId(existingSec.id);
+      setWritingTaskCategory(existingSec.writingTaskCategory || 'task2');
+      setWritingPrompt(existingSec.writingPrompt || '');
+      setWritingMinWords(existingSec.writingMinWords || (existingSec.writingTaskType === 'task1' ? 150 : 250));
+      setWritingImageUrl(existingSec.task1ImageUrl || '');
+      setWritingModelAnswer(existingSec.modelAnswer || '');
+      setWritingSectionDuration(existingSec.durationMinutes || (existingSec.writingTaskType === 'task1' ? 20 : 40));
+    } else {
+      setEditingWritingSecId(null);
+      setWritingTaskCategory('task2');
+      setWritingPrompt('');
+      setWritingMinWords(250);
+      setWritingImageUrl('');
+      setWritingModelAnswer('');
+      setWritingSectionDuration(40);
+    }
+    setShowWritingModal(true);
+  };
+
+  const handleSaveWritingSection = () => {
+    if (!writingPrompt.trim()) {
+      alert('Vui lòng nhập đề bài Writing (Writing Prompt is required)');
+      return;
+    }
+
+    const isTask1 = writingTaskCategory.startsWith('task1');
+    const taskTitle = isTask1
+      ? 'Writing Task 1 (Academic Graph / Chart / Diagram)'
+      : 'Writing Task 2 (Academic Essay)';
+
+    if (editingWritingSecId) {
+      setFormSections((prev) =>
+        prev.map((s) =>
+          s.id === editingWritingSecId
+            ? {
+                ...s,
+                title: taskTitle,
+                writingTaskType: isTask1 ? 'task1' : 'task2',
+                writingTaskCategory,
+                writingPrompt: writingPrompt.trim(),
+                writingMinWords,
+                task1ImageUrl: isTask1 ? writingImageUrl.trim() : undefined,
+                modelAnswer: writingModelAnswer.trim() || undefined,
+                durationMinutes: writingSectionDuration,
+              }
+            : s
+        )
+      );
     } else {
       const newSec: RegularTestSection = {
-        id: `sec_${Date.now()}`,
+        id: `sec_${Date.now()}_writing`,
         skill: 'writing',
-        title: resource.title || 'Writing Section',
-        resourceId: resource.id,
-        durationMinutes: 60,
-        writingPrompt: resource.content || '',
-        writingTaskType: 'task2',
-        writingMinWords: 250,
+        title: taskTitle,
+        writingTaskType: isTask1 ? 'task1' : 'task2',
+        writingTaskCategory,
+        writingPrompt: writingPrompt.trim(),
+        writingMinWords,
+        task1ImageUrl: isTask1 ? writingImageUrl.trim() : undefined,
+        modelAnswer: writingModelAnswer.trim() || undefined,
+        durationMinutes: writingSectionDuration,
       };
       setFormSections((prev) => [...prev, newSec]);
       if (!formSkills.includes('writing')) {
         setFormSkills((prev) => [...prev, 'writing']);
       }
     }
-    setShowLibraryPicker(null);
+
+    setShowWritingModal(false);
+  };
+
+  // 3. Speaking Independent Selection
+  const openSpeakingPicker = (part: 'part1' | 'part2' | 'part3') => {
+    setSpeakingPickerPart(part);
+    setSelectedSpeakingResource(null);
+    setSelectedPart1TopicIds({});
+    setPart1TopicCount(3);
+    setSelectedCueCardIndex(0);
+    setSelectedPart3QuestionIndices({});
+  };
+
+  const handleConfirmSpeakingSection = () => {
+    if (!selectedSpeakingResource) return;
+
+    if (speakingPickerPart === 'part1') {
+      let topics: SpeakingTopic[] = selectedSpeakingResource.speakingPart1?.topics || [];
+      if (topics.length === 0 && selectedSpeakingResource.content) {
+        try {
+          const parsed = JSON.parse(selectedSpeakingResource.content);
+          topics = parsed.topics || parsed.speakingPart1?.topics || [];
+        } catch {}
+      }
+
+      const chosenTopics = topics.filter((tp) => selectedPart1TopicIds[tp.id]);
+      const finalTopics = chosenTopics.length > 0 ? chosenTopics : topics;
+
+      const newSec: RegularTestSection = {
+        id: `sec_${Date.now()}_spk1`,
+        skill: 'speaking',
+        title: `Speaking Part 1: ${selectedSpeakingResource.title}`,
+        resourceId: selectedSpeakingResource.id,
+        speakingPart: 'part1',
+        speakingTopics: finalTopics,
+        speakingTopicCount: Math.min(part1TopicCount, finalTopics.length),
+        durationMinutes: 5,
+      };
+
+      setFormSections((prev) => [...prev, newSec]);
+    } else if (speakingPickerPart === 'part2') {
+      let cueCards: Array<{ topic: string; points: string[] }> =
+        selectedSpeakingResource.speakingPart2?.cueCards || [];
+      if (cueCards.length === 0 && selectedSpeakingResource.content) {
+        try {
+          const parsed = JSON.parse(selectedSpeakingResource.content);
+          cueCards = parsed.cueCards || parsed.speakingPart2?.cueCards || [];
+        } catch {}
+      }
+
+      const chosenCard: SpeakingCueCard = {
+        topic: cueCards[selectedCueCardIndex]?.topic || selectedSpeakingResource.title,
+        points: cueCards[selectedCueCardIndex]?.points || ['What it is', 'Why it matters', 'How you feel about it'],
+        prepTimeSeconds: 60,
+        speakTimeSeconds: 120,
+      };
+
+      const newSec: RegularTestSection = {
+        id: `sec_${Date.now()}_spk2`,
+        skill: 'speaking',
+        title: `Speaking Part 2: ${chosenCard.topic}`,
+        resourceId: selectedSpeakingResource.id,
+        speakingPart: 'part2',
+        speakingCueCard: chosenCard,
+        speakingTopic: chosenCard.topic,
+        speakingPoints: chosenCard.points,
+        durationMinutes: 4,
+      };
+
+      setFormSections((prev) => [...prev, newSec]);
+    } else if (speakingPickerPart === 'part3') {
+      let questions: string[] = selectedSpeakingResource.speakingPart3?.questions || [];
+      if (questions.length === 0 && selectedSpeakingResource.content) {
+        try {
+          const parsed = JSON.parse(selectedSpeakingResource.content);
+          questions = parsed.questions || parsed.speakingPart3?.questions || [];
+        } catch {}
+      }
+
+      const selectedIdxs = Object.keys(selectedPart3QuestionIndices)
+        .map(Number)
+        .filter((i) => selectedPart3QuestionIndices[i]);
+
+      const finalQuestions =
+        selectedIdxs.length > 0
+          ? selectedIdxs.map((i) => questions[i]).filter(Boolean)
+          : questions;
+
+      const newSec: RegularTestSection = {
+        id: `sec_${Date.now()}_spk3`,
+        skill: 'speaking',
+        title: `Speaking Part 3: ${selectedSpeakingResource.title}`,
+        resourceId: selectedSpeakingResource.id,
+        speakingPart: 'part3',
+        speakingQuestions: finalQuestions,
+        durationMinutes: 5,
+      };
+
+      setFormSections((prev) => [...prev, newSec]);
+    }
+
+    if (!formSkills.includes('speaking')) {
+      setFormSkills((prev) => [...prev, 'speaking']);
+    }
+
+    setSpeakingPickerPart(null);
   };
 
   const handleDeleteTest = async (testId: string) => {
-    if (!window.confirm('Are you sure you want to delete this test?')) return;
+    if (!window.confirm('Bạn có chắc chắn muốn xóa bài kiểm tra định kỳ này? Thao tác này không thể hoàn tác.')) return;
     const res = await deleteRegularTest(testId);
     if (!res.success) {
       alert(res.message);
@@ -236,7 +526,7 @@ export const TeacherRegularTestsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-xl md:text-2xl font-black text-slate-900 flex items-center gap-2.5">
@@ -248,66 +538,62 @@ export const TeacherRegularTestsView: React.FC = () => {
 
         <button
           onClick={openCreateModal}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors shrink-0"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"
         >
           <Plus className="w-4 h-4" />
           {t('regularTests.createTest')}
         </button>
       </div>
 
-      {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
-        <div className="relative flex-1 min-w-[200px]">
+      {/* Filter and Search Bar */}
+      <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+        <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
+            placeholder={t('regularTests.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search tests by title..."
-            className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden transition-all"
           />
         </div>
 
-        <select
-          value={selectedCourseFilter}
-          onChange={(e) => setSelectedCourseFilter(e.target.value)}
-          className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white text-slate-700"
-        >
-          <option value="all">All Courses</option>
-          {courses.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedCourseFilter}
+            onChange={(e) => setSelectedCourseFilter(e.target.value)}
+            className="px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-700"
+          >
+            <option value="all">{t('regularTests.allCourses')}</option>
+            {courses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white text-slate-700"
-        >
-          <option value="all">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="live">Live</option>
-          <option value="closed">Closed</option>
-          <option value="archived">Archived</option>
-        </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-700"
+          >
+            <option value="all">Tất cả trạng thái</option>
+            <option value="draft">Bản nháp (Draft)</option>
+            <option value="live">Đang mở thi (Live)</option>
+            <option value="closed">Đã đóng (Closed)</option>
+            <option value="archived">Lưu trữ (Archived)</option>
+          </select>
+        </div>
       </div>
 
-      {/* Test Cards List */}
+      {/* Tests Grid */}
       {filteredTests.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
-          <ShieldCheck className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-sm font-bold text-slate-800">No regular tests found</h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            Get started by creating a formal periodic exam with configured strict exam mode and proctoring.
+        <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300 space-y-3">
+          <ShieldCheck className="w-10 h-10 text-slate-300 mx-auto" />
+          <h3 className="text-sm font-bold text-slate-700">Chưa có bài kiểm tra định kỳ nào</h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            Bấm nút Tạo bài kiểm tra định kỳ ở góc trên để tạo bài thi Reading, Writing hoặc Speaking chuẩn IELTS.
           </p>
-          <button
-            onClick={openCreateModal}
-            className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            Create First Test
-          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -319,21 +605,17 @@ export const TeacherRegularTestsView: React.FC = () => {
             return (
               <div
                 key={test.id}
-                className="bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md transition-shadow flex flex-col overflow-hidden"
+                className="bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between"
               >
                 {/* Status Bar */}
-                <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between text-xs">
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                   <span
-                    className={`font-bold uppercase tracking-wider text-[10px] px-2.5 py-0.5 rounded-full ${
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                       test.status === 'live'
                         ? 'bg-emerald-100 text-emerald-800'
-                        : test.status === 'scheduled'
-                        ? 'bg-blue-100 text-blue-800'
                         : test.status === 'draft'
-                        ? 'bg-slate-100 text-slate-600'
-                        : test.status === 'closed'
                         ? 'bg-amber-100 text-amber-800'
-                        : 'bg-slate-200 text-slate-700'
+                        : 'bg-slate-100 text-slate-700'
                     }`}
                   >
                     {test.status}
@@ -383,7 +665,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                 </div>
 
                 {/* Card Actions */}
-                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
+                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-2">
                     {test.status === 'draft' && (
                       <button
@@ -456,292 +738,1020 @@ export const TeacherRegularTestsView: React.FC = () => {
         </div>
       )}
 
-      {/* Test Creator / Editor Modal */}
+      {/* =========================================================================
+          FULL-SCREEN CREATE / EDIT REGULAR TEST BUILDER
+      ========================================================================= */}
       {showCreatorModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-              <h2 className="text-base font-bold flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-blue-400" />
-                {editingTest ? t('regularTests.editTest') : t('regularTests.createTest')}
-              </h2>
-              <button
-                onClick={() => setShowCreatorModal(false)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col overflow-hidden animate-in fade-in duration-150">
+          {/* Top Bar */}
+          <header className="h-14 bg-slate-900 text-white flex items-center justify-between px-6 shrink-0 z-20 shadow-md">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm md:text-base font-bold flex items-center gap-2">
+                  {editingTest ? 'Chỉnh sửa bài kiểm tra định kỳ' : 'Tạo mới bài kiểm tra định kỳ (Create Regular Test)'}
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Cấu hình kỹ năng Reading, Writing & Speaking chuẩn IELTS
+                </p>
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCreatorModal(false)}
+                className="px-3.5 py-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors font-medium"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTest}
+                disabled={savingTest}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm disabled:opacity-50 transition-all flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                {savingTest ? 'Đang lưu...' : editingTest ? 'Cập nhật bài thi' : 'Lưu bản nháp bài thi'}
+              </button>
+            </div>
+          </header>
+
+          {/* Full-Screen Workspace Body */}
+          <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+            {/* Left Sidebar: General Info & Timing */}
+            <div className="w-full lg:w-96 shrink-0 bg-white border-r border-slate-200 overflow-y-auto p-6 space-y-5 shadow-xs">
               {formError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 font-medium">
-                  {formError}
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{formError}</span>
                 </div>
               )}
 
-              {/* Basic Info */}
-              <div className="space-y-3">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5 pb-2 border-b border-slate-100">
+                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  Thông tin bài kiểm tra
+                </h3>
+
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Test Title *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Tiêu đề bài kiểm tra *
+                  </label>
                   <input
                     type="text"
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="e.g. IELTS Mid-Term Periodic Exam 2026"
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    placeholder="VD: Kiểm tra định kỳ giữa kỳ IELTS Band 6.5+"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Target Course *</label>
-                    <select
-                      value={formCourseId}
-                      onChange={(e) => setFormCourseId(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
-                    >
-                      {courses.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Skills Assessed</label>
-                    <div className="flex items-center gap-3 mt-1.5">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formSkills.includes('reading')}
-                          onChange={(e) => {
-                            if (e.target.checked) setFormSkills([...formSkills, 'reading']);
-                            else setFormSkills(formSkills.filter((s) => s !== 'reading'));
-                          }}
-                          className="w-4 h-4 text-blue-600 rounded-sm"
-                        />
-                        <span>Reading</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formSkills.includes('writing')}
-                          onChange={(e) => {
-                            if (e.target.checked) setFormSkills([...formSkills, 'writing']);
-                            else setFormSkills(formSkills.filter((s) => s !== 'writing'));
-                          }}
-                          className="w-4 h-4 text-blue-600 rounded-sm"
-                        />
-                        <span>Writing</span>
-                      </label>
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Lớp học áp dụng *
+                  </label>
+                  <select
+                    value={formCourseId}
+                    onChange={(e) => setFormCourseId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white font-medium"
+                  >
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">General Instructions</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Hướng dẫn chung cho thí sinh
+                  </label>
                   <textarea
                     value={formInstructions}
                     onChange={(e) => setFormInstructions(e.target.value)}
-                    rows={2}
-                    placeholder="Exam guidelines, candidate rules, and instructions..."
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    rows={3}
+                    placeholder="Quy chế phòng thi, thời gian làm bài, lưu ý chống gian lận..."
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
               </div>
 
-              {/* Timing & Strict Mode */}
-              <div className="pt-4 border-t border-slate-200 grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">{t('regularTests.durationMinutes')}</label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={240}
-                    value={formDuration}
-                    onChange={(e) => setFormDuration(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300"
-                  />
+              {/* Timing & Exam Settings */}
+              <div className="space-y-4 pt-3 border-t border-slate-100">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5 pb-2 border-b border-slate-100">
+                  <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                  Thời gian & Chế độ làm bài
+                </h3>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Tổng thời gian (phút)
+                    </label>
+                    <input
+                      type="number"
+                      min={10}
+                      max={240}
+                      value={formDuration}
+                      onChange={(e) => setFormDuration(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Số lần làm bài
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={formMaxAttempts}
+                      onChange={(e) => setFormMaxAttempts(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 font-bold"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Timing Mode</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Chế độ đồng hồ (Timing Mode)
+                  </label>
                   <select
                     value={formTimingMode}
                     onChange={(e) => setFormTimingMode(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white"
                   >
-                    <option value="overall_timer">Overall timer (Free navigation)</option>
-                    <option value="per_section">Per-section timers (Sequential lock)</option>
+                    <option value="overall_timer">Overall timer (Thí sinh tự do chuyển phần)</option>
+                    <option value="per_section">Per-section timers (Khóa tuần tự theo từng phần)</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Strict Exam Preset</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Chế độ giám sát (Strict Exam Mode)
+                  </label>
                   <select
                     value={formStrictPreset}
                     onChange={(e) => setFormStrictPreset(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 bg-white font-medium"
                   >
-                    <option value="standard">Standard (Monitored)</option>
-                    <option value="strict">Strict (Fullscreen Enforced)</option>
-                    <option value="off">Off (Standard Practice)</option>
+                    <option value="standard">Standard (Ghi nhận tab switch, paste cảnh báo)</option>
+                    <option value="strict">Strict (Bắt buộc toàn màn hình Fullscreen)</option>
+                    <option value="off">Off (Tự do ôn luyện thông thường)</option>
                   </select>
                 </div>
-              </div>
 
-              {/* Access Code */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                <div>
-                  <label className="font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer">
+                {/* Access Code */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={formAccessCodeEnabled}
                       onChange={(e) => setFormAccessCodeEnabled(e.target.checked)}
                       className="w-4 h-4 text-blue-600 rounded-sm"
                     />
-                    Require Access Code to start exam
+                    Yêu cầu Access Code để vào thi
                   </label>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Salted and hashed securely on server.
-                  </p>
+                  {formAccessCodeEnabled && (
+                    <input
+                      type="text"
+                      value={formAccessCode}
+                      onChange={(e) => setFormAccessCode(e.target.value)}
+                      placeholder="VD: EXAM2026"
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 uppercase tracking-widest font-mono font-bold"
+                    />
+                  )}
                 </div>
-                {formAccessCodeEnabled && (
-                  <input
-                    type="text"
-                    value={formAccessCode}
-                    onChange={(e) => setFormAccessCode(e.target.value)}
-                    placeholder="e.g. EXAM2026"
-                    className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 uppercase tracking-widest font-mono font-bold w-36"
-                  />
-                )}
-              </div>
-
-              {/* Materials Library Section Builder */}
-              <div className="pt-4 border-t border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <Library className="w-4 h-4 text-blue-600" />
-                    Exam Sections & Materials Library Content ({formSections.length})
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowLibraryPicker('reading')}
-                      className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-semibold flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Reading from Library
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowLibraryPicker('writing')}
-                      className="px-2.5 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg font-semibold flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Writing from Library
-                    </button>
-                  </div>
-                </div>
-
-                {formSections.length === 0 ? (
-                  <div className="p-6 border-2 border-dashed border-slate-200 rounded-xl text-center text-slate-400">
-                    No sections added yet. Click above to select passages and prompts from your Materials Library.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {formSections.map((sec, idx) => (
-                      <div
-                        key={sec.id}
-                        className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          {sec.skill === 'reading' ? (
-                            <BookOpen className="w-4 h-4 text-blue-600" />
-                          ) : (
-                            <PenTool className="w-4 h-4 text-indigo-600" />
-                          )}
-                          <div>
-                            <div className="font-bold text-slate-800">
-                              Section {idx + 1}: {sec.title}
-                            </div>
-                            <div className="text-[11px] text-slate-400">
-                              Skill: {sec.skill.toUpperCase()} • {sec.skill === 'reading' ? `${sec.readingQuestions?.length || 0} Questions` : 'Task Essay'}
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setFormSections(formSections.filter((_, i) => i !== idx))}
-                          className="p-1 text-slate-400 hover:text-rose-600"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3">
+            {/* Right Main Area: Section Builder & Library Content */}
+            <div className="flex-1 min-h-0 bg-slate-50 overflow-y-auto p-6 space-y-6">
+              {/* Section Builder Toolbar */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Library className="w-4 h-4 text-blue-600" />
+                    Cấu hình kỹ năng & Các phần thi ({formSections.length})
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Thêm các phần thi Reading, Writing, Speaking độc lập để tạo thành một bài thi hoàn chỉnh.
+                  </p>
+                </div>
+
+                {/* Add Buttons */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowReadingPicker(true)}
+                    className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    + Thêm Reading từ Library
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openCreateWritingModal()}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <PenTool className="w-3.5 h-3.5" />
+                    + Tạo Writing (Task 1 / 2)
+                  </button>
+
+                  {/* Speaking Part Dropdown / Menu */}
+                  <div className="inline-flex items-center gap-1 bg-purple-50 p-0.5 rounded-xl border border-purple-200">
+                    <span className="text-[11px] font-bold text-purple-900 px-2 flex items-center gap-1">
+                      <Mic className="w-3 h-3 text-purple-600" />
+                      Speaking:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openSpeakingPicker('part1')}
+                      className="px-2 py-1 bg-white hover:bg-purple-100 text-purple-800 rounded-lg text-[11px] font-bold shadow-2xs transition-colors"
+                      title="Chọn chủ đề Part 1 từ Thư viện"
+                    >
+                      + Part 1
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSpeakingPicker('part2')}
+                      className="px-2 py-1 bg-white hover:bg-purple-100 text-purple-800 rounded-lg text-[11px] font-bold shadow-2xs transition-colors"
+                      title="Chọn Cue Card Part 2 từ Thư viện"
+                    >
+                      + Part 2
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSpeakingPicker('part3')}
+                      className="px-2 py-1 bg-white hover:bg-purple-100 text-purple-800 rounded-lg text-[11px] font-bold shadow-2xs transition-colors"
+                      title="Chọn câu hỏi thảo luận Part 3 từ Thư viện"
+                    >
+                      + Part 3
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sections List */}
+              {formSections.length === 0 ? (
+                <div className="p-12 text-center bg-white rounded-2xl border-2 border-dashed border-slate-300 space-y-3">
+                  <Library className="w-10 h-10 text-slate-300 mx-auto" />
+                  <h4 className="text-sm font-bold text-slate-700">Chưa có phần thi nào được thêm</h4>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Chọn các nút phía trên để thêm bài đọc Reading từ Thư viện, tự soạn đề Writing Task 1/2, hoặc chọn các phần Speaking từ Thư viện.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {formSections.map((sec, idx) => (
+                    <div
+                      key={sec.id}
+                      className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:border-slate-300 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3"
+                    >
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        {/* Section Order Pill */}
+                        <div className="w-7 h-7 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </div>
+
+                        {/* Skill Icon */}
+                        <div className="shrink-0 mt-0.5">
+                          {sec.skill === 'reading' ? (
+                            <div className="w-7 h-7 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                              <BookOpen className="w-4 h-4" />
+                            </div>
+                          ) : sec.skill === 'writing' ? (
+                            <div className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                              <PenTool className="w-4 h-4" />
+                            </div>
+                          ) : (
+                            <div className="w-7 h-7 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                              <Mic className="w-4 h-4" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-slate-900 truncate">{sec.title}</h4>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                sec.skill === 'reading'
+                                  ? 'bg-blue-50 text-blue-700'
+                                  : sec.skill === 'writing'
+                                  ? 'bg-indigo-50 text-indigo-700'
+                                  : 'bg-purple-50 text-purple-700'
+                              }`}
+                            >
+                              {sec.skill}
+                            </span>
+                          </div>
+
+                          {/* Detail summary */}
+                          <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            {sec.skill === 'reading' && (
+                              <>
+                                <span>{sec.passages?.length || 1} Passage(s)</span>
+                                <span>•</span>
+                                <span>{sec.readingQuestions?.length || 0} Questions</span>
+                                <span>•</span>
+                                <span>{sec.questionGroups?.length || 0} Groups</span>
+                              </>
+                            )}
+
+                            {sec.skill === 'writing' && (
+                              <>
+                                <span>{sec.writingTaskType === 'task1' ? 'Task 1 Academic' : 'Task 2 Essay'}</span>
+                                <span>•</span>
+                                <span>Tối thiểu {sec.writingMinWords || 250} từ</span>
+                                {sec.task1ImageUrl && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-indigo-600 font-semibold">Đã có biểu đồ</span>
+                                  </>
+                                )}
+                              </>
+                            )}
+
+                            {sec.skill === 'speaking' && (
+                              <>
+                                <span className="font-semibold text-purple-800">
+                                  {sec.speakingPart ? sec.speakingPart.toUpperCase() : 'Speaking'}
+                                </span>
+                                <span>•</span>
+                                <span>Chỉ ghi âm 1 lần duy nhất</span>
+                                {sec.speakingTopics && (
+                                  <span>• {sec.speakingTopics.length} topics</span>
+                                )}
+                                {sec.speakingQuestions && (
+                                  <span>• {sec.speakingQuestions.length} câu hỏi</span>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section Action Buttons */}
+                      <div className="flex items-center gap-1.5 self-end md:self-auto shrink-0">
+                        {/* Reading Full Preview Button */}
+                        {sec.skill === 'reading' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewReadingSection(sec);
+                              setPreviewActivePassageTab(0);
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                            title="Xem trước toàn bộ bài đọc và đáp án"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Xem trước toàn bộ đề</span>
+                          </button>
+                        )}
+
+                        {/* Writing Edit Button */}
+                        {sec.skill === 'writing' && (
+                          <button
+                            type="button"
+                            onClick={() => openCreateWritingModal(sec)}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                            title="Chỉnh sửa đề bài Writing"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Sửa</span>
+                          </button>
+                        )}
+
+                        {/* Order Controls */}
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => moveSectionUp(idx)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-30"
+                          title="Di chuyển lên"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === formSections.length - 1}
+                          onClick={() => moveSectionDown(idx)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-30"
+                          title="Di chuyển xuống"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Remove Section */}
+                        <button
+                          type="button"
+                          onClick={() => removeSection(idx)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Xóa phần thi này"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          SUB-MODAL 1: READING LIBRARY PICKER (z-70)
+      ========================================================================= */}
+      {showReadingPicker && (
+        <div className="fixed inset-0 z-70 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-blue-400" />
+                <h3 className="font-bold text-sm">Chọn bài Reading từ Thư viện tài liệu (Materials Library)</h3>
+              </div>
               <button
-                onClick={() => setShowCreatorModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg"
+                type="button"
+                onClick={() => setShowReadingPicker(false)}
+                className="text-slate-400 hover:text-white p-1"
               >
-                {t('common.cancel')}
+                <X className="w-5 h-5" />
               </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-2">
+              {resources.filter((r) => r.skill === 'reading' || (r as any).type === 'reading').length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-xs">
+                  Chưa có tài liệu Reading nào trong Thư viện. Hãy import từ Word/PDF tại trang Materials Library.
+                </div>
+              ) : (
+                resources
+                  .filter((r) => r.skill === 'reading' || (r as any).type === 'reading')
+                  .map((res) => (
+                    <div
+                      key={res.id}
+                      onClick={() => handleImportReadingResource(res)}
+                      className="p-3.5 bg-white rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 cursor-pointer transition-all flex items-center justify-between text-xs group"
+                    >
+                      <div className="flex-1 pr-3">
+                        <div className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors">
+                          {res.title}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
+                          <span>{res.category || 'Reading Material'}</span>
+                          <span>•</span>
+                          <span>{res.tags?.join(', ') || 'No tags'}</span>
+                        </div>
+                      </div>
+                      <span className="px-3 py-1.5 bg-blue-600 group-hover:bg-blue-700 text-white rounded-lg font-bold text-xs shrink-0 flex items-center gap-1 shadow-2xs transition-colors">
+                        <Plus className="w-3.5 h-3.5" />
+                        Chọn đề này
+                      </span>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          SUB-MODAL 2: FULL READING TEST PREVIEW (z-80)
+      ========================================================================= */}
+      {previewReadingSection && (
+        <div className="fixed inset-0 z-80 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-3 md:p-6">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="px-6 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <BookOpen className="w-5 h-5 text-blue-400" />
+                <div>
+                  <h3 className="font-bold text-sm">Xem trước toàn bộ bài Reading (Full Test Preview)</h3>
+                  <p className="text-[11px] text-slate-400">{previewReadingSection.title}</p>
+                </div>
+              </div>
               <button
-                onClick={handleSaveTest}
-                disabled={savingTest}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-sm disabled:opacity-50"
+                type="button"
+                onClick={() => setPreviewReadingSection(null)}
+                className="text-slate-400 hover:text-white p-1"
               >
-                {savingTest ? 'Saving...' : editingTest ? 'Update Test' : 'Create Draft Test'}
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Split Passage & Questions */}
+            <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+              {/* Left Pane: Passage Content */}
+              <div className="w-full md:w-1/2 border-r border-slate-300 bg-white flex flex-col overflow-hidden">
+                {/* Passage Switcher Tabs if multiple */}
+                {previewReadingSection.passages && previewReadingSection.passages.length > 1 && (
+                  <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex items-center gap-2 overflow-x-auto shrink-0">
+                    {previewReadingSection.passages.map((p, pIdx) => (
+                      <button
+                        key={p.id || pIdx}
+                        type="button"
+                        onClick={() => setPreviewActivePassageTab(pIdx)}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                          previewActivePassageTab === pIdx
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'bg-white text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {p.title || `Passage ${pIdx + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex-1 p-6 overflow-y-auto font-serif text-xs md:text-sm leading-relaxed text-slate-800">
+                  <div className="max-w-prose mx-auto whitespace-pre-wrap">
+                    {previewReadingSection.passages && previewReadingSection.passages.length > 0
+                      ? previewReadingSection.passages[previewActivePassageTab]?.content ||
+                        previewReadingSection.readingPassage ||
+                        'Chưa có nội dung đoạn văn.'
+                      : previewReadingSection.readingPassage || 'Chưa có nội dung đoạn văn.'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Pane: All Questions & Answer Keys */}
+              <div className="w-full md:w-1/2 bg-slate-50 flex flex-col overflow-hidden">
+                <div className="h-10 bg-slate-100 border-b border-slate-200 px-4 flex items-center justify-between text-xs text-slate-700 shrink-0">
+                  <span className="font-bold uppercase tracking-wider text-[11px]">
+                    Questions ({previewReadingSection.readingQuestions?.length || 0} câu hỏi & đáp án)
+                  </span>
+                  <span className="text-[11px] text-emerald-700 font-bold">✓ Đã nạp đáp án chuẩn</span>
+                </div>
+
+                <div className="flex-1 p-5 overflow-y-auto space-y-4">
+                  {(previewReadingSection.readingQuestions || []).length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-xs">
+                      Không tìm thấy câu hỏi nào trong đề đọc này.
+                    </div>
+                  ) : (
+                    (previewReadingSection.readingQuestions || []).map((q, idx) => (
+                      <div
+                        key={q.id || idx}
+                        className="p-4 bg-white rounded-xl border border-slate-200 space-y-2 text-xs shadow-2xs"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <span className="w-6 h-6 rounded-md bg-blue-100 text-blue-800 font-bold text-xs flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                          <div className="flex-1 font-semibold text-slate-900 leading-snug">
+                            {q.prompt || (q as any).question || (q as any).questionText}
+                          </div>
+                        </div>
+
+                        {/* Options if Multiple Choice */}
+                        {q.options && q.options.length > 0 && (
+                          <div className="space-y-1 pl-8">
+                            {q.options.map((opt, oIdx) => {
+                              const ansKey = String(q.correctAnswer || (q as any).answer || '').trim();
+                              const isKey =
+                                ansKey.toLowerCase() === opt.trim().toLowerCase() ||
+                                ansKey === String.fromCharCode(65 + oIdx);
+
+                              return (
+                                <div
+                                  key={oIdx}
+                                  className={`p-2 rounded-lg border flex items-center justify-between ${
+                                    isKey
+                                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold'
+                                      : 'bg-white border-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  <span>{opt}</span>
+                                  {isKey && (
+                                    <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold uppercase">
+                                      Đáp án đúng
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Non-MC Answer Key */}
+                        {(!q.options || q.options.length === 0) && (q.correctAnswer || (q as any).answer) && (
+                          <div className="pl-8 pt-1 flex items-center gap-2">
+                            <span className="text-slate-500 font-medium">Đáp án chuẩn:</span>
+                            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-md font-bold text-xs">
+                              {q.correctAnswer || (q as any).answer}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 bg-white border-t border-slate-200 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setPreviewReadingSection(null)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors"
+              >
+                Đóng xem trước
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Materials Library Picker Sub-modal */}
-      {showLibraryPicker && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl max-h-[80vh] flex flex-col overflow-hidden animate-scale-in">
-            <div className="px-5 py-3 bg-slate-900 text-white flex items-center justify-between">
-              <h3 className="font-bold text-sm flex items-center gap-2">
-                <Library className="w-4 h-4 text-blue-400" />
-                Select {showLibraryPicker.toUpperCase()} from Materials Library
-              </h3>
-              <button onClick={() => setShowLibraryPicker(null)} className="text-slate-400 hover:text-white">
+      {/* =========================================================================
+          SUB-MODAL 3: WRITING MANUAL CREATOR & EDITOR (z-70)
+      ========================================================================= */}
+      {showWritingModal && (
+        <div className="fixed inset-0 z-70 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PenTool className="w-5 h-5 text-indigo-400" />
+                <h3 className="font-bold text-sm">
+                  {editingWritingSecId ? 'Chỉnh sửa phần thi Writing' : 'Soạn trực tiếp phần thi Writing (Task 1 hoặc Task 2)'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWritingModal(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {resources.filter((r) => r.skill === showLibraryPicker || (r as any).type === showLibraryPicker).length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  No {showLibraryPicker} materials found in library.
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+              {/* Task Category Switcher */}
+              <div>
+                <label className="block font-bold text-slate-800 mb-1.5">Loại bài Writing (Task Category) *</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWritingTaskCategory('task1_academic');
+                      setWritingMinWords(150);
+                      setWritingSectionDuration(20);
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      writingTaskCategory === 'task1_academic'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold text-xs">Academic Task 1</div>
+                    <div className={`text-[11px] mt-0.5 ${writingTaskCategory === 'task1_academic' ? 'text-indigo-100' : 'text-slate-500'}`}>
+                      Báo cáo biểu đồ, bảng số liệu, bản đồ (Min 150 từ)
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWritingTaskCategory('task2');
+                      setWritingMinWords(250);
+                      setWritingSectionDuration(40);
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      writingTaskCategory === 'task2'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold text-xs">Academic Task 2</div>
+                    <div className={`text-[11px] mt-0.5 ${writingTaskCategory === 'task2' ? 'text-indigo-100' : 'text-slate-500'}`}>
+                      Bài luận nghị luận xã hội (Min 250 từ)
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Task 1 Graphic Image URL */}
+              {writingTaskCategory === 'task1_academic' && (
+                <div className="space-y-2 p-3 bg-indigo-50/50 rounded-xl border border-indigo-200">
+                  <label className="block font-bold text-indigo-950">Hình ảnh biểu đồ / Bản đồ Task 1 (Image URL)</label>
+                  <input
+                    type="text"
+                    placeholder="Dán URL hình ảnh biểu đồ (https://... hoặc data:image/...)"
+                    value={writingImageUrl}
+                    onChange={(e) => setWritingImageUrl(e.target.value)}
+                    className="w-full p-2 border border-indigo-300 rounded-lg text-xs bg-white outline-hidden"
+                  />
+                  {writingImageUrl && (
+                    <div className="rounded-lg border border-indigo-200 overflow-hidden bg-white p-2">
+                      <img
+                        src={writingImageUrl}
+                        alt="Task 1 preview"
+                        className="max-h-48 object-contain mx-auto rounded"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Writing Prompt */}
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">Đề bài Writing (Prompt & Instructions) *</label>
+                <textarea
+                  rows={4}
+                  placeholder="Nhập nội dung đề bài IELTS Writing chi tiết tại đây..."
+                  value={writingPrompt}
+                  onChange={(e) => setWritingPrompt(e.target.value)}
+                  className="w-full p-3 border border-slate-300 rounded-xl text-xs bg-white outline-hidden focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Min words and section duration */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Số từ tối thiểu (Minimum Words)</label>
+                  <input
+                    type="number"
+                    value={writingMinWords}
+                    onChange={(e) => setWritingMinWords(Number(e.target.value))}
+                    className="w-full p-2 border border-slate-300 rounded-xl font-bold text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Thời lượng khuyến nghị (phút)</label>
+                  <input
+                    type="number"
+                    value={writingSectionDuration}
+                    onChange={(e) => setWritingSectionDuration(Number(e.target.value))}
+                    className="w-full p-2 border border-slate-300 rounded-xl font-bold text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Model Answer (Exemplar) */}
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">Bài viết mẫu tham khảo (Band 8-9 Model Answer)</label>
+                <textarea
+                  rows={3}
+                  placeholder="Dán bài mẫu để học viên đối chiếu sau khi chấm điểm..."
+                  value={writingModelAnswer}
+                  onChange={(e) => setWritingModelAnswer(e.target.value)}
+                  className="w-full p-3 border border-slate-300 rounded-xl text-xs bg-white outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-3.5 bg-white border-t border-slate-200 flex justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowWritingModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveWritingSection}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs"
+              >
+                {editingWritingSecId ? 'Cập nhật Writing' : 'Thêm vào bài thi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          SUB-MODAL 4: SPEAKING INDEPENDENT PART SELECTOR (z-70)
+      ========================================================================= */}
+      {speakingPickerPart && (
+        <div className="fixed inset-0 z-70 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Mic className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-sm">
+                  Chọn phần thi Speaking từ Thư viện: {speakingPickerPart.toUpperCase()}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSpeakingPickerPart(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+              {/* Step 1: Pick Resource from Library */}
+              {!selectedSpeakingResource ? (
+                <div className="space-y-3">
+                  <p className="text-slate-600 font-medium">
+                    Chọn một bộ tài liệu Speaking có sẵn trong Thư viện:
+                  </p>
+                  {resources.filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking' || r.speakingPart).length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-xs">
+                      Không có tài liệu Speaking nào trong Thư viện.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {resources
+                        .filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking' || r.speakingPart)
+                        .map((res) => (
+                          <div
+                            key={res.id}
+                            onClick={() => {
+                              setSelectedSpeakingResource(res);
+                              // Initialize checkboxes based on part
+                              if (speakingPickerPart === 'part1') {
+                                const tps = res.speakingPart1?.topics || [];
+                                const initMap: Record<string, boolean> = {};
+                                tps.forEach((tp) => {
+                                  initMap[tp.id] = true;
+                                });
+                                setSelectedPart1TopicIds(initMap);
+                              }
+                            }}
+                            className="p-3 bg-white rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50/40 cursor-pointer transition-all flex items-center justify-between"
+                          >
+                            <div>
+                              <div className="font-bold text-slate-900">{res.title}</div>
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                {res.description || res.category || 'Tài liệu Speaking'}
+                              </div>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-purple-600" />
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               ) : (
-                resources
-                  .filter((r) => r.skill === showLibraryPicker || (r as any).type === showLibraryPicker)
-                  .map((res) => (
-                    <div
-                      key={res.id}
-                      onClick={() => handleAddSectionFromLibrary(res)}
-                      className="p-3 bg-white rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 cursor-pointer transition-all flex items-center justify-between text-xs"
+                /* Step 2: Configure items inside selected resource */
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 bg-purple-50 rounded-xl border border-purple-200">
+                    <div>
+                      <span className="text-[10px] font-bold text-purple-600 uppercase">Tài liệu đã chọn:</span>
+                      <div className="font-bold text-purple-950 text-xs">{selectedSpeakingResource.title}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSpeakingResource(null)}
+                      className="text-xs text-purple-700 hover:underline font-bold"
                     >
-                      <div>
-                        <div className="font-bold text-slate-800">{res.title}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {res.tags?.join(', ') || 'No tags'} • {res.createdAt}
+                      Đổi tài liệu
+                    </button>
+                  </div>
+
+                  {/* PART 1 SELECTION */}
+                  {speakingPickerPart === 'part1' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="font-bold text-slate-800">
+                          Chọn các chủ đề Part 1 cần đưa vào bài thi:
+                        </label>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <span>Số topic thi:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={part1TopicCount}
+                            onChange={(e) => setPart1TopicCount(Number(e.target.value))}
+                            className="w-16 p-1 border border-slate-300 rounded text-center font-bold"
+                          />
                         </div>
                       </div>
-                      <Plus className="w-4 h-4 text-blue-600" />
+
+                      {/* Topic checkboxes */}
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {(selectedSpeakingResource.speakingPart1?.topics || []).map((tp: SpeakingTopic, tIdx: number) => (
+                          <label
+                            key={tp.id || tIdx}
+                            className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition-all ${
+                              selectedPart1TopicIds[tp.id]
+                                ? 'bg-purple-50/50 border-purple-400'
+                                : 'bg-white border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean(selectedPart1TopicIds[tp.id])}
+                              onChange={(e) =>
+                                setSelectedPart1TopicIds((prev) => ({
+                                  ...prev,
+                                  [tp.id]: e.target.checked,
+                                }))
+                              }
+                              className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
+                            />
+                            <div className="flex-1">
+                              <span className="font-bold text-slate-900 block">{tp.topic || (tp as any).title}</span>
+                              <div className="text-[11px] text-slate-500 mt-1">
+                                {tp.questions?.length || 0} câu hỏi ngắn
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  ))
+                  )}
+
+                  {/* PART 2 SELECTION */}
+                  {speakingPickerPart === 'part2' && (
+                    <div className="space-y-3">
+                      <label className="font-bold text-slate-800 block">
+                        Chọn một Cue Card Part 2 cụ thể:
+                      </label>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {(selectedSpeakingResource.speakingPart2?.cueCards || [
+                          { topic: selectedSpeakingResource.title, points: ['What it is', 'Why it matters'] },
+                        ]).map((card: any, cIdx: number) => (
+                          <div
+                            key={cIdx}
+                            onClick={() => setSelectedCueCardIndex(cIdx)}
+                            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                              selectedCueCardIndex === cIdx
+                                ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-100'
+                                : 'bg-white border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="font-bold text-slate-900">{card.topic}</div>
+                            <ul className="mt-1 list-disc list-inside text-[11px] text-slate-600 pl-1">
+                              {card.points?.map((p: string, pIdx: number) => (
+                                <li key={pIdx}>{p}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PART 3 SELECTION */}
+                  {speakingPickerPart === 'part3' && (
+                    <div className="space-y-3">
+                      <label className="font-bold text-slate-800 block">
+                        Chọn câu hỏi thảo luận chuyên sâu Part 3:
+                      </label>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {(selectedSpeakingResource.speakingPart3?.questions || []).map((q: string, qIdx: number) => (
+                          <label
+                            key={qIdx}
+                            className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition-all ${
+                              selectedPart3QuestionIndices[qIdx]
+                                ? 'bg-purple-50/50 border-purple-400'
+                                : 'bg-white border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean(selectedPart3QuestionIndices[qIdx])}
+                              onChange={(e) =>
+                                setSelectedPart3QuestionIndices((prev) => ({
+                                  ...prev,
+                                  [qIdx]: e.target.checked,
+                                }))
+                              }
+                              className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
+                            />
+                            <span className="text-slate-800 font-medium">{q}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3.5 bg-white border-t border-slate-200 flex justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setSpeakingPickerPart(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl"
+              >
+                Hủy
+              </button>
+              {selectedSpeakingResource && (
+                <button
+                  type="button"
+                  onClick={handleConfirmSpeakingSection}
+                  className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                >
+                  Xác nhận thêm phần thi này
+                </button>
               )}
             </div>
           </div>
@@ -759,10 +1769,10 @@ export const TeacherRegularTestsView: React.FC = () => {
       {/* Attempts List / Grading Selector Modal */}
       {attemptsListTest && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-sm">Student Attempts: {attemptsListTest.title}</h3>
+                <h3 className="font-bold text-sm">Danh sách bài nộp: {attemptsListTest.title}</h3>
                 <p className="text-xs text-slate-400">{attemptsListTest.courseName}</p>
               </div>
               <button onClick={() => setAttemptsListTest(null)} className="text-slate-400 hover:text-white">
@@ -773,7 +1783,7 @@ export const TeacherRegularTestsView: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-5 space-y-2">
               {regularTestAttempts.filter((a) => a.testId === attemptsListTest.id).length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-xs">
-                  No submissions yet for this exam.
+                  Chưa có thí sinh nào nộp bài kiểm tra này.
                 </div>
               ) : (
                 regularTestAttempts
@@ -787,7 +1797,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                         <div className="font-bold text-slate-900">{attempt.studentName}</div>
                         <div className="text-[11px] text-slate-500 mt-0.5">
                           Status: <span className="font-semibold text-slate-700 uppercase">{attempt.status}</span>
-                          {attempt.submittedAt && ` • Submitted: ${attempt.submittedAt}`}
+                          {attempt.submittedAt && ` • Nộp lúc: ${attempt.submittedAt}`}
                         </div>
                       </div>
 
@@ -797,7 +1807,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                             Band {attempt.scores?.overall ?? attempt.scores?.reading?.band ?? '—'}
                           </div>
                           <div className="text-[10px] text-slate-400">
-                            {attempt.isReleased ? 'Released' : 'Private'}
+                            {attempt.isReleased ? 'Đã công bố' : 'Riêng tư'}
                           </div>
                         </div>
 
@@ -806,9 +1816,9 @@ export const TeacherRegularTestsView: React.FC = () => {
                             setGradingAttemptData({ test: attemptsListTest, attempt });
                             setAttemptsListTest(null);
                           }}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs"
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-2xs"
                         >
-                          Grade / Review
+                          Chấm điểm / Đánh giá
                         </button>
                       </div>
                     </div>

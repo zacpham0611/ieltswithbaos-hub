@@ -225,8 +225,8 @@ export interface SpeakingTopic {
 export interface SpeakingCueCard {
   topic: string;
   points: string[];
-  prepTimeSeconds: number;
-  speakTimeSeconds: number;
+  prepTimeSeconds?: number;
+  speakTimeSeconds?: number;
 }
 
 export interface SpeakingQuestionResponse {
@@ -572,7 +572,7 @@ export interface RegularTestReleaseSettings {
 
 export interface RegularTestSection {
   id: string;
-  skill: 'reading' | 'writing';
+  skill: 'reading' | 'writing' | 'speaking';
   title: string;
   durationMinutes?: number;
   instructions?: string;
@@ -590,6 +590,14 @@ export interface RegularTestSection {
   writingMinWords?: number;
   task1ImageUrl?: string;
   modelAnswer?: string;
+  // Speaking Payload
+  speakingPart?: 'part1' | 'part2' | 'part3' | 'full' | 'combined';
+  speakingTopicCount?: number;
+  speakingTopics?: SpeakingTopic[];
+  speakingCueCard?: SpeakingCueCard;
+  speakingTopic?: string;
+  speakingPoints?: string[];
+  speakingQuestions?: string[];
 }
 
 export interface RegularTest {
@@ -600,7 +608,7 @@ export interface RegularTest {
   teacherName?: string;
   title: string;
   instructions: string;
-  skills: ('reading' | 'writing')[];
+  skills: ('reading' | 'writing' | 'speaking')[];
   availabilityStart?: string;
   availabilityEnd?: string;
   hardDeadline?: string;
@@ -645,6 +653,13 @@ export interface RegularTestAttempt {
   answers: {
     reading?: Record<string, string>;
     writing?: { text: string; wordCount: number };
+    speaking?: Record<string, {
+      audioUrl: string;
+      duration?: number;
+      submittedAt?: string;
+      isLocked?: boolean;
+      part?: string;
+    }>;
     [key: string]: any;
   };
   flaggedQuestions: Record<string, boolean>;
@@ -669,6 +684,17 @@ export interface RegularTestAttempt {
       }>;
     };
     writing?: {
+      band: number;
+      rubricScores?: Array<{
+        criterion: string;
+        score: number;
+        descriptor: string;
+      }>;
+      strengths?: string;
+      areasToImprove?: string;
+      nextSteps?: string;
+    };
+    speaking?: {
       band: number;
       rubricScores?: Array<{
         criterion: string;

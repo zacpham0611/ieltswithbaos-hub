@@ -185,6 +185,7 @@ interface AppContextType {
     attemptId: string,
     updates: {
       writingScores?: any;
+      speakingScores?: any;
       releaseSettings?: any;
       scores?: any;
       gradingStatus?: RegularTestAttempt['gradingStatus'];
@@ -3377,6 +3378,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     attemptId: string,
     updates: {
       writingScores?: any;
+      speakingScores?: any;
       releaseSettings?: any;
       scores?: any;
       gradingStatus?: RegularTestAttempt['gradingStatus'];
@@ -3397,13 +3399,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (updates.writingScores) {
       updatedScores.writing = updates.writingScores;
-      // Recompute overall band
-      const bandsToAverage: number[] = [];
-      if (updatedScores.reading?.band) bandsToAverage.push(updatedScores.reading.band);
-      if (updatedScores.writing?.band) bandsToAverage.push(updatedScores.writing.band);
-      if (bandsToAverage.length > 0) {
-        updatedScores.overall = calculateIeltsOverallBand(bandsToAverage);
-      }
+    }
+    if (updates.speakingScores) {
+      updatedScores.speaking = updates.speakingScores;
+    }
+
+    // Recompute overall band
+    const bandsToAverage: number[] = [];
+    if (updatedScores.reading?.band) bandsToAverage.push(updatedScores.reading.band);
+    if (updatedScores.writing?.band) bandsToAverage.push(updatedScores.writing.band);
+    if (updatedScores.speaking?.band) bandsToAverage.push(updatedScores.speaking.band);
+    if (bandsToAverage.length > 0) {
+      updatedScores.overall = calculateIeltsOverallBand(bandsToAverage);
     }
 
     const isReleased = updates.isReleased !== undefined ? updates.isReleased : attempt.isReleased;

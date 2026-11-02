@@ -13,6 +13,9 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Mic,
+  Download,
+  Volume2,
 } from 'lucide-react';
 
 interface TeacherGradingModalProps {
@@ -27,8 +30,9 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
 
   const hasWriting = (test.sections || []).some((s) => s.skill === 'writing');
   const hasReading = (test.sections || []).some((s) => s.skill === 'reading');
+  const hasSpeaking = (test.sections || []).some((s) => s.skill === 'speaking');
 
-  // Rubric state
+  // Rubric state for Writing
   const existingRubrics = attempt.scores?.writing?.rubricScores || [];
   const getInitialScore = (crit: string) => {
     const found = existingRubrics.find((r) => r.criterion === crit);
@@ -44,6 +48,22 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
   const [areasToImprove, setAreasToImprove] = useState<string>(attempt.scores?.writing?.areasToImprove || '');
   const [nextSteps, setNextSteps] = useState<string>(attempt.scores?.writing?.nextSteps || '');
 
+  // Rubric state for Speaking
+  const existingSpeakingRubrics = attempt.scores?.speaking?.rubricScores || [];
+  const getInitialSpeakingScore = (crit: string) => {
+    const found = existingSpeakingRubrics.find((r) => r.criterion === crit);
+    return found ? found.score : 6.0;
+  };
+
+  const [fluencyScore, setFluencyScore] = useState<number>(getInitialSpeakingScore('Fluency & Coherence'));
+  const [speakingLexicalScore, setSpeakingLexicalScore] = useState<number>(getInitialSpeakingScore('Lexical Resource'));
+  const [speakingGrammarScore, setSpeakingGrammarScore] = useState<number>(getInitialSpeakingScore('Grammatical Range & Accuracy'));
+  const [pronunciationScore, setPronunciationScore] = useState<number>(getInitialSpeakingScore('Pronunciation'));
+
+  const [speakingStrengths, setSpeakingStrengths] = useState<string>(attempt.scores?.speaking?.strengths || '');
+  const [speakingAreasToImprove, setSpeakingAreasToImprove] = useState<string>(attempt.scores?.speaking?.areasToImprove || '');
+  const [speakingNextSteps, setSpeakingNextSteps] = useState<string>(attempt.scores?.speaking?.nextSteps || '');
+
   const [isReleased, setIsReleased] = useState<boolean>(attempt.isReleased || false);
   const [showErrorAnalysis, setShowErrorAnalysis] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -57,10 +77,21 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
     grammarScore,
   ]);
 
+  const calculatedSpeakingBand = calculateIeltsOverallBand([
+    fluencyScore,
+    speakingLexicalScore,
+    speakingGrammarScore,
+    pronunciationScore,
+  ]);
+
   const readingBand = attempt.scores?.reading?.band;
-  const overallBand = readingBand
-    ? calculateIeltsOverallBand([readingBand, calculatedWritingBand])
-    : calculatedWritingBand;
+  
+  const evaluatedBands: number[] = [];
+  if (hasReading && readingBand) evaluatedBands.push(readingBand);
+  if (hasWriting) evaluatedBands.push(calculatedWritingBand);
+  if (hasSpeaking) evaluatedBands.push(calculatedSpeakingBand);
+
+  const overallBand = evaluatedBands.length > 0 ? calculateIeltsOverallBand(evaluatedBands) : 6.0;
 
   const bandOptions = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0];
 
@@ -82,8 +113,24 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
           }
         : undefined;
 
+      const speakingScores = hasSpeaking
+        ? {
+            band: calculatedSpeakingBand,
+            rubricScores: [
+              { criterion: 'Fluency & Coherence', score: fluencyScore, descriptor: 'Fluency & Coherence' },
+              { criterion: 'Lexical Resource', score: speakingLexicalScore, descriptor: 'Lexical Resource' },
+              { criterion: 'Grammatical Range & Accuracy', score: speakingGrammarScore, descriptor: 'Grammatical Range & Accuracy' },
+              { criterion: 'Pronunciation', score: pronunciationScore, descriptor: 'Pronunciation' },
+            ],
+            strengths: speakingStrengths.trim(),
+            areasToImprove: speakingAreasToImprove.trim(),
+            nextSteps: speakingNextSteps.trim(),
+          }
+        : undefined;
+
       await gradeRegularTestAttempt(attempt.id, {
         writingScores,
+        speakingScores,
         isReleased,
         gradingStatus: 'fully_graded',
       });
@@ -150,6 +197,18 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
                 </div>
                 <div className="text-[11px] text-slate-500">
                   {attempt.answers?.writing?.wordCount || 0} words
+                </div>
+              </div>
+            )}
+
+            {hasSpeaking && (
+              <div>
+                <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Speaking Band</div>
+                <div className="text-2xl font-black text-purple-700 mt-1">
+                  {calculatedSpeakingBand}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Audio Recording
                 </div>
               </div>
             )}
@@ -327,6 +386,167 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
                     rows={2}
                     placeholder="Gợi ý bài tập, chiến thuật làm bài cần áp dụng cho các bài tới..."
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Speaking Grading & Rubric */}
+          {hasSpeaking && (
+            <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-purple-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Speaking Assessment (Official 4 Criteria)</h3>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800">
+                  Band {calculatedSpeakingBand.toFixed(1)}
+                </span>
+              </div>
+
+              {/* Student Audio Recordings */}
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Bản ghi âm bài nói của học sinh (Student Recordings)
+                </label>
+                {attempt.answers?.speaking && Object.keys(attempt.answers.speaking).length > 0 ? (
+                  Object.entries(attempt.answers.speaking).map(([secKey, spkData]: [string, any], idx) => (
+                    <div key={secKey || idx} className="p-3 bg-purple-50/50 rounded-xl border border-purple-200 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-purple-950 flex items-center gap-1.5">
+                          <Volume2 className="w-4 h-4 text-purple-600" />
+                          {spkData.part ? `Speaking ${spkData.part.toUpperCase()}` : `Phần ghi âm ${idx + 1}`}
+                          {spkData.duration ? ` (${Math.round(spkData.duration)}s)` : ''}
+                        </span>
+                        {spkData.audioUrl && (
+                          <a
+                            href={spkData.audioUrl}
+                            download={`speaking_attempt_${attempt.id}_part_${idx + 1}.webm`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-purple-300 hover:bg-purple-100 text-purple-800 rounded-lg text-[11px] font-bold shadow-2xs transition-colors"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Tải về file ghi âm
+                          </a>
+                        )}
+                      </div>
+                      {spkData.audioUrl ? (
+                        <audio controls src={spkData.audioUrl} className="w-full h-9 rounded-lg" />
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">Không tìm thấy file ghi âm</p>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-center text-xs text-slate-500 italic">
+                    Chưa có bản ghi âm Speaking nào được nộp cho lượt làm bài này.
+                  </div>
+                )}
+              </div>
+
+              {/* Rubric Selectors */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Fluency & Coherence
+                  </label>
+                  <select
+                    value={fluencyScore}
+                    onChange={(e) => setFluencyScore(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 font-bold text-slate-900 bg-white"
+                  >
+                    {bandOptions.map((b) => (
+                      <option key={b} value={b}>Band {b.toFixed(1)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Lexical Resource
+                  </label>
+                  <select
+                    value={speakingLexicalScore}
+                    onChange={(e) => setSpeakingLexicalScore(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 font-bold text-slate-900 bg-white"
+                  >
+                    {bandOptions.map((b) => (
+                      <option key={b} value={b}>Band {b.toFixed(1)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Grammatical Range & Accuracy
+                  </label>
+                  <select
+                    value={speakingGrammarScore}
+                    onChange={(e) => setSpeakingGrammarScore(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 font-bold text-slate-900 bg-white"
+                  >
+                    {bandOptions.map((b) => (
+                      <option key={b} value={b}>Band {b.toFixed(1)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Pronunciation
+                  </label>
+                  <select
+                    value={pronunciationScore}
+                    onChange={(e) => setPronunciationScore(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 font-bold text-slate-900 bg-white"
+                  >
+                    {bandOptions.map((b) => (
+                      <option key={b} value={b}>Band {b.toFixed(1)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 3 Feedback Categories for Speaking */}
+              <div className="space-y-3 pt-2 border-t border-slate-200">
+                <div>
+                  <label className="block text-xs font-bold text-emerald-800 mb-1">
+                    Điểm mạnh chính phần Speaking (Key Strengths)
+                  </label>
+                  <textarea
+                    value={speakingStrengths}
+                    onChange={(e) => setSpeakingStrengths(e.target.value)}
+                    rows={2}
+                    placeholder="Nhận xét về phát âm, độ lưu loát hoặc từ vựng dùng tốt..."
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-purple-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-amber-800 mb-1">
+                    Các điểm cần cải thiện (Areas to Improve)
+                  </label>
+                  <textarea
+                    value={speakingAreasToImprove}
+                    onChange={(e) => setSpeakingAreasToImprove(e.target.value)}
+                    rows={2}
+                    placeholder="Chỉ ra ngập ngừng, phát âm chưa chuẩn, ngữ điệu hoặc lỗi ngữ pháp khi nói..."
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-purple-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-purple-800 mb-1">
+                    Định hướng rèn luyện tiếp theo (Action Plan & Next Steps)
+                  </label>
+                  <textarea
+                    value={speakingNextSteps}
+                    onChange={(e) => setSpeakingNextSteps(e.target.value)}
+                    rows={2}
+                    placeholder="Chiến thuật mở rộng câu trả lời, shadowing phát âm..."
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-purple-500 focus:outline-hidden"
                   />
                 </div>
               </div>

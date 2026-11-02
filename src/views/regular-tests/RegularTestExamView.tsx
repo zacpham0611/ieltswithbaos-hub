@@ -19,7 +19,11 @@ import {
   Save,
   PenTool,
   BookOpen,
+  Mic,
+  Lock,
+  Volume2,
 } from 'lucide-react';
+import { SpeakingAudioRecorder } from '../../components/SpeakingAudioRecorder';
 
 interface RegularTestExamViewProps {
   test: RegularTest;
@@ -258,6 +262,25 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
     }
   };
 
+  const handleSpeakingAudioReady = (secId: string, durationSec: number, audioUrl: string) => {
+    const nextAnswers = {
+      ...answers,
+      speaking: {
+        ...(answers.speaking || {}),
+        [secId]: {
+          audioUrl,
+          duration: durationSec,
+          submittedAt: new Date().toISOString(),
+          isLocked: true,
+          part: currentSection?.speakingPart,
+        },
+      },
+    };
+    setAnswers(nextAnswers);
+    triggerAutosave(nextAnswers);
+    lastActivityRef.current = Date.now();
+  };
+
   // Toggle Flag Question
   const toggleFlagQuestion = (qId: string) => {
     const nextFlags = {
@@ -375,7 +398,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  {sec.skill === 'reading' ? 'Reading' : 'Writing'}
+                  {sec.skill === 'reading' ? 'Reading' : sec.skill === 'writing' ? 'Writing' : 'Speaking'}
                 </button>
               ))}
             </div>
@@ -654,6 +677,181 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
             </div>
           </div>
         )}
+
+        {/* SPEAKING SECTION CANVAS */}
+        {currentSection?.skill === 'speaking' && (
+          <div className="flex-1 flex overflow-hidden">
+            {/* Left: Speaking Task / Questions / Cue Card */}
+            <div className="w-1/2 border-r border-slate-300 bg-white p-6 overflow-y-auto space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-purple-100 text-purple-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Mic className="w-3.5 h-3.5" />
+                  {currentSection.speakingPart
+                    ? `IELTS Speaking ${currentSection.speakingPart.toUpperCase()}`
+                    : 'IELTS Speaking Section'}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  Chỉ ghi âm 1 lần duy nhất
+                </span>
+              </div>
+
+              {/* Strict Notice Banner */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <span className="font-bold">Quy chế kiểm tra định kỳ:</span> Mỗi thí sinh chỉ được phép ghi âm <strong>một lần duy nhất</strong>. Sau khi hoàn thành ghi âm, bản ghi âm sẽ được lưu tự động lên hệ thống và khóa lại. Không thể ghi âm lại hoặc thay đổi file.
+                </div>
+              </div>
+
+              {/* Part 1 Content */}
+              {currentSection.speakingPart === 'part1' && (
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                    Part 1: Topic-based Interview
+                  </h4>
+                  {currentSection.speakingTopics && currentSection.speakingTopics.length > 0 ? (
+                    <div className="space-y-3">
+                      {currentSection.speakingTopics
+                        .slice(0, currentSection.speakingTopicCount || currentSection.speakingTopics.length)
+                        .map((tp, tIdx) => (
+                          <div key={tp.id || tIdx} className="p-3 bg-purple-50/50 rounded-xl border border-purple-200 space-y-2">
+                            <span className="font-bold text-purple-950 text-xs">
+                              Chủ đề {tIdx + 1}: {tp.topic || (tp as any).title}
+                            </span>
+                            <ul className="space-y-1.5 list-disc list-inside text-xs text-slate-700 pl-1">
+                              {tp.questions?.map((q, qIdx) => (
+                                <li key={qIdx} className="leading-snug">
+                                  {q}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                      {currentSection.instructions || 'Answer the examiner questions clearly and fluently.'}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Part 2 Content */}
+              {currentSection.speakingPart === 'part2' && (
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                    Part 2: Individual Long Turn (Cue Card)
+                  </h4>
+                  <div className="p-4 bg-purple-50/60 rounded-xl border-2 border-purple-200 space-y-3">
+                    <div className="text-xs font-bold text-purple-950 uppercase tracking-wide">
+                      Candidate Task Card
+                    </div>
+                    <div className="text-sm font-black text-slate-900">
+                      {currentSection.speakingCueCard?.topic || currentSection.speakingTopic || currentSection.title}
+                    </div>
+                    <div className="text-xs text-slate-700 font-medium">You should say:</div>
+                    <ul className="space-y-1.5 text-xs text-slate-800 list-disc list-inside pl-2">
+                      {(
+                        currentSection.speakingCueCard?.points ||
+                        currentSection.speakingPoints || [
+                          'What it is',
+                          'When and where it took place',
+                          'Who was involved',
+                          'And explain why it was memorable or important to you',
+                        ]
+                      ).map((point, pIdx) => (
+                        <li key={pIdx}>{point}</li>
+                      ))}
+                    </ul>
+                    <div className="pt-2 border-t border-purple-200/80 flex items-center justify-between text-[11px] text-purple-800 font-semibold">
+                      <span>⏱ Chuẩn bị: 1 phút</span>
+                      <span>⏱ Thời gian nói: 1 - 2 phút</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Part 3 Content */}
+              {currentSection.speakingPart === 'part3' && (
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                    Part 3: Two-way Discussion
+                  </h4>
+                  {currentSection.speakingQuestions && currentSection.speakingQuestions.length > 0 ? (
+                    <div className="space-y-2">
+                      {currentSection.speakingQuestions.map((q, qIdx) => (
+                        <div key={qIdx} className="p-3 bg-white rounded-xl border border-slate-200 flex items-start gap-2.5 text-xs">
+                          <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-800 font-bold text-[11px] flex items-center justify-center shrink-0">
+                            {qIdx + 1}
+                          </span>
+                          <span className="text-slate-800 leading-snug font-medium">{q}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                      {currentSection.instructions || 'Discuss the topic questions in depth with full justification.'}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* General / Combined Speaking */}
+              {(!currentSection.speakingPart || currentSection.speakingPart === 'combined' || currentSection.speakingPart === 'full') && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                    Speaking Prompt & Instructions
+                  </h4>
+                  <div className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">
+                    {currentSection.instructions || currentSection.title}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right: Audio Recorder with Single Recording Lock */}
+            <div className="w-1/2 bg-slate-50 flex flex-col overflow-hidden">
+              <div className="h-10 bg-slate-100 border-b border-slate-200 px-4 flex items-center justify-between text-xs text-slate-600 shrink-0">
+                <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5 text-purple-600" />
+                  Recording Workspace
+                </span>
+                <div>
+                  {answers.speaking?.[currentSection.id]?.audioUrl ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" />
+                      Đã nộp bản ghi âm
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                      Chưa ghi âm
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 p-6 flex flex-col justify-center max-w-xl mx-auto w-full">
+                <SpeakingAudioRecorder
+                  questionId={currentSection.id}
+                  initialAudioUrl={answers.speaking?.[currentSection.id]?.audioUrl}
+                  isLocked={Boolean(answers.speaking?.[currentSection.id]?.isLocked || answers.speaking?.[currentSection.id]?.audioUrl)}
+                  allowReRecord={false}
+                  maxSeconds={currentSection.durationMinutes ? currentSection.durationMinutes * 60 : 180}
+                  label={`Bản ghi âm chính thức - ${currentSection.title}`}
+                  onAudioReady={(blob, dur, url) => handleSpeakingAudioReady(currentSection.id, dur, url)}
+                />
+
+                {answers.speaking?.[currentSection.id]?.audioUrl && (
+                  <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Bài nói của bạn đã được ghi âm thành công và khóa theo quy định kiểm tra định kỳ.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Fullscreen Overlay Blocker */}
@@ -719,6 +917,12 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                 <div className="flex justify-between">
                   <span className="text-slate-500">Writing Word Count</span>
                   <span className="font-bold text-indigo-700">{answers.writing.wordCount} words</span>
+                </div>
+              )}
+              {answers.speaking && Object.keys(answers.speaking).length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Speaking Recordings</span>
+                  <span className="font-bold text-purple-700">{Object.keys(answers.speaking).length} recordings</span>
                 </div>
               )}
             </div>
