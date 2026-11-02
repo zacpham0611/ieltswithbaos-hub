@@ -246,6 +246,7 @@ export const AssignmentsView: React.FC = () => {
   const isTeacher = currentUser.role === 'teacher';
 
   const [selectedSkillFilter, setSelectedSkillFilter] = useState<string>('all');
+  const [selectedCourseFilter, setSelectedCourseFilter] = useState<string>('all');
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [selectedAssignmentForRoster, setSelectedAssignmentForRoster] = useState<Assignment | null>(null);
@@ -283,6 +284,7 @@ export const AssignmentsView: React.FC = () => {
   const [formSpeakingTopic, setFormSpeakingTopic] = useState('');
   const [formSpeakingPoints, setFormSpeakingPoints] = useState('');
   const [formSpeakingPart, setFormSpeakingPart] = useState<'part1' | 'part2' | 'part3' | 'full'>('part2');
+  const [formSpeakingParts, setFormSpeakingParts] = useState<Array<'part1' | 'part2' | 'part3'>>(['part2']);
   const [formSpeakingTopics, setFormSpeakingTopics] = useState<SpeakingTopic[]>([]);
   const [formSpeakingQuestions, setFormSpeakingQuestions] = useState<string[]>([]);
   const [formSpeakingPart3Groups, setFormSpeakingPart3Groups] = useState<SpeakingPart3Group[]>([]);
@@ -458,10 +460,27 @@ export const AssignmentsView: React.FC = () => {
         (s) => s.assignmentId === selectedAssignmentId && s.studentId === currentUser.id
       );
 
+  // User accessible courses based on role & enrollment
+  const accessibleCourses = courses.filter((c) => {
+    if (isTeacher) {
+      return c.teacherId === currentUser.id || isTeacher;
+    }
+    return courseMembers.some((m) => m.courseId === c.id && m.studentId === currentUser.id && m.status === 'enrolled');
+  });
+
   // Filtered assignments
   const filteredAssignments = assignments.filter((a) => {
-    if (selectedSkillFilter === 'all') return true;
-    return a.skill === selectedSkillFilter;
+    // Only show assignments belonging to courses user is authorized to access
+    const isAccessible = accessibleCourses.some((c) => c.id === a.courseId);
+    if (!isAccessible) return false;
+
+    // Course Filter
+    if (selectedCourseFilter !== 'all' && a.courseId !== selectedCourseFilter) return false;
+
+    // Skill Filter
+    if (selectedSkillFilter !== 'all' && a.skill !== selectedSkillFilter) return false;
+
+    return true;
   });
 
   // Load / Sync autosaved reading answers and writing draft from localStorage
@@ -1343,10 +1362,13 @@ export const AssignmentsView: React.FC = () => {
     setFormReadingTestType('academic');
     setFormReadingPassage('');
     setFormSpeakingPart('part2');
+    setFormSpeakingParts(['part2']);
     setFormSpeakingTopic('');
     setFormSpeakingPoints('');
     setFormSpeakingTopics([]);
     setFormSpeakingQuestions([]);
+    setFormSpeakingPart3Groups([]);
+    setFormSpeakingSelectedExerciseIds([]);
     setShowCreateEditModal(true);
   };
 
@@ -1370,6 +1392,7 @@ export const AssignmentsView: React.FC = () => {
     setFormReadingPassage(a.readingPassage || '');
     const spkDetails = extractSpeakingAssignmentDetails(a);
     setFormSpeakingPart(spkDetails.part);
+    setFormSpeakingParts(spkDetails.parts);
     setFormSpeakingTopic(spkDetails.cueCard?.topic || a.speakingCueCard?.topic || '');
     setFormSpeakingPoints(spkDetails.cueCard?.points?.join('\n') || a.speakingCueCard?.points?.join('\n') || '');
     setFormSpeakingTopics(spkDetails.topics || []);
@@ -1379,10 +1402,53 @@ export const AssignmentsView: React.FC = () => {
     setShowCreateEditModal(true);
   };
 
+  // Auto-link Part 3 questions when Part 2 topic changes
+  const linkPart3ForCueTopic = (cueTopic: string, sourceRes?: any) => {
+    if (!cueTopic || !cueTopic.trim()) return;
+    const norm = cueTopic.toLowerCase().trim();
+
+    let pool: SpeakingPart3Group[] = [];
+    if (sourceRes) {
+      let p3 = sourceRes.speakingPart3?.groups || [];
+      if (p3.length === 0 && sourceRes.content) {
+        try { p3 = JSON.parse(sourceRes.content).groups || []; } catch {}
+      }
+      pool.push(...p3);
+    }
+    resources.forEach((r) => {
+      let p3 = r.speakingPart3?.groups || [];
+      if (p3.length === 0 && r.content) {
+        try { p3 = JSON.parse(r.content).groups || []; } catch {}
+      }
+      pool.push(...p3);
+    });
+
+    const matched = pool.filter((g) => {
+      if (!g.cueCardTopic) return false;
+      const gNorm = g.cueCardTopic.toLowerCase().trim();
+      return (
+        norm.includes(gNorm.slice(0, 15)) ||
+        gNorm.includes(norm.slice(0, 15)) ||
+        norm.includes(gNorm) ||
+        gNorm.includes(norm)
+      );
+    });
+
+    if (matched.length > 0) {
+      setFormSpeakingPart3Groups(matched);
+      setFormSpeakingQuestions(matched.flatMap((g) => g.questions || []));
+    }
+  };
+
   // Submit Create or Update
   const handleSaveAssignmentForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formCourseId || !formTitle.trim()) return;
+
+    if (formSkill === 'speaking' && formSpeakingParts.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 phần thi Speaking (Part 1, Part 2 hoặc Part 3).');
+      return;
+    }
 
     setIsSubmittingForm(true);
     try {
@@ -1407,32 +1473,22 @@ export const AssignmentsView: React.FC = () => {
         scoreVisibility: formScoreVisibility,
         readingTestType: formSkill === 'reading' ? formReadingTestType : undefined,
         readingPassage: formSkill === 'reading' ? formReadingPassage : undefined,
-        speakingPart: formSkill === 'speaking' ? formSpeakingPart : undefined,
-        speakingTopics: formSkill === 'speaking' && formSpeakingPart === 'part1' ? formSpeakingTopics : undefined,
+        speakingPart: formSkill === 'speaking' ? (formSpeakingParts.length === 3 ? 'full' : formSpeakingParts[0]) : undefined,
+        speakingParts: formSkill === 'speaking' ? formSpeakingParts : undefined,
+        speakingTopics: formSkill === 'speaking' && formSpeakingParts.includes('part1') ? formSpeakingTopics : undefined,
         speakingCueCard:
-          formSkill === 'speaking'
-            ? formSpeakingPart === 'part1'
-              ? ({
-                  part: 'part1',
-                  topics: formSpeakingTopics,
-                } as any)
-              : formSpeakingPart === 'part3'
-              ? ({
-                  part: 'part3',
-                  questions: formSpeakingQuestions,
-                  groups: formSpeakingPart3Groups,
-                } as any)
-              : {
-                  topic: formSpeakingTopic.trim() || 'Describe an experience that taught you something valuable.',
-                  points: formSpeakingPoints
-                    ? formSpeakingPoints.split('\n').map((p) => p.trim()).filter(Boolean)
-                    : ['What the experience was', 'When it happened', 'What you learned from it'],
-                  prepTimeSeconds: 60,
-                  speakTimeSeconds: 120,
-                }
+          formSkill === 'speaking' && formSpeakingParts.includes('part2')
+            ? {
+                topic: formSpeakingTopic.trim() || 'Describe an experience that taught you something valuable.',
+                points: formSpeakingPoints
+                  ? formSpeakingPoints.split('\n').map((p) => p.trim()).filter(Boolean)
+                  : ['What the experience was', 'When it happened', 'What you learned from it'],
+                prepTimeSeconds: 60,
+                speakTimeSeconds: 120,
+              }
             : undefined,
-        speakingQuestions: formSkill === 'speaking' && formSpeakingPart === 'part3' ? formSpeakingQuestions : undefined,
-        speakingPart3Groups: formSkill === 'speaking' && formSpeakingPart === 'part3' ? formSpeakingPart3Groups : undefined,
+        speakingQuestions: formSkill === 'speaking' && formSpeakingParts.includes('part3') ? formSpeakingQuestions : undefined,
+        speakingPart3Groups: formSkill === 'speaking' && formSpeakingParts.includes('part3') ? formSpeakingPart3Groups : undefined,
         selectedSpeakingExerciseIds: formSkill === 'speaking' ? formSpeakingSelectedExerciseIds : undefined,
       };
 
@@ -4900,7 +4956,7 @@ export const AssignmentsView: React.FC = () => {
                       )}
 
                       {/* PART 1: TOPIC-BASED */}
-                      {speakingInfo.part === 'part1' && (
+                      {(speakingInfo.hasPart1 || speakingInfo.part === 'part1') && (
                         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
                           <div className="pb-3 border-b border-slate-100">
                             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
@@ -4971,7 +5027,7 @@ export const AssignmentsView: React.FC = () => {
                       )}
 
                       {/* PART 2: INDIVIDUAL LONG TURN */}
-                      {speakingInfo.part === 'part2' && (
+                      {(speakingInfo.hasPart2 || speakingInfo.part === 'part2') && (
                         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
                           <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
                             <div>
@@ -5080,7 +5136,7 @@ export const AssignmentsView: React.FC = () => {
                       )}
 
                       {/* PART 3: INDEPENDENT DISCUSSION */}
-                      {speakingInfo.part === 'part3' && (
+                      {(speakingInfo.hasPart3 || speakingInfo.part === 'part3') && (
                         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
                           <div className="pb-3 border-b border-slate-100">
                             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
@@ -5493,21 +5549,40 @@ export const AssignmentsView: React.FC = () => {
         )}
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex space-x-2 bg-slate-100 p-1 rounded-lg border border-slate-200 text-sm w-fit">
-        {(['all', 'listening', 'reading', 'writing', 'speaking'] as const).map((skill) => (
-          <button
-            key={skill}
-            onClick={() => setSelectedSkillFilter(skill)}
-            className={`px-3 py-1.5 rounded-md capitalize font-medium transition-all ${
-              selectedSkillFilter === skill
-                ? 'bg-white text-slate-900 font-bold shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
+      {/* Filter Tabs & Course Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-sm w-fit">
+          {(['all', 'listening', 'reading', 'writing', 'speaking'] as const).map((skill) => (
+            <button
+              key={skill}
+              onClick={() => setSelectedSkillFilter(skill)}
+              className={`px-3 py-1.5 rounded-md capitalize font-medium transition-all ${
+                selectedSkillFilter === skill
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {skill === 'all' ? t('skills.all') : t(`skills.${skill}` as any) || skill.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        {/* Course Filter Dropdown */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-bold text-slate-600 whitespace-nowrap">Khóa học:</label>
+          <select
+            value={selectedCourseFilter}
+            onChange={(e) => setSelectedCourseFilter(e.target.value)}
+            className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
           >
-            {skill === 'all' ? t('skills.all') : t(`skills.${skill}` as any) || skill.toUpperCase()}
-          </button>
-        ))}
+            <option value="all">Tất cả khóa học (All Courses)</option>
+            {accessibleCourses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} {c.code ? `(${c.code})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Teacher: Pending Submissions Queue */}
@@ -5578,7 +5653,9 @@ export const AssignmentsView: React.FC = () => {
           <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
           <h3 className="text-base font-bold text-slate-700">{t('common.empty')}</h3>
           <p className="text-sm text-slate-500 max-w-sm mx-auto">
-            {isTeacher
+            {selectedCourseFilter !== 'all'
+              ? 'Khóa học này hiện chưa có bài tập nào.'
+              : isTeacher
               ? 'No assignments created yet. Click "Create Assignment" above to assign coursework.'
               : 'No assignments assigned yet in your enrolled courses.'}
           </p>
@@ -6788,34 +6865,99 @@ export const AssignmentsView: React.FC = () => {
                     );
                   })()}
 
-                  {/* Part Selector Tabs */}
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      { id: 'part1', label: 'Part 1', desc: 'Chủ đề & câu hỏi ngắn' },
-                      { id: 'part2', label: 'Part 2', desc: 'Cue Card độc lập' },
-                      { id: 'part3', label: 'Part 3', desc: 'Câu hỏi thảo luận' },
-                      { id: 'full', label: 'Full Speaking', desc: 'Kết hợp Parts 1, 2 & 3' },
-                    ].map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setFormSpeakingPart(tab.id as any)}
-                        className={`p-2.5 rounded-lg border text-left transition-all ${
-                          formSpeakingPart === tab.id
-                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        <p className="text-xs font-bold leading-tight">{tab.label}</p>
-                        <p className={`text-[10px] mt-0.5 ${formSpeakingPart === tab.id ? 'text-purple-100' : 'text-slate-500'}`}>
-                          {tab.desc}
-                        </p>
-                      </button>
-                    ))}
+                  {/* Independent Part Selection Controls */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-purple-950 uppercase tracking-wider">
+                        Chọn các phần thi (Independent Parts Selection) *
+                      </label>
+                      <span className="text-[11px] font-bold text-purple-700">
+                        {formSpeakingParts.length === 0 ? '⚠️ Chưa chọn phần nào' : `Đã chọn: ${formSpeakingParts.map(p => p.toUpperCase()).join(' + ')}`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {[
+                        { id: 'part1' as const, label: 'Part 1', name: 'Topic-based Questions', desc: 'Chủ đề & câu hỏi phỏng vấn ngắn' },
+                        { id: 'part2' as const, label: 'Part 2', name: 'Individual Long Turn', desc: 'Cue Card nói độc lập (1-2 phút)' },
+                        { id: 'part3' as const, label: 'Part 3', name: 'Two-way Discussion', desc: 'Câu hỏi thảo luận chuyên sâu mở rộng' },
+                      ].map((item) => {
+                        const isChecked = formSpeakingParts.includes(item.id);
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => {
+                              setFormSpeakingParts((prev) => {
+                                if (prev.includes(item.id)) {
+                                  return prev.filter((p) => p !== item.id);
+                                } else {
+                                  return [...prev, item.id];
+                                }
+                              });
+                            }}
+                            className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                              isChecked
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-300 hover:border-purple-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-extrabold text-xs">{item.label}</span>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {}}
+                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 pointer-events-none"
+                              />
+                            </div>
+                            <div>
+                              <p className={`text-xs font-bold ${isChecked ? 'text-white' : 'text-slate-800'}`}>
+                                {item.name}
+                              </p>
+                              <p className={`text-[10px] mt-0.5 leading-snug ${isChecked ? 'text-purple-100' : 'text-slate-500'}`}>
+                                {item.desc}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[11px] font-semibold text-slate-500">Cấu hình nhanh:</span>
+                      {[
+                        { label: 'Chỉ Part 1', parts: ['part1'] as Array<'part1' | 'part2' | 'part3'> },
+                        { label: 'Chỉ Part 2', parts: ['part2'] as Array<'part1' | 'part2' | 'part3'> },
+                        { label: 'Chỉ Part 3', parts: ['part3'] as Array<'part1' | 'part2' | 'part3'> },
+                        { label: 'Part 1 + 2', parts: ['part1', 'part2'] as Array<'part1' | 'part2' | 'part3'> },
+                        { label: 'Part 2 + 3', parts: ['part2', 'part3'] as Array<'part1' | 'part2' | 'part3'> },
+                        { label: 'Part 1 + 3', parts: ['part1', 'part3'] as Array<'part1' | 'part2' | 'part3'> },
+                        { label: 'Cả 3 phần (Full)', parts: ['part1', 'part2', 'part3'] as Array<'part1' | 'part2' | 'part3'> },
+                      ].map((preset) => {
+                        const isCurrent =
+                          preset.parts.length === formSpeakingParts.length &&
+                          preset.parts.every((p) => formSpeakingParts.includes(p));
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => setFormSpeakingParts(preset.parts)}
+                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all ${
+                              isCurrent
+                                ? 'bg-purple-700 text-white font-bold shadow-2xs'
+                                : 'bg-purple-100 text-purple-800 hover:bg-purple-200'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* PART 1 CONFIGURATION */}
-                  {(formSpeakingPart === 'part1' || formSpeakingPart === 'full') && (
+                  {formSpeakingParts.includes('part1') && (
                     <div className="space-y-4 pt-1">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-purple-900 uppercase">
@@ -6942,7 +7084,7 @@ export const AssignmentsView: React.FC = () => {
                   )}
 
                   {/* PART 2 CONFIGURATION */}
-                  {(formSpeakingPart === 'part2' || formSpeakingPart === 'full') && (
+                  {formSpeakingParts.includes('part2') && (
                     <div className="space-y-3 pt-1">
                       <div>
                         <label className="block text-xs font-bold text-purple-950 mb-1">
@@ -6952,7 +7094,11 @@ export const AssignmentsView: React.FC = () => {
                           type="text"
                           placeholder="e.g. Describe an ambition that you have had for a long time."
                           value={formSpeakingTopic}
-                          onChange={(e) => setFormSpeakingTopic(e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFormSpeakingTopic(val);
+                            linkPart3ForCueTopic(val);
+                          }}
                           className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
                         />
                       </div>
@@ -6968,6 +7114,21 @@ export const AssignmentsView: React.FC = () => {
                           className="w-full p-2.5 border border-purple-300 rounded-lg text-sm bg-white outline-hidden"
                         />
                       </div>
+
+                      {/* Part 3 Link Notification Banner */}
+                      {formSpeakingQuestions.length > 0 && !formSpeakingParts.includes('part3') && (
+                        <div className="p-2.5 bg-purple-50 rounded-lg border border-purple-200 flex items-center justify-between text-xs text-purple-900">
+                          <span>✓ Đã liên kết sẵn {formSpeakingQuestions.length} câu hỏi Part 3 cho chủ đề này.</span>
+                          <button
+                            type="button"
+                            onClick={() => setFormSpeakingParts((prev) => [...prev, 'part3'])}
+                            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-[11px] font-bold"
+                          >
+                            + Đính kèm Part 3
+                          </button>
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
                         <div className="p-2 bg-white rounded-lg border border-slate-200">
                           <span className="font-semibold block">Thời gian chuẩn bị:</span>
@@ -6982,7 +7143,7 @@ export const AssignmentsView: React.FC = () => {
                   )}
 
                   {/* PART 3 CONFIGURATION */}
-                  {(formSpeakingPart === 'part3' || formSpeakingPart === 'full') && (
+                  {formSpeakingParts.includes('part3') && (
                     <div className="space-y-3 pt-1">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-purple-900 uppercase">

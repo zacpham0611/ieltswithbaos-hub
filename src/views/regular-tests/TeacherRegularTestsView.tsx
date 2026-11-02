@@ -155,6 +155,7 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [part1TopicCount, setPart1TopicCount] = useState<number>(3);
   const [selectedCueCardIndex, setSelectedCueCardIndex] = useState<number>(0);
   const [selectedCueCardIndices, setSelectedCueCardIndices] = useState<Record<number, boolean>>({});
+  const [includeAssociatedPart3, setIncludeAssociatedPart3] = useState<boolean>(false);
   const [selectedPart3QuestionIndices, setSelectedPart3QuestionIndices] = useState<Record<number, boolean>>({});
 
   // Filtered Tests
@@ -523,6 +524,7 @@ export const TeacherRegularTestsView: React.FC = () => {
     setPart1TopicCount(3);
     setSelectedCueCardIndex(0);
     setSelectedCueCardIndices({});
+    setIncludeAssociatedPart3(false);
     setSelectedPart3QuestionIndices({});
   };
 
@@ -539,12 +541,16 @@ export const TeacherRegularTestsView: React.FC = () => {
       }
 
       const chosenTopics = topics.filter((tp) => selectedPart1TopicIds[tp.id]);
-      const finalTopics = chosenTopics.length > 0 ? chosenTopics : topics;
+      if (chosenTopics.length === 0) {
+        alert('Vui lòng chọn ít nhất 1 chủ đề Part 1.');
+        return;
+      }
+      const finalTopics = chosenTopics;
 
       const newSec: RegularTestSection = {
         id: `sec_${Date.now()}_spk1`,
         skill: 'speaking',
-        title: `Speaking Part 1: ${selectedSpeakingResource.title}`,
+        title: `Speaking Part 1: ${selectedSpeakingResource.title} (${finalTopics.length} chủ đề)`,
         resourceId: selectedSpeakingResource.id,
         speakingPart: 'part1',
         speakingTopics: finalTopics,
@@ -566,6 +572,11 @@ export const TeacherRegularTestsView: React.FC = () => {
       const selectedIndices = Object.keys(selectedCueCardIndices)
         .filter((k) => selectedCueCardIndices[Number(k)])
         .map(Number);
+
+      if (selectedIndices.length === 0 && cueCards.length > 0) {
+        alert('Vui lòng chọn ít nhất 1 Cue Card Part 2.');
+        return;
+      }
 
       const chosenCards: SpeakingCueCard[] = (
         selectedIndices.length > 0
@@ -627,8 +638,8 @@ export const TeacherRegularTestsView: React.FC = () => {
 
       setFormSections((prev) => [...prev, newSec]);
 
-      // Automatically add associated Part 3 discussion section if matched groups exist
-      if (matchedGroups.length > 0) {
+      // Add associated Part 3 discussion section ONLY if explicitly opted in
+      if (includeAssociatedPart3 && matchedGroups.length > 0) {
         const allP3Questions = matchedGroups.flatMap((g) => g.questions);
         const p3Sec: RegularTestSection = {
           id: `sec_${Date.now() + 1}_spk3`,
@@ -2265,20 +2276,34 @@ export const TeacherRegularTestsView: React.FC = () => {
                       {/* PART 1 SELECTION */}
                       {speakingPickerPart === 'part1' && (
                         <div className="space-y-3">
-                          <div className="flex items-center justify-between">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <label className="font-bold text-slate-800">
                               Chọn các chủ đề Part 1 cần đưa vào bài thi:
                             </label>
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                              <span>Số topic thi:</span>
-                              <input
-                                type="number"
-                                min={1}
-                                max={10}
-                                value={part1TopicCount}
-                                onChange={(e) => setPart1TopicCount(Number(e.target.value))}
-                                className="w-16 p-1 border border-slate-300 rounded text-center font-bold"
-                              />
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const allMap: Record<string, boolean> = {};
+                                  (selectedSpeakingResource.speakingPart1?.topics || []).forEach((tp: SpeakingTopic) => {
+                                    allMap[tp.id] = true;
+                                  });
+                                  setSelectedPart1TopicIds(allMap);
+                                }}
+                                className="text-[11px] font-semibold text-purple-700 hover:text-purple-900 bg-purple-50 px-2.5 py-1 rounded-md border border-purple-200 transition-colors"
+                              >
+                                Chọn tất cả
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPart1TopicIds({})}
+                                className="text-[11px] font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200 transition-colors"
+                              >
+                                Bỏ chọn tất cả
+                              </button>
+                              <span className="text-[11px] text-purple-700 font-bold ml-1">
+                                {Object.values(selectedPart1TopicIds).filter(Boolean).length} đã chọn
+                              </span>
                             </div>
                           </div>
 
@@ -2382,6 +2407,26 @@ export const TeacherRegularTestsView: React.FC = () => {
                                 </label>
                               );
                             })}
+                          </div>
+
+                          {/* Opt-in associated Part 3 */}
+                          <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-200 space-y-2 mt-2">
+                            <label className="flex items-start gap-2.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={includeAssociatedPart3}
+                                onChange={(e) => setIncludeAssociatedPart3(e.target.checked)}
+                                className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
+                              />
+                              <div>
+                                <span className="font-bold text-slate-900 text-xs block">
+                                  Tự động thêm phần thi Speaking Part 3 liên kết với Cue Card đã chọn
+                                </span>
+                                <span className="text-[11px] text-slate-500 block">
+                                  Nếu bỏ chọn, hệ thống sẽ chỉ thêm phần thi Part 2 độc lập vào đề kiểm tra mà không tự động tạo thêm phần thi Part 3.
+                                </span>
+                              </div>
+                            </label>
                           </div>
                         </div>
                       )}

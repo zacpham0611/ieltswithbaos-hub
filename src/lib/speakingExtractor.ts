@@ -48,6 +48,23 @@ export interface ExtractedSpeakingDocument {
 }
 
 /**
+ * Helper to check if a line is a PDF page indicator/marker (e.g. "[--- Page 4 ---]", "Page 4", "Trang 4/20", "--- PAGE 2 ---")
+ */
+export function isPageMarkerLine(str: string): boolean {
+  if (!str) return false;
+  const trimmed = str.trim();
+  if (/^\[?\s*(?:---|–—|-)?\s*(?:page|trang|p\.?)\s*#?\d+(?:\s*(?:of|\/|-|–)\s*\d+)?\s*(?:---|–—|-)?\s*\]?$/i.test(trimmed)) {
+    return true;
+  }
+  const stripped = trimmed.replace(/[\[\]\(\)\-\—\–\#\.\:\s]/g, '').toLowerCase();
+  if (!stripped) return false;
+  if (/^\d{1,4}$/.test(stripped)) return true;
+  if (/^(?:page|trang|p)\d+(?:of\d+|\/\d+)?$/.test(stripped)) return true;
+  if (/^(?:page|trang)$/.test(stripped)) return true;
+  return false;
+}
+
+/**
  * Filter noise, table of contents, recurring headers/footers, metadata,
  * references, and standalone page numbers from speaking documents.
  * Works universally across varied PDF/DOCX layouts.
@@ -78,17 +95,11 @@ export function sanitizeSpeakingDocumentText(rawText: string): string[] {
     const line = rawLines[i];
     if (!line) continue;
 
-    // Remove page markers (e.g. "[page 4]", "--- PAGE 1 ---", "Page 1 of 12", "Trang 3/10", "p. 4")
-    if (/^--- PAGE \d+ ---$/i.test(line)) continue;
-    if (/^\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]$/i.test(line)) continue;
-    if (/^(?:page|trang|p\.?)\s*\d+(?:\s*(?:of|\/|-|–)\s*\d+)?$/i.test(line)) continue;
-    if (/^(?:page|trang|p\.?)\s*#?\d+$/i.test(line)) continue;
-
-    // Remove standalone page numbers (e.g. "1", "27")
-    if (/^\d{1,3}$/.test(line)) continue;
+    // Remove all forms of page markers (e.g. "[--- Page 4 ---]", "[page 4]", "--- PAGE 1 ---", "Page 1 of 12", "Trang 3/10", "p. 4")
+    if (isPageMarkerLine(line)) continue;
 
     // Clean inline bracketed page markers if embedded in text (e.g., "...something [page 4]")
-    const cleanedLine = line.replace(/\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/gi, '').trim();
+    const cleanedLine = line.replace(/\[?\s*(?:---|–—|-)?\s*(?:page|trang|p\.?)\s*#?\d+[^\]]*\]?/gi, '').trim();
     if (!cleanedLine) continue;
 
     // Table of contents start detection
@@ -235,17 +246,10 @@ export function extractSpeakingPartsFromDocument(
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    const line = rawLine.replace(/\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/gi, '').trim();
+    const line = rawLine.replace(/\[?\s*(?:---|–—|-)?\s*(?:page|trang|p\.?)\s*#?\d+[^\]]*\]?/gi, '').trim();
 
     // Skip empty lines or pure page markers
-    if (!line) continue;
-    if (
-      /^--- PAGE \d+ ---$/i.test(line) ||
-      /^(?:page|trang|p\.?)\s*\d+(?:\s*(?:of|\/|-|–)\s*\d+)?$/i.test(line) ||
-      /^\d{1,3}$/.test(line)
-    ) {
-      continue;
-    }
+    if (!line || isPageMarkerLine(rawLine) || isPageMarkerLine(line)) continue;
 
     // 1. Check Part 1 Section Boundary
     if (
@@ -403,19 +407,21 @@ export function extractSpeakingPartsFromDocument(
       } else {
         const cleanTitle = line
           .replace(/^(?:topic\s*(?:\d+)?[:\.\-\s]+|chủ\s*đề\s*(?:\d+)?[:\.\-\s]+|\d+[\.\)]\s*)/i, '')
-          .replace(/\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/gi, '')
+          .replace(/\[?\s*(?:---|–—|-)?\s*(?:page|trang|p\.?)\s*#?\d+[^\]]*\]?/gi, '')
           .trim();
 
         const isPageNoise =
-          /^\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/i.test(line) ||
-          /^(?:page|trang|p\.?)\s*\d+/i.test(cleanTitle) ||
-          /^(?:forecast|part\s*\d|quý\s*\d)/i.test(cleanTitle) ||
+          isPageMarkerLine(line) ||
+          isPageMarkerLine(cleanTitle) ||
+          /(?:page|trang|p\.?)\s*#?\d+/i.test(line) ||
+          /^(?:page|trang|p\.?)\s*#?\d+/i.test(cleanTitle) ||
+          /^(?:forecast|part\s*\d|quý\s*\d|unit\s*\d|chapter\s*\d)/i.test(cleanTitle) ||
           /^\d+$/.test(cleanTitle);
 
         const looksLikeTopic =
           !isPageNoise &&
           (isExplicitTopic ||
-            (line.length <= 60 && !line.includes('?') && !line.endsWith(':') && cleanTitle.length >= 2));
+            (line.length <= 60 && !line.includes('?') && !line.endsWith(':') && cleanTitle.length >= 2 && !/^(?:page|trang|p\.?)\b/i.test(cleanTitle)));
 
         if (looksLikeTopic) {
           currentTopic = {

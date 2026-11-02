@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n/context';
 import type { RegularTest, RegularTestAttempt } from '../../types';
 import { categorizeStudentTests } from '../../lib/regularTestManager';
 import { RegularTestExamView } from './RegularTestExamView';
+import { Portal } from '../../components/Portal';
 import {
   ShieldCheck,
   Clock,
@@ -334,7 +335,8 @@ export const StudentRegularTestsView: React.FC = () => {
 
       {/* Pre-Exam Verification & Rules Modal */}
       {selectedTestForStart && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
             <div className="shrink-0 px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
               <div className="flex items-center gap-2.5">
@@ -419,11 +421,13 @@ export const StudentRegularTestsView: React.FC = () => {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Results View Modal */}
       {viewingResultAttempt && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-in">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div>
@@ -566,6 +570,7 @@ export const StudentRegularTestsView: React.FC = () => {
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

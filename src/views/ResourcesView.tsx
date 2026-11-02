@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
-import { Resource, Lesson, CourseSkill, ResourceType, GeneratedReadingTest } from '../types';
+import { Resource, Lesson, CourseSkill, ResourceType, GeneratedReadingTest, MaterialFolder } from '../types';
 import { Portal } from '../components/Portal';
 import { generateLessonPlan, formatAiErrorMessage } from '../lib/ai';
 import { parseAiLessonPlan } from '../lib/lessonPlanParser';
 import {
   FolderArchive,
+  Folder,
+  FolderPlus,
   FileText,
   FileSpreadsheet,
   Image,
@@ -27,6 +29,12 @@ import {
   Edit,
   AlertTriangle,
   RefreshCw,
+  ChevronRight,
+  Move,
+  X,
+  Home,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
@@ -53,6 +61,27 @@ export const ResourcesView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [skillFilter, setSkillFilter] = useState<string>('all');
   const [folderFilter, setFolderFilter] = useState<string>('all');
+
+  // Folder Explorer State
+  const [folders, setFolders] = useState<MaterialFolder[]>(() => {
+    try {
+      const saved = localStorage.getItem('ielts_material_folders');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'explorer' | 'table'>('explorer');
+
+  // Folder Modals State
+  const [folderModalAction, setFolderModalAction] = useState<'create' | 'rename' | 'move' | 'delete' | null>(null);
+  const [activeFolderForAction, setActiveFolderForAction] = useState<MaterialFolder | null>(null);
+  const [folderInputName, setFolderInputName] = useState('');
+  const [folderTargetParentId, setFolderTargetParentId] = useState<string | null>(null);
+
+  // Resource Move Modal State
+  const [resourceToMove, setResourceToMove] = useState<Resource | null>(null);
+  const [targetFolderIdForResource, setTargetFolderIdForResource] = useState<string | null>(null);
 
   // Modals
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -110,6 +139,176 @@ export const ResourcesView: React.FC = () => {
   const uniqueFolders = Array.from(
     new Set(visibleResources.map((r) => r.folder).filter(Boolean) as string[])
   );
+
+  // Auto-seed folders from resources
+  useEffect(() => {
+    const existingNames = new Set(folders.map((f) => f.name.toLowerCase()));
+    const resourceFolderNames = Array.from(
+      new Set(visibleResources.map((r) => r.folder).filter(Boolean) as string[])
+    );
+    const newFoldersToAdd: MaterialFolder[] = [];
+    resourceFolderNames.forEach((name) => {
+      if (!existingNames.has(name.toLowerCase())) {
+        newFoldersToAdd.push({
+          id: `fld_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name,
+          parentId: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        existingNames.add(name.toLowerCase());
+      }
+    });
+    if (newFoldersToAdd.length > 0) {
+      setFolders((prev) => {
+        const updated = [...prev, ...newFoldersToAdd];
+        try {
+          localStorage.setItem('ielts_material_folders', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
+  }, [visibleResources, folders]);
+
+  const saveFolders = (newFolders: MaterialFolder[]) => {
+    setFolders(newFolders);
+    try {
+      localStorage.setItem('ielts_material_folders', JSON.stringify(newFolders));
+    } catch (e) {
+      console.error('Failed to save folders to localStorage', e);
+    }
+  };
+
+  const getBreadcrumbs = (folderId: string | null): MaterialFolder[] => {
+    const crumbs: MaterialFolder[] = [];
+    let curr = folderId ? folders.find((f) => f.id === folderId) : null;
+    const visited = new Set<string>();
+    while (curr && !visited.has(curr.id)) {
+      visited.add(curr.id);
+      crumbs.unshift(curr);
+      curr = curr.parentId ? folders.find((f) => f.id === curr!.parentId) : null;
+    }
+    return crumbs;
+  };
+
+  const getDescendantFolderIds = (folderId: string, allFolders: MaterialFolder[]): Set<string> => {
+    const descendants = new Set<string>();
+    const queue = [folderId];
+    while (queue.length > 0) {
+      const currId = queue.shift()!;
+      const children = allFolders.filter((f) => f.parentId === currId);
+      for (const child of children) {
+        if (!descendants.has(child.id)) {
+          descendants.add(child.id);
+          queue.push(child.id);
+        }
+      }
+    }
+    return descendants;
+  };
+
+  const handleCreateFolder = (name: string, parentId: string | null) => {
+    if (!name.trim()) return;
+    const newFolder: MaterialFolder = {
+      id: `fld_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: name.trim(),
+      parentId: parentId || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    saveFolders([...folders, newFolder]);
+    setFolderModalAction(null);
+    setFolderInputName('');
+  };
+
+  const handleRenameFolder = async (folderId: string, newName: string) => {
+    if (!newName.trim()) return;
+    const target = folders.find((f) => f.id === folderId);
+    if (!target) return;
+    const oldName = target.name;
+    const updatedFolders = folders.map((f) =>
+      f.id === folderId ? { ...f, name: newName.trim(), updatedAt: new Date().toISOString() } : f
+    );
+    saveFolders(updatedFolders);
+
+    const linkedResources = resources.filter(
+      (r) => r.folderId === folderId || (r.folder && r.folder.toLowerCase() === oldName.toLowerCase())
+    );
+    for (const res of linkedResources) {
+      await updateResource(res.id, { folder: newName.trim(), folderId });
+    }
+    setFolderModalAction(null);
+    setFolderInputName('');
+    setActiveFolderForAction(null);
+  };
+
+  const handleMoveFolder = (folderId: string, newParentId: string | null) => {
+    if (folderId === newParentId) return;
+    const descendants = getDescendantFolderIds(folderId, folders);
+    if (newParentId && descendants.has(newParentId)) {
+      alert('Không thể di chuyển thư mục vào một thư mục con của chính nó!');
+      return;
+    }
+    const updatedFolders = folders.map((f) =>
+      f.id === folderId ? { ...f, parentId: newParentId, updatedAt: new Date().toISOString() } : f
+    );
+    saveFolders(updatedFolders);
+    setFolderModalAction(null);
+    setActiveFolderForAction(null);
+  };
+
+  const handleDeleteFolderSafe = async (folderId: string) => {
+    const target = folders.find((f) => f.id === folderId);
+    if (!target) return;
+    const descendants = getDescendantFolderIds(folderId, folders);
+    const allTargetIds = new Set([folderId, ...descendants]);
+
+    // Unfile all resources belonging to target or its descendants (physical Supabase files are safe)
+    const affectedResources = resources.filter(
+      (r) => (r.folderId && allTargetIds.has(r.folderId)) || (r.folder && r.folder.toLowerCase() === target.name.toLowerCase())
+    );
+    for (const res of affectedResources) {
+      await updateResource(res.id, { folder: undefined, folderId: null });
+    }
+
+    const remainingFolders = folders.filter((f) => !allTargetIds.has(f.id));
+    saveFolders(remainingFolders);
+    if (currentFolderId && allTargetIds.has(currentFolderId)) {
+      setCurrentFolderId(target.parentId || null);
+    }
+    setFolderModalAction(null);
+    setActiveFolderForAction(null);
+  };
+
+  const handleMoveResource = async (resourceId: string, destFolderId: string | null) => {
+    const destFolder = destFolderId ? folders.find((f) => f.id === destFolderId) : null;
+    await updateResource(resourceId, {
+      folder: destFolder ? destFolder.name : undefined,
+      folderId: destFolder ? destFolder.id : null,
+    });
+    setResourceToMove(null);
+    setTargetFolderIdForResource(null);
+  };
+
+  // Helper calculations for current view
+  const currentFolder = currentFolderId ? folders.find((f) => f.id === currentFolderId) : null;
+  const subfoldersInCurrent = folders.filter((f) =>
+    currentFolderId ? f.parentId === currentFolderId : !f.parentId
+  );
+  const materialsInCurrentFolder = filteredResources.filter((r) => {
+    if (currentFolderId) {
+      return (
+        r.folderId === currentFolderId ||
+        (currentFolder && r.folder?.toLowerCase() === currentFolder.name.toLowerCase())
+      );
+    } else {
+      // At root: unfiled materials or materials not belonging to any registered folder
+      const matchesAnyFolder = folders.some(
+        (f) => f.id === r.folderId || (r.folder && f.name.toLowerCase() === r.folder.toLowerCase())
+      );
+      return !matchesAnyFolder || (!r.folderId && !r.folder);
+    }
+  });
 
   const visibleLessons = isTeacher
     ? lessons
@@ -352,6 +551,7 @@ export const ResourcesView: React.FC = () => {
       {/* Resources Tab */}
       {activeTab === 'resources' && (
         <div className="space-y-4">
+          {/* Top Controls Toolbar */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
             <div className="relative w-full sm:w-72">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -377,115 +577,498 @@ export const ResourcesView: React.FC = () => {
                 <option value="speaking">{t('skills.speaking')}</option>
               </select>
 
-              {uniqueFolders.length > 0 && (
-                <select
-                  value={folderFilter}
-                  onChange={(e) => setFolderFilter(e.target.value)}
-                  className="px-2.5 py-1.5 border border-slate-300 rounded-lg outline-hidden bg-white text-slate-700"
+              {/* View Mode Switcher */}
+              <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('explorer')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md flex items-center transition-colors ${
+                    viewMode === 'explorer'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Duyệt theo cây thư mục"
                 >
-                  <option value="all">{t('resources.allFolders')}</option>
-                  {uniqueFolders.map((f) => (
-                    <option key={f} value={f}>
-                      📁 {f}
-                    </option>
-                  ))}
-                </select>
+                  <LayoutGrid className="w-3.5 h-3.5 mr-1" />
+                  <span>Thư mục</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md flex items-center transition-colors ${
+                    viewMode === 'table'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Xem toàn bộ danh sách"
+                >
+                  <List className="w-3.5 h-3.5 mr-1" />
+                  <span>Danh sách</span>
+                </button>
+              </div>
+
+              {/* Create Folder Button (for Teachers) */}
+              {isTeacher && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderModalAction('create');
+                    setFolderInputName('');
+                    setFolderTargetParentId(currentFolderId);
+                  }}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  <span>+ Thư mục mới</span>
+                </button>
               )}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px]">
-                <tr>
-                  <th className="py-3 px-4">{t('resources.tableTitle')}</th>
-                  <th className="py-3 px-4">{t('resources.tableFolderSkill')}</th>
-                  <th className="py-3 px-4">{t('resources.tableTags')}</th>
-                  <th className="py-3 px-4">{t('resources.tableVisibility')}</th>
-                  <th className="py-3 px-4 text-right">{t('common.actions')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredResources.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400">
-                      {t('resources.noResources')}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredResources.map((res) => {
-                    const isAiReadingTest =
-                      res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+          {/* VIEW MODE: FOLDER EXPLORER */}
+          {viewMode === 'explorer' && (
+            <div className="space-y-4">
+              {/* Breadcrumb Navigation Bar */}
+              <div className="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentFolderId(null)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors font-semibold ${
+                      currentFolderId === null
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    <Home className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Thư viện gốc</span>
+                  </button>
 
+                  {getBreadcrumbs(currentFolderId).map((crumb, idx, arr) => {
+                    const isLast = idx === arr.length - 1;
                     return (
-                      <tr key={res.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="flex items-center space-x-2.5">
-                            <span className="p-1.5 bg-slate-100 rounded-lg shrink-0">
-                              {isAiReadingTest ? (
-                                <Sparkles className="w-4 h-4 text-purple-600" />
-                              ) : (
-                                getIconForType(res.type)
-                              )}
-                            </span>
-                            <div>
-                              <div className="flex items-center space-x-2">
-                                <span className="font-bold text-slate-900 block">{res.title}</span>
-                                {isAiReadingTest && (
-                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                                    AI Test
+                      <React.Fragment key={crumb.id}>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <button
+                          type="button"
+                          onClick={() => setCurrentFolderId(crumb.id)}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition-colors font-semibold ${
+                            isLast
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                          }`}
+                        >
+                          <Folder className="w-3.5 h-3.5 text-amber-500" />
+                          <span>{crumb.name}</span>
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+
+                {/* Folder Actions when inside a folder */}
+                {isTeacher && currentFolder && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFolderModalAction('create');
+                        setFolderInputName('');
+                        setFolderTargetParentId(currentFolder.id);
+                      }}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Thư mục con</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFolderForAction(currentFolder);
+                        setFolderInputName(currentFolder.name);
+                        setFolderModalAction('rename');
+                      }}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1"
+                    >
+                      <Edit className="w-3.5 h-3.5" />
+                      <span>Đổi tên</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFolderForAction(currentFolder);
+                        setFolderTargetParentId(currentFolder.parentId || null);
+                        setFolderModalAction('move');
+                      }}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1"
+                    >
+                      <Move className="w-3.5 h-3.5" />
+                      <span>Di chuyển</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFolderForAction(currentFolder);
+                        setFolderModalAction('delete');
+                      }}
+                      className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-semibold flex items-center gap-1"
+                      title="Xóa thư mục (Tài liệu sẽ được chuyển ra ngoài Thư viện gốc, không xóa file lưu trữ)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Xóa thư mục</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Subfolders Grid */}
+              {subfoldersInCurrent.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider px-1">
+                    Thư mục ({subfoldersInCurrent.length})
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {subfoldersInCurrent.map((folder) => {
+                      const childFoldersCount = folders.filter((f) => f.parentId === folder.id).length;
+                      const childFilesCount = resources.filter(
+                        (r) => r.folderId === folder.id || (r.folder && r.folder.toLowerCase() === folder.name.toLowerCase())
+                      ).length;
+
+                      return (
+                        <div
+                          key={folder.id}
+                          className="group bg-white p-3.5 rounded-xl border border-slate-200 hover:border-blue-400 hover:shadow-xs transition-all flex flex-col justify-between cursor-pointer"
+                          onClick={() => setCurrentFolderId(folder.id)}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center shrink-0">
+                                <Folder className="w-5 h-5 fill-amber-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <span className="font-bold text-xs text-slate-900 group-hover:text-blue-600 truncate block">
+                                  {folder.name}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  {childFilesCount} tài liệu{childFoldersCount > 0 ? `, ${childFoldersCount} mục con` : ''}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Folder actions dropdown/buttons on hover */}
+                            {isTeacher && (
+                              <div
+                                className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveFolderForAction(folder);
+                                    setFolderInputName(folder.name);
+                                    setFolderModalAction('rename');
+                                  }}
+                                  className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600"
+                                  title="Đổi tên thư mục"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveFolderForAction(folder);
+                                    setFolderTargetParentId(folder.parentId || null);
+                                    setFolderModalAction('move');
+                                  }}
+                                  className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-purple-600"
+                                  title="Di chuyển thư mục"
+                                >
+                                  <Move className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveFolderForAction(folder);
+                                    setFolderModalAction('delete');
+                                  }}
+                                  className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-600"
+                                  title="Xóa thư mục (an toàn)"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Materials in Current Folder */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    Tài liệu trong {currentFolder ? currentFolder.name : 'Thư viện gốc'} ({materialsInCurrentFolder.length})
+                  </h3>
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px]">
+                      <tr>
+                        <th className="py-3 px-4">{t('resources.tableTitle')}</th>
+                        <th className="py-3 px-4">Kỹ năng & Thư mục</th>
+                        <th className="py-3 px-4">{t('resources.tableTags')}</th>
+                        <th className="py-3 px-4">{t('resources.tableVisibility')}</th>
+                        <th className="py-3 px-4 text-right">{t('common.actions')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {materialsInCurrentFolder.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-slate-400">
+                            Chưa có tài liệu nào trong thư mục này.
+                          </td>
+                        </tr>
+                      ) : (
+                        materialsInCurrentFolder.map((res) => {
+                          const isAiReadingTest =
+                            res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+
+                          return (
+                            <tr key={res.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="flex items-center space-x-2.5">
+                                  <span className="p-1.5 bg-slate-100 rounded-lg shrink-0">
+                                    {isAiReadingTest ? (
+                                      <Sparkles className="w-4 h-4 text-purple-600" />
+                                    ) : (
+                                      getIconForType(res.type)
+                                    )}
+                                  </span>
+                                  <div>
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-bold text-slate-900 block">{res.title}</span>
+                                      {isAiReadingTest && (
+                                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                          AI Test
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] uppercase font-bold text-slate-400">
+                                      {res.type}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-4">
+                                <span className="text-slate-700 block font-medium">
+                                  {res.folder ? `📁 ${res.folder}` : '—'}
+                                </span>
+                                {res.skill && (
+                                  <span className="text-[10px] text-blue-600 font-semibold capitalize">
+                                    {res.skill}
                                   </span>
                                 )}
+                              </td>
+
+                              <td className="py-3 px-4">
+                                <div className="flex flex-wrap gap-1">
+                                  {res.tags.map((tg) => (
+                                    <span
+                                      key={tg}
+                                      className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
+                                    >
+                                      #{tg}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-4">
+                                {res.isPublished ? (
+                                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    <Globe className="w-3 h-3" />
+                                    <span>{t('resources.publishedToStudents')}</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                    <Lock className="w-3 h-3" />
+                                    <span>{t('resources.privateTeacher')}</span>
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end space-x-2">
+                                  {isAiReadingTest && res.content && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExportAiTestDocx(res)}
+                                      className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-semibold border border-blue-200 flex items-center space-x-1 transition-colors"
+                                      title="Export Word (.docx)"
+                                    >
+                                      <Download className="w-3 h-3" />
+                                      <span>DOCX</span>
+                                    </button>
+                                  )}
+
+                                  {isTeacher && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setResourceToMove(res);
+                                        setTargetFolderIdForResource(res.folderId || null);
+                                      }}
+                                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold flex items-center space-x-1 transition-colors"
+                                      title="Chuyển sang thư mục khác"
+                                    >
+                                      <Move className="w-3 h-3 text-slate-500" />
+                                      <span>Chuyển</span>
+                                    </button>
+                                  )}
+
+                                  {isTeacher && (
+                                    <button
+                                      onClick={() => toggleResourcePublish(res.id)}
+                                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                                    >
+                                      {res.isPublished ? t('resources.unpublish') : t('resources.publish')}
+                                    </button>
+                                  )}
+                                  {isTeacher && (
+                                    <button
+                                      onClick={() => {
+                                        setEditingResource(res);
+                                        setEditTitle(res.title);
+                                        setEditFolder(res.folder || '');
+                                      }}
+                                      className="text-slate-400 hover:text-blue-600 p-1 transition-colors"
+                                      title="Đổi tên / Chỉnh sửa"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {isTeacher && (
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(t('resources.deleteConfirm'))) deleteResource(res.id);
+                                      }}
+                                      className="text-red-500 hover:text-red-700 p-1"
+                                      title={t('common.delete')}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW MODE: FLAT TABLE */}
+          {viewMode === 'table' && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px]">
+                  <tr>
+                    <th className="py-3 px-4">{t('resources.tableTitle')}</th>
+                    <th className="py-3 px-4">{t('resources.tableFolderSkill')}</th>
+                    <th className="py-3 px-4">{t('resources.tableTags')}</th>
+                    <th className="py-3 px-4">{t('resources.tableVisibility')}</th>
+                    <th className="py-3 px-4 text-right">{t('common.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredResources.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400">
+                        {t('resources.noResources')}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredResources.map((res) => {
+                      const isAiReadingTest =
+                        res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+
+                      return (
+                        <tr key={res.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center space-x-2.5">
+                              <span className="p-1.5 bg-slate-100 rounded-lg shrink-0">
+                                {isAiReadingTest ? (
+                                  <Sparkles className="w-4 h-4 text-purple-600" />
+                                ) : (
+                                  getIconForType(res.type)
+                                )}
+                              </span>
+                              <div>
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-bold text-slate-900 block">{res.title}</span>
+                                  {isAiReadingTest && (
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                      AI Test
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] uppercase font-bold text-slate-400">
+                                  {res.type}
+                                </span>
                               </div>
-                              <span className="text-[10px] uppercase font-bold text-slate-400">
-                                {res.type}
-                              </span>
                             </div>
-                          </div>
-                        </td>
+                          </td>
 
-                        <td className="py-3 px-4">
-                          <span className="text-slate-700 block font-medium">
-                            {res.folder ? `📁 ${res.folder}` : '—'}
-                          </span>
-                          {res.skill && (
-                            <span className="text-[10px] text-blue-600 font-semibold capitalize">
-                              {res.skill}
+                          <td className="py-3 px-4">
+                            <span className="text-slate-700 block font-medium">
+                              {res.folder ? `📁 ${res.folder}` : '—'}
                             </span>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-4">
-                          <div className="flex flex-wrap gap-1">
-                            {res.tags.map((tg) => (
-                              <span
-                                key={tg}
-                                className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
-                              >
-                                #{tg}
+                            {res.skill && (
+                              <span className="text-[10px] text-blue-600 font-semibold capitalize">
+                                {res.skill}
                               </span>
-                            ))}
-                          </div>
-                        </td>
+                            )}
+                          </td>
 
-                        <td className="py-3 px-4">
-                          {res.isPublished ? (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              <Globe className="w-3 h-3" />
-                              <span>{t('resources.publishedToStudents')}</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                              <Lock className="w-3 h-3" />
-                              <span>{t('resources.privateTeacher')}</span>
-                            </span>
-                          )}
-                        </td>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-wrap gap-1">
+                              {res.tags.map((tg) => (
+                                <span
+                                  key={tg}
+                                  className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
+                                >
+                                  #{tg}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
 
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            {isAiReadingTest && res.content && (
-                              <>
+                          <td className="py-3 px-4">
+                            {res.isPublished ? (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                <Globe className="w-3 h-3" />
+                                <span>{t('resources.publishedToStudents')}</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                <Lock className="w-3 h-3" />
+                                <span>{t('resources.privateTeacher')}</span>
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end space-x-2">
+                              {isAiReadingTest && res.content && (
                                 <button
                                   type="button"
                                   onClick={() => handleExportAiTestDocx(res)}
@@ -495,50 +1078,65 @@ export const ResourcesView: React.FC = () => {
                                   <Download className="w-3 h-3" />
                                   <span>DOCX</span>
                                 </button>
-                              </>
-                            )}
+                              )}
 
-                            {isTeacher && (
-                              <button
-                                onClick={() => toggleResourcePublish(res.id)}
-                                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-                              >
-                                {res.isPublished ? t('resources.unpublish') : t('resources.publish')}
-                              </button>
-                            )}
-                            {isTeacher && (
-                              <button
-                                onClick={() => {
-                                  setEditingResource(res);
-                                  setEditTitle(res.title);
-                                  setEditFolder(res.folder || '');
-                                }}
-                                className="text-slate-400 hover:text-blue-600 p-1 transition-colors"
-                                title="Đổi tên / Chỉnh sửa"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            {isTeacher && (
-                              <button
-                                onClick={() => {
-                                  if (confirm(t('resources.deleteConfirm'))) deleteResource(res.id);
-                                }}
-                                className="text-red-500 hover:text-red-700 p-1"
-                                title={t('common.delete')}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                              {isTeacher && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setResourceToMove(res);
+                                    setTargetFolderIdForResource(res.folderId || null);
+                                  }}
+                                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold flex items-center space-x-1 transition-colors"
+                                  title="Chuyển sang thư mục khác"
+                                >
+                                  <Move className="w-3 h-3 text-slate-500" />
+                                  <span>Chuyển</span>
+                                </button>
+                              )}
+
+                              {isTeacher && (
+                                <button
+                                  onClick={() => toggleResourcePublish(res.id)}
+                                  className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                                >
+                                  {res.isPublished ? t('resources.unpublish') : t('resources.publish')}
+                                </button>
+                              )}
+                              {isTeacher && (
+                                <button
+                                  onClick={() => {
+                                    setEditingResource(res);
+                                    setEditTitle(res.title);
+                                    setEditFolder(res.folder || '');
+                                  }}
+                                  className="text-slate-400 hover:text-blue-600 p-1 transition-colors"
+                                  title="Đổi tên / Chỉnh sửa"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {isTeacher && (
+                                <button
+                                  onClick={() => {
+                                    if (confirm(t('resources.deleteConfirm'))) deleteResource(res.id);
+                                  }}
+                                  className="text-red-500 hover:text-red-700 p-1"
+                                  title={t('common.delete')}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -1078,6 +1676,353 @@ export const ResourcesView: React.FC = () => {
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
                 >
                   Lưu thay đổi
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* CREATE FOLDER MODAL */}
+      {folderModalAction === 'create' && (
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <FolderPlus className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {folderTargetParentId
+                      ? `Tạo thư mục con trong "${folders.find((f) => f.id === folderTargetParentId)?.name}"`
+                      : 'Tạo thư mục mới (Thư viện gốc)'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFolderModalAction(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Tên thư mục <span className="text-red-500">*</span>:
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={folderInputName}
+                  onChange={(e) => setFolderInputName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreateFolder(folderInputName, folderTargetParentId);
+                    }
+                  }}
+                  placeholder="Ví dụ: Cambridge IELTS 19, Speaking Forecast..."
+                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-hidden"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setFolderModalAction(null)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCreateFolder(folderInputName, folderTargetParentId)}
+                  disabled={!folderInputName.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                >
+                  Tạo thư mục
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* RENAME FOLDER MODAL */}
+      {folderModalAction === 'rename' && activeFolderForAction && (
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Edit className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900">Đổi tên thư mục</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderModalAction(null);
+                    setActiveFolderForAction(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Tên thư mục mới <span className="text-red-500">*</span>:
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={folderInputName}
+                  onChange={(e) => setFolderInputName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleRenameFolder(activeFolderForAction.id, folderInputName);
+                    }
+                  }}
+                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-hidden"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderModalAction(null);
+                    setActiveFolderForAction(null);
+                  }}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRenameFolder(activeFolderForAction.id, folderInputName)}
+                  disabled={!folderInputName.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                >
+                  Lưu thay đổi
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* MOVE FOLDER MODAL (WITH CIRCULAR PREVENTION) */}
+      {folderModalAction === 'move' && activeFolderForAction && (
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                    <Move className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Di chuyển thư mục</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Chọn thư mục cha mới cho "{activeFolderForAction.name}"
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderModalAction(null);
+                    setActiveFolderForAction(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Chọn thư mục đích:
+                </label>
+                <select
+                  value={folderTargetParentId || ''}
+                  onChange={(e) => setFolderTargetParentId(e.target.value || null)}
+                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-hidden bg-white"
+                >
+                  <option value="">📁 [Thư viện gốc (Root)]</option>
+                  {(() => {
+                    const descendantIds = getDescendantFolderIds(activeFolderForAction.id, folders);
+                    const invalidIds = new Set([activeFolderForAction.id, ...Array.from(descendantIds)]);
+                    return folders
+                      .filter((f) => !invalidIds.has(f.id))
+                      .map((f) => {
+                        const crumbs = getBreadcrumbs(f.id);
+                        const pathStr = crumbs.map((c) => c.name).join(' / ');
+                        return (
+                          <option key={f.id} value={f.id}>
+                            📁 {pathStr}
+                          </option>
+                        );
+                      });
+                  })()}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  Thư mục đích không thể là chính nó hoặc bất kỳ thư mục con nào bên trong nó.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderModalAction(null);
+                    setActiveFolderForAction(null);
+                  }}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMoveFolder(activeFolderForAction.id, folderTargetParentId)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                >
+                  Xác nhận di chuyển
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* SAFE DELETE FOLDER MODAL */}
+      {folderModalAction === 'delete' && activeFolderForAction && (
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-slate-900">Xóa thư mục an toàn</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Bạn có chắc chắn muốn xóa thư mục <strong className="text-slate-900">"{activeFolderForAction.name}"</strong>?
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <span>🛡️ Bảo toàn tệp tin và dữ liệu bài thi:</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  Tất cả tài liệu bên trong thư mục này (và các thư mục con) sẽ tự động được <strong>chuyển ra Thư viện gốc (Root)</strong> mà không bị xóa bỏ. Tệp tin vật lý trên lưu trữ Supabase Storage hoàn toàn không bị ảnh hưởng.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFolderModalAction(null);
+                    setActiveFolderForAction(null);
+                  }}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteFolderSafe(activeFolderForAction.id)}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                >
+                  Xác nhận xóa thư mục
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* MOVE MATERIAL MODAL */}
+      {resourceToMove && (
+        <Portal containerId="modal-root">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Move className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Chuyển thư mục tài liệu</h3>
+                    <p className="text-[11px] text-slate-500 truncate max-w-[260px]">
+                      {resourceToMove.title}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResourceToMove(null);
+                    setTargetFolderIdForResource(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Chọn thư mục đích:
+                </label>
+                <select
+                  value={targetFolderIdForResource || ''}
+                  onChange={(e) => setTargetFolderIdForResource(e.target.value || null)}
+                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-hidden bg-white"
+                >
+                  <option value="">📁 [Thư viện gốc (Chưa phân loại)]</option>
+                  {folders.map((f) => {
+                    const crumbs = getBreadcrumbs(f.id);
+                    const pathStr = crumbs.map((c) => c.name).join(' / ');
+                    return (
+                      <option key={f.id} value={f.id}>
+                        📁 {pathStr}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  Tài liệu sẽ được di chuyển cấu trúc mà không cần tải lại hoặc nhân bản tệp tin.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResourceToMove(null);
+                    setTargetFolderIdForResource(null);
+                  }}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMoveResource(resourceToMove.id, targetFolderIdForResource)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                >
+                  Xác nhận chuyển
                 </button>
               </div>
             </div>

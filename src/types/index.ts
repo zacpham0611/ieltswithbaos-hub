@@ -86,6 +86,7 @@ export interface Resource {
   tags: string[];
   skill?: CourseSkill;
   folder?: string;
+  folderId?: string | null;
   isPublished: boolean;
   createdAt: string;
   speakingPart?: 'part1' | 'part2' | 'part3';
@@ -95,6 +96,15 @@ export interface Resource {
   listeningContent?: ListeningTestContent;
   description?: string;
   category?: string;
+}
+
+export interface MaterialFolder {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  color?: string;
 }
 
 export interface Lesson {
@@ -418,6 +428,7 @@ export interface Assignment {
   modelAnswerReleaseCondition?: 'immediate' | 'after_submission' | 'after_graded' | 'never';
   // Speaking Specific
   speakingPart?: 'part1' | 'part2' | 'part3' | 'full';
+  speakingParts?: Array<'part1' | 'part2' | 'part3'>;
   speakingTopics?: SpeakingTopic[];
   speakingCueCard?: SpeakingCueCard;
   speakingCueCards?: SpeakingCueCard[];
@@ -745,6 +756,7 @@ export interface RegularTestSection {
   modelAnswer?: string;
   // Speaking Payload
   speakingPart?: 'part1' | 'part2' | 'part3' | 'full' | 'combined';
+  speakingParts?: Array<'part1' | 'part2' | 'part3'>;
   speakingTopicCount?: number;
   speakingTopics?: SpeakingTopic[];
   speakingCueCard?: SpeakingCueCard;
