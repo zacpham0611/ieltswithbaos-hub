@@ -140,6 +140,7 @@ export type QuestionType =
   | 'sentence_completion'
   | 'summary_completion'
   | 'note_completion'
+  | 'form_completion'
   | 'table_completion'
   | 'flowchart_completion'
   | 'short_answer'

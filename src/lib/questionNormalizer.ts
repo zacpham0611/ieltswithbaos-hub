@@ -117,6 +117,11 @@ export function normalizeQuestionType(rawType: any): QuestionType {
     return 'note_completion';
   }
 
+  // Form Completion
+  if (clean === 'form_completion' || clean === 'form') {
+    return 'form_completion';
+  }
+
   // Table Completion
   if (clean === 'table_completion' || clean === 'table') {
     return 'table_completion';

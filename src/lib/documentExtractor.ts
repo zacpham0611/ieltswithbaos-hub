@@ -434,6 +434,9 @@ export function detectQuestionType(
     combined.includes('summary completion') ||
     combined.includes('complete the notes') ||
     combined.includes('note completion') ||
+    combined.includes('notes below') ||
+    combined.includes('complete the form') ||
+    combined.includes('form completion') ||
     combined.includes('complete the table') ||
     combined.includes('complete the sentence') ||
     combined.includes('sentences below');
@@ -489,12 +492,33 @@ export function detectQuestionType(
     return 'matching_sentence_endings';
   }
 
+  // Form Completion
+  if (
+    combined.includes('complete the form') ||
+    combined.includes('form completion') ||
+    combined.includes('form below') ||
+    combined.includes('application form') ||
+    combined.includes('registration form') ||
+    combined.includes('order form') ||
+    combined.includes('booking form')
+  ) {
+    return 'form_completion';
+  }
+
+  // Note Completion
+  if (
+    combined.includes('complete the notes') ||
+    combined.includes('note completion') ||
+    combined.includes('notes below') ||
+    combined.includes('complete the note') ||
+    combined.includes('note-completion')
+  ) {
+    return 'note_completion';
+  }
+
   // Completion variations
   if (combined.includes('complete the summary') || combined.includes('summary completion')) {
     return 'summary_completion';
-  }
-  if (combined.includes('complete the notes') || combined.includes('note completion') || combined.includes('notes below')) {
-    return 'note_completion';
   }
   if (combined.includes('complete the table') || combined.includes('table completion') || combined.includes('table below')) {
     return 'table_completion';
@@ -507,6 +531,14 @@ export function detectQuestionType(
   }
   if (combined.includes('complete the sentence') || combined.includes('sentences below')) {
     return 'sentence_completion';
+  }
+
+  // Layout structural detection for unlabelled questions
+  if (/^[•\-\–\*]\s+/.test(prompt.trim()) && hasBlanks) {
+    return 'note_completion';
+  }
+  if (/^[A-Za-z\s]{2,25}\s*:\s*(?:[\.]{3,}|_{3,}|…{2,})/.test(prompt.trim())) {
+    return 'form_completion';
   }
 
   if (combined.includes('fill in the blank') || combined.includes('blank') || hasBlanks) {
@@ -565,6 +597,110 @@ export function parseQuestionNumbersFromRange(titleOrInstruction: string): numbe
   }
 
   return [];
+}
+
+/**
+ * Additive inference helper for Reading questions that have no explicit question-type labels.
+ * Determines question type from layout, structural clues, instructions, and options.
+ */
+export function inferUnlabelledQuestionType(
+  prompt: string,
+  instructionContext: string,
+  options?: string[],
+  answers?: string[]
+): QuestionType {
+  const combined = `${instructionContext} ${prompt}`.toLowerCase();
+
+  // 1. TFNG vs YNNG
+  if (
+    answers?.some((a) => /^(yes|no)$/i.test(a.trim())) ||
+    combined.includes('claims of the writer') ||
+    combined.includes('views of the writer') ||
+    (combined.includes('yes') && combined.includes('no'))
+  ) {
+    return 'yes_no_not_given';
+  }
+  if (
+    answers?.some((a) => /^(true|false)$/i.test(a.trim())) ||
+    combined.includes('agree with the information') ||
+    combined.includes('true/false/not given') ||
+    (combined.includes('true') && combined.includes('false'))
+  ) {
+    return 'true_false_not_given';
+  }
+
+  // 2. Matching types
+  if (
+    combined.includes('list of headings') ||
+    combined.includes('heading for each paragraph') ||
+    answers?.some((a) => /^[ivx]+$/i.test(a.trim()))
+  ) {
+    return 'matching_headings';
+  }
+  if (
+    combined.includes('which paragraph contains') ||
+    combined.includes('which section contains') ||
+    combined.includes('paragraph a-') ||
+    combined.includes('paragraphs a–')
+  ) {
+    return 'matching_information';
+  }
+  if (
+    combined.includes('match each statement with the correct') ||
+    combined.includes('list of people') ||
+    combined.includes('list of researchers') ||
+    combined.includes('matching features')
+  ) {
+    return 'matching_features';
+  }
+  if (combined.includes('sentence ending') || combined.includes('correct ending')) {
+    return 'matching_sentence_endings';
+  }
+
+  // 3. Completion types
+  if (
+    combined.includes('complete the form') ||
+    combined.includes('form completion') ||
+    combined.includes('form below') ||
+    combined.includes('application form') ||
+    combined.includes('registration form')
+  ) {
+    return 'form_completion';
+  }
+  if (
+    combined.includes('complete the notes') ||
+    combined.includes('note completion') ||
+    combined.includes('notes below') ||
+    combined.includes('complete the note')
+  ) {
+    return 'note_completion';
+  }
+  if (
+    combined.includes('complete the summary') ||
+    combined.includes('summary completion') ||
+    (options && options.length >= 2 && combined.includes('summary'))
+  ) {
+    return 'summary_completion';
+  }
+  if (combined.includes('complete the table') || combined.includes('table completion') || combined.includes('table below')) {
+    return 'table_completion';
+  }
+  if (combined.includes('flow-chart') || combined.includes('flowchart')) {
+    return 'flowchart_completion';
+  }
+  if (combined.includes('complete the sentence') || combined.includes('sentences below')) {
+    return 'sentence_completion';
+  }
+
+  // 4. Multiple Choice vs Multiple Select
+  if (/(?:choose|select)\s+(?:the\s+)?(two|three|four|[2-4])\b/i.test(combined)) {
+    return 'multiple_select';
+  }
+  if (options && options.length >= 2 && !combined.includes('summary')) {
+    return 'multiple_choice';
+  }
+
+  return detectQuestionType(prompt, instructionContext, options);
 }
 
 /**
@@ -661,6 +797,76 @@ export function parseAnswerText(text: string): Record<string, ExtractedAnswerIte
 }
 
 /**
+ * Parses consolidated multi-column or interleaved answer text (e.g. 1 white 14 D 27 C or sequential lists 1-40)
+ */
+export function parseConsolidatedAnswerText(text: string): Record<string, ExtractedAnswerItem> {
+  const results: Record<string, ExtractedAnswerItem> = {};
+  if (!text) return results;
+
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  // Pattern A: Interleaved standalone lines (e.g. 1 \n white \n 14 \n D \n 27 \n C)
+  for (let i = 0; i < lines.length - 1; i++) {
+    const numMatch = lines[i].match(/^(?:Q\s*)?(\d{1,2})$/i);
+    if (numMatch) {
+      const qNum = parseInt(numMatch[1], 10);
+      if (qNum >= 1 && qNum <= 40) {
+        const nextLine = lines[i + 1].trim();
+        if (
+          nextLine &&
+          !/^(?:Q\s*)?\d{1,2}$/i.test(nextLine) &&
+          !/^Passage\s+\d+/i.test(nextLine) &&
+          !/^Answer\s*key/i.test(nextLine)
+        ) {
+          let cleanAnswer = nextLine.replace(/^[–\-:\s]+/, '').trim();
+          const lower = cleanAnswer.toLowerCase();
+          if (lower === 't' || lower === 'true') cleanAnswer = 'TRUE';
+          else if (lower === 'f' || lower === 'false') cleanAnswer = 'FALSE';
+          else if (lower === 'ng' || lower === 'not given') cleanAnswer = 'NOT GIVEN';
+          else if (lower === 'y' || lower === 'yes') cleanAnswer = 'YES';
+          else if (lower === 'n' || lower === 'no') cleanAnswer = 'NO';
+          else if (/^[a-h]$/i.test(cleanAnswer)) cleanAnswer = cleanAnswer.toUpperCase();
+
+          results[String(qNum)] = {
+            qNum: String(qNum),
+            answer: cleanAnswer,
+            raw: nextLine,
+          };
+        }
+      }
+    }
+  }
+
+  // Pattern B: Multi-item lines (e.g. "1 white 14 D 27 C" or "1. white  14. D  27. C")
+  for (const line of lines) {
+    const multiMatch = Array.from(line.matchAll(/(?:^|\s+)(?:Q\s*)?(\d{1,2})[\.\:\)\s]+([^\s]+)/gi));
+    if (multiMatch.length > 1) {
+      for (const m of multiMatch) {
+        const n = parseInt(m[1], 10);
+        if (n >= 1 && n <= 40 && !results[String(n)]) {
+          let ans = m[2].trim();
+          const lower = ans.toLowerCase();
+          if (lower === 't' || lower === 'true') ans = 'TRUE';
+          else if (lower === 'f' || lower === 'false') ans = 'FALSE';
+          else if (lower === 'ng' || lower === 'not given') ans = 'NOT GIVEN';
+          else if (lower === 'y' || lower === 'yes') ans = 'YES';
+          else if (lower === 'n' || lower === 'no') ans = 'NO';
+          else if (/^[a-h]$/i.test(ans)) ans = ans.toUpperCase();
+
+          results[String(n)] = {
+            qNum: String(n),
+            answer: ans,
+            raw: m[0],
+          };
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
  * Parses candidate test segments and builds hierarchical structure:
  * Document -> Test[] -> Passage[] -> QuestionGroup[] -> Question[]
  */
@@ -710,12 +916,56 @@ export function extractTablesFromHtml(html: string): Array<{ headers: string[]; 
 }
 
 /**
- * Parses table rows into answer items if the table represents an IELTS Answer Key
+ * Parses table rows into answer items if the table represents an IELTS Answer Key.
+ * Supports both single-pair tables and multi-column tables (e.g. Q | Passage 1 | Q | Passage 2 | Q | Passage 3).
  */
 export function parseAnswerTable(headers: string[], rows: string[][]): Record<string, ExtractedAnswerItem> {
   const results: Record<string, ExtractedAnswerItem> = {};
   if (!rows || rows.length === 0) return results;
 
+  // 1. Detect multi-pair columns, e.g. [Q, Passage 1, Q, Passage 2, Q, Passage 3]
+  const colPairs: Array<{ qCol: number; ansCol: number }> = [];
+  headers.forEach((h, idx) => {
+    const hl = h.toLowerCase().trim();
+    if (hl === 'q' || hl === 'no' || hl === 'no.' || hl.includes('question') || hl.includes('câu')) {
+      if (idx + 1 < headers.length) {
+        colPairs.push({ qCol: idx, ansCol: idx + 1 });
+      }
+    }
+  });
+
+  if (colPairs.length > 1) {
+    for (const row of rows) {
+      for (const pair of colPairs) {
+        if (pair.qCol < row.length && pair.ansCol < row.length) {
+          const qText = (row[pair.qCol] || '').trim();
+          const ansText = (row[pair.ansCol] || '').trim();
+          const m = qText.match(/(?:^|\b)(?:Question|Q|Câu)?\s*(\d{1,2})\b/i);
+          if (m && ansText) {
+            const qNum = m[1];
+            let cleanAnswer = ansText.replace(/^[–\-:\s]+/, '').trim();
+            const compositeMatch = cleanAnswer.match(/^([A-G])\s*[–\-]\s*(.+)$/i);
+            let explanation = '';
+            if (compositeMatch) {
+              cleanAnswer = compositeMatch[1].toUpperCase();
+              explanation = compositeMatch[2].trim();
+            }
+            results[qNum] = {
+              qNum,
+              answer: cleanAnswer,
+              citation: explanation || undefined,
+              raw: `${qText} | ${ansText}`,
+            };
+          }
+        }
+      }
+    }
+    if (Object.keys(results).length > 0) {
+      return results;
+    }
+  }
+
+  // 2. Standard single-pair column parsing (preserved exactly as before)
   const combinedAll = [headers, ...rows];
   let qCol = -1;
   let ansCol = -1;
@@ -856,12 +1106,17 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
       l.toLowerCase().startsWith('correct answers:')
     ) {
       // Check if there are any subsequent reading passages or tests after this line
-      const subsequentText = lines.slice(i + 1).join('\n');
-      const hasSubsequentPassage =
-        /(?:^|\n)(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+|TEST\s+\d+)\b(?!\s+(?:has|contains|is|refers|below|do\b|statements\b|given\b))/i.test(
-          subsequentText
-        );
-      if (!hasSubsequentPassage) {
+      const subsequentLines = lines.slice(i + 1);
+      const hasRealSubsequentPassage = subsequentLines.some((sl, sIdx) => {
+        const trimmed = sl.trim();
+        const isPassageHead = /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+|TEST\s+\d+)\b(?!\s+(?:has|contains|is|refers|below|do\b|statements\b|given\b))/i.test(trimmed);
+        if (!isPassageHead) return false;
+        // Verify that subsequent text after this passage header contains question groups or instructions (and is not an answer table header)
+        const remaining = subsequentLines.slice(sIdx + 1);
+        return remaining.some((rl) => /^(?:questions?\s+\d+|do\s+the\s+following|complete\s+the|which\s+(?:paragraph|section))/i.test(rl.trim()));
+      });
+
+      if (!hasRealSubsequentPassage) {
         answerKeyStartIndex = i;
         break;
       } else {
@@ -890,6 +1145,13 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
     const keyLines = lines.slice(answerKeyStartIndex + 1);
     const parsedKeyItems = parseAnswerText(keyLines.join('\n'));
     for (const [qNum, item] of Object.entries(parsedKeyItems)) {
+      if (!detectedAnswerKey[qNum]) {
+        detectedAnswerDetails[qNum] = item;
+        detectedAnswerKey[qNum] = item.answer;
+      }
+    }
+    const consolidatedItems = parseConsolidatedAnswerText(keyLines.join('\n'));
+    for (const [qNum, item] of Object.entries(consolidatedItems)) {
       if (!detectedAnswerKey[qNum]) {
         detectedAnswerDetails[qNum] = item;
         detectedAnswerKey[qNum] = item.answer;
@@ -936,21 +1198,46 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
 
     // Split on Passages within this Test (ignoring in-sentence references like "Reading Passage 2 has seven paragraphs")
     const passageSplitterRegex =
-      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s+(?:has|contains|is|refers|below|do\b|statements\b|given\b)))/i;
+      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|has|contains|is|refers|below|do\b|statements\b|given\b)))/i;
     const rawPassageChunks = tChunk.split(passageSplitterRegex).filter((p) => p.trim().length > 50);
-    const passageChunks = rawPassageChunks.length > 0 ? rawPassageChunks : [tChunk];
+    // Filter out leading preamble / introductory metadata chunks (e.g. "IELTS Test 1 - Reading\nNov 2, 2026 · @Zac 3 passages, 40 questions...")
+    const filteredChunks = rawPassageChunks.filter((p) => {
+      const trimmed = p.trim();
+      const isPassageHead = /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án))/i.test(trimmed);
+      if (isPassageHead) return true;
+      // If chunk does not start with a passage header, keep it ONLY if it contains questions or substantial reading body (> 200 words)
+      const hasQuestions = /(?:^|\n)(?:Questions?\s+\d+|\d{1,2}[\.\:\)])/i.test(trimmed);
+      const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+      return hasQuestions || wordCount > 200;
+    });
+    const passageChunks = filteredChunks.length > 0 ? filteredChunks : rawPassageChunks.length > 0 ? rawPassageChunks : [tChunk];
 
     const testPassages: ParsedPassage[] = [];
     const testAllQuestions: ReadingQuestion[] = [];
 
     passageChunks.forEach((pChunk, pIdx) => {
       const passageIndex = pIdx + 1;
-      const { passageTitle, passageContent, questionGroups, questions, labeledParagraphs } = parseSinglePassage(
+      const {
+        passageTitle,
+        passageContent,
+        questionGroups,
+        questions,
+        labeledParagraphs,
+        passageAnswerKeys,
+        passageAnswerDetails,
+      } = parseSinglePassage(
         pChunk,
         passageIndex,
         detectedAnswerKey,
         detectedAnswerDetails
       );
+
+      if (passageAnswerKeys) {
+        Object.assign(detectedAnswerKey, passageAnswerKeys);
+      }
+      if (passageAnswerDetails) {
+        Object.assign(detectedAnswerDetails, passageAnswerDetails);
+      }
 
       // Skip empty fragments that have neither substantial content nor questions
       if (passageContent.trim().length < 40 && questions.length === 0) {
@@ -998,7 +1285,8 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
         instructions: questionGroups[0]?.instructions || 'Read the text and answer the questions below.',
         questions,
         questionGroups,
-        detectedAnswerKey,
+        detectedAnswerKey: { ...detectedAnswerKey, ...(passageAnswerKeys || {}) },
+        detectedAnswerDetails: { ...detectedAnswerDetails, ...(passageAnswerDetails || {}) },
         hasAnswerKeys: questions.some((q) => Boolean(q.correctAnswer)),
         questionCount: questions.length,
         recognizedTypes: Array.from(new Set(questions.map((q) => q.type))),
@@ -1290,6 +1578,8 @@ function parseSinglePassage(
   questionGroups: QuestionGroup[];
   questions: ReadingQuestion[];
   labeledParagraphs?: { label: string; text: string }[];
+  passageAnswerKeys?: Record<string, string>;
+  passageAnswerDetails?: Record<string, ExtractedAnswerItem>;
 } {
   const pLines = passageChunk.split('\n').map((l) => l.trim()).filter(Boolean);
   if (pLines.length === 0) {
@@ -1493,14 +1783,14 @@ function parseSinglePassage(
         preInHeadings = false;
         continue;
       }
-      if (/list\s+of\s+(?:researchers|people|categories|features|companies|organizations|names|places)/i.test(l)) {
+      if (/^list\s+of\s+(?:researchers|people|categories|features|companies|organizations|names|places)/i.test(l.trim())) {
         preInFeatures = true;
         preInWordBox = false;
         preInHeadings = false;
         continue;
       }
       if (preInWordBox) {
-        const wbMatch = l.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        const wbMatch = l.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
         if (wbMatch) {
           optionsBox.push(`${wbMatch[1].toUpperCase()}. ${wbMatch[2].trim()}`);
         } else if (/^(?:Questions?|\d{1,2}[\.\:\)]|Dạng\s+câu\s+hỏi)/i.test(l)) {
@@ -1508,9 +1798,15 @@ function parseSinglePassage(
         }
       }
       if (preInFeatures) {
-        const featMatch = l.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
-        if (featMatch) {
+        const featMatch = l.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        if (featMatch && featMatch[2].trim()) {
           featuresList.push(`${featMatch[1].toUpperCase()}. ${featMatch[2].trim()}`);
+        } else if (/^([A-P])$/i.test(l)) {
+          const letterMatch = l.match(/^([A-P])$/i)!;
+          const nextL = gRange.lines[gRange.lines.indexOf(l) + 1]?.trim();
+          if (nextL && !/^[A-P]$/i.test(nextL) && !/^(?:Questions?|\d{1,2}[\.\:\)])/i.test(nextL) && !/list\s+of/i.test(nextL)) {
+            featuresList.push(`${letterMatch[1].toUpperCase()}. ${nextL}`);
+          }
         } else if (/^(?:Questions?|\d{1,2}[\.\:\)]|Dạng\s+câu\s+hỏi)/i.test(l)) {
           preInFeatures = false;
         }
@@ -1539,11 +1835,11 @@ function parseSinglePassage(
       }
 
       // Skip list declaration headers and items if already extracted in pre-pass
-      if (/list\s+of\s+(?:headings|words|terms|researchers|people|categories|features|companies|organizations|names|places)/i.test(line)) {
+      if (/^(?:list\s+of\s+(?:headings|words|terms|researchers|people|categories|features|companies|organizations|names|places)|letter\s+person|person\s+letter|letter|person)[:\s]*$/i.test(line.trim())) {
         continue;
       }
       if (optionsBox.length > 0 || featuresList.length > 0) {
-        const itemMatch = line.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        const itemMatch = line.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
         if (itemMatch) {
           const letter = itemMatch[1].toUpperCase();
           const isBoxItem = optionsBox.some((o) => o.startsWith(letter)) || featuresList.some((f) => f.startsWith(letter));
@@ -1603,10 +1899,49 @@ function parseSinglePassage(
             const assignedSource =
               detailItem || effectiveAnswerKeys[blankQNum] ? 'answer_key_extracted' : 'extracted_from_doc';
 
+            let inlineType: QuestionType = 'sentence_completion';
+            const combinedContext = `${groupInstructions.join(' ')} ${gRange.title}`.toLowerCase();
+            if (optionsBox.length > 0 || combinedContext.includes('complete the summary') || combinedContext.includes('summary completion')) {
+              inlineType = 'summary_completion';
+            } else if (
+              combinedContext.includes('complete the notes') ||
+              combinedContext.includes('note completion') ||
+              combinedContext.includes('notes below') ||
+              combinedContext.includes('complete the note')
+            ) {
+              inlineType = 'note_completion';
+            } else if (
+              combinedContext.includes('complete the table') ||
+              combinedContext.includes('table completion') ||
+              combinedContext.includes('table below')
+            ) {
+              inlineType = 'table_completion';
+            } else if (
+              combinedContext.includes('complete the form') ||
+              combinedContext.includes('form completion') ||
+              combinedContext.includes('form below') ||
+              combinedContext.includes('registration form') ||
+              combinedContext.includes('application form')
+            ) {
+              inlineType = 'form_completion';
+            } else if (
+              combinedContext.includes('flow-chart') ||
+              combinedContext.includes('flowchart')
+            ) {
+              inlineType = 'flowchart_completion';
+            } else if (
+              combinedContext.includes('complete the sentence') ||
+              combinedContext.includes('sentences below')
+            ) {
+              inlineType = 'sentence_completion';
+            } else {
+              inlineType = detectQuestionType(matchingSentence, groupInstructions.join(' '));
+            }
+
             const inlineQ: Partial<ReadingQuestion> = {
               id: `q_${blankQNum}`,
               prompt: matchingSentence.trim(),
-              type: optionsBox.length > 0 ? 'summary_completion' : 'sentence_completion',
+              type: inlineType,
               options: optionsBox.length > 0 ? [...optionsBox] : undefined,
               wordLimit: wordLimitInfo.limitStr,
               maxWords: wordLimitInfo.maxWords,
@@ -1889,6 +2224,8 @@ function parseSinglePassage(
     questionGroups,
     questions: allQuestions,
     labeledParagraphs,
+    passageAnswerKeys: effectiveAnswerKeys,
+    passageAnswerDetails: effectiveDetails,
   };
 }
 
@@ -1947,4 +2284,86 @@ function finalizeQuestion(
     needsReview: requiresReview,
     isTeacherEdited: q.isTeacherEdited || false,
   });
+}
+
+export interface SuggestedReadingTestGroup {
+  groupId: string;
+  suggestedTitle: string;
+  passageIndices: number[]; // 1-based indices of candidate passages
+  candidateIds: string[];
+  isValidSequence: boolean;
+  status: 'complete_3_passages' | 'partial' | 'out_of_order';
+  warnings: string[];
+}
+
+/**
+ * Analyzes candidate passages across an imported document to:
+ * - Validate sequential structures using Passage 1 -> Passage 2 -> Passage 3.
+ * - Suggest grouping each valid sequence into one Reading Test.
+ * - Detect missing, duplicated, out-of-order, and incomplete sequences.
+ */
+export function analyzePassageGrouping(candidatePassages: CandidateTest[]): {
+  groups: SuggestedReadingTestGroup[];
+  hasMultiTestSequence: boolean;
+} {
+  const groups: SuggestedReadingTestGroup[] = [];
+  if (!candidatePassages || candidatePassages.length === 0) {
+    return { groups, hasMultiTestSequence: false };
+  }
+
+  // Extract detected passage index for each candidate test
+  const parsedPassages = candidatePassages.map((cp, idx) => {
+    const titleMatch = cp.title.match(/(?:Passage|Đoạn)\s*(\d+)/i);
+    const num = titleMatch ? parseInt(titleMatch[1], 10) : idx + 1;
+    return { candidate: cp, detectedNum: num, originalIndex: idx + 1 };
+  });
+
+  const total = candidatePassages.length;
+  const groupCount = Math.ceil(total / 3);
+
+  for (let g = 0; g < groupCount; g++) {
+    const chunk = parsedPassages.slice(g * 3, g * 3 + 3);
+    const testNum = g + 1;
+    const passageIndices = chunk.map((c) => c.originalIndex);
+    const candidateIds = chunk.map((c) => c.candidate.id);
+    const detectedNums = chunk.map((c) => c.detectedNum);
+
+    const warnings: string[] = [];
+    let isSequential = true;
+    for (let i = 0; i < detectedNums.length; i++) {
+      const expected = g * 3 + i + 1;
+      if (detectedNums[i] !== expected) {
+        isSequential = false;
+        warnings.push(`Passage "${chunk[i].candidate.title}" (expected Passage ${expected})`);
+      }
+    }
+
+    const isComplete = chunk.length === 3;
+    let status: SuggestedReadingTestGroup['status'] = 'complete_3_passages';
+    if (!isComplete) {
+      status = 'partial';
+      warnings.push(`Incomplete sequence: contains ${chunk.length} passage(s), standard IELTS test requires 3.`);
+    } else if (!isSequential) {
+      status = 'out_of_order';
+      warnings.push('Passages are not in strict 1 -> 2 -> 3 sequential order.');
+    }
+
+    groups.push({
+      groupId: `group_test_${testNum}`,
+      suggestedTitle:
+        total > 3
+          ? `Test ${testNum} (Passages ${passageIndices[0]}–${passageIndices[passageIndices.length - 1]})`
+          : `Full IELTS Reading Test (3 Passages)`,
+      passageIndices,
+      candidateIds,
+      isValidSequence: isComplete && isSequential,
+      status,
+      warnings,
+    });
+  }
+
+  return {
+    groups,
+    hasMultiTestSequence: candidatePassages.length >= 3,
+  };
 }
