@@ -456,8 +456,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     modelAnswer: a.model_answer || metadata.modelAnswer,
                     modelAnswerReleaseCondition: a.model_answer_release_policy || a.model_answer_release_condition || metadata.modelAnswerReleaseCondition || 'after_graded',
                     scoreVisibility: a.score_visibility || metadata.scoreVisibility || 'private',
-                    speakingPart: a.speaking_part,
-                    speakingCueCard: a.speaking_cue_card,
+                    speakingPart: a.speaking_part || metadata.speakingPart,
+                    speakingParts: a.speaking_parts || metadata.speakingParts,
+                    speakingTopics: a.speaking_topics || metadata.speakingTopics,
+                    speakingCueCard: a.speaking_cue_card || metadata.speakingCueCard,
+                    speakingQuestions: a.speaking_questions || metadata.speakingQuestions,
+                    speakingPart3Groups: a.speaking_part3_groups || metadata.speakingPart3Groups,
+                    speakingTopicCount: a.speaking_topic_count || metadata.speakingTopicCount,
+                    selectedSpeakingExerciseIds: a.selected_speaking_exercise_ids || metadata.selectedSpeakingExerciseIds,
                   };
                 })
               );
@@ -669,20 +675,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         if (resData) {
           setResources(
-            resData.map((r: any) => ({
-              id: r.id,
-              teacherId: r.teacher_id,
-              courseId: r.course_id,
-              title: r.title,
-              type: r.type,
-              url: r.url,
-              content: r.content,
-              tags: r.tags || [],
-              skill: r.skill,
-              folder: r.folder,
-              isPublished: r.is_published,
-              createdAt: r.created_at?.split('T')[0] || '',
-            }))
+            resData.map((r: any) => {
+              let parsedContent: any = null;
+              if (r.content && typeof r.content === 'string' && (r.content.startsWith('{') || r.content.startsWith('['))) {
+                try {
+                  parsedContent = JSON.parse(r.content);
+                } catch {}
+              }
+
+              return {
+                id: r.id,
+                teacherId: r.teacher_id,
+                courseId: r.course_id,
+                title: r.title,
+                type: r.type,
+                url: r.url,
+                audioUrl: r.audio_url || parsedContent?.audioUrl,
+                content: r.content,
+                tags: r.tags || [],
+                skill: r.skill,
+                folder: r.folder,
+                isPublished: r.is_published,
+                createdAt: r.created_at?.split('T')[0] || '',
+                speakingPart: r.speaking_part || parsedContent?.speakingPart,
+                speakingPart1: r.speaking_part1 || parsedContent?.speakingPart1,
+                speakingPart2: r.speaking_part2 || parsedContent?.speakingPart2,
+                speakingPart3: r.speaking_part3 || parsedContent?.speakingPart3,
+                listeningContent: r.listening_content || parsedContent?.listeningContent || (parsedContent?.parts ? parsedContent : undefined),
+                description: r.description || parsedContent?.description,
+                category: r.category || parsedContent?.category,
+              };
+            })
           );
         }
 
@@ -915,8 +938,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   modelAnswer: canSeeModelAnswer ? (a.model_answer || metadata.modelAnswer) : undefined,
                   modelAnswerReleaseCondition: releaseCondition,
                   scoreVisibility: a.score_visibility || metadata.scoreVisibility || 'private',
-                  speakingPart: a.speaking_part,
-                  speakingCueCard: a.speaking_cue_card,
+                  speakingPart: a.speaking_part || metadata.speakingPart,
+                  speakingParts: a.speaking_parts || metadata.speakingParts,
+                  speakingTopics: a.speaking_topics || metadata.speakingTopics,
+                  speakingCueCard: a.speaking_cue_card || metadata.speakingCueCard,
+                  speakingQuestions: a.speaking_questions || metadata.speakingQuestions,
+                  speakingPart3Groups: a.speaking_part3_groups || metadata.speakingPart3Groups,
+                  speakingTopicCount: a.speaking_topic_count || metadata.speakingTopicCount,
+                  selectedSpeakingExerciseIds: a.selected_speaking_exercise_ids || metadata.selectedSpeakingExerciseIds,
                 };
               })
             );
@@ -1942,6 +1971,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modelAnswer: assignmentData.modelAnswer,
         modelAnswerReleaseCondition: assignmentData.modelAnswerReleaseCondition || 'after_graded',
         scoreVisibility: assignmentData.scoreVisibility || 'private',
+        speakingPart: assignmentData.speakingPart,
+        speakingParts: assignmentData.speakingParts,
+        speakingTopics: assignmentData.speakingTopics,
+        speakingCueCard: assignmentData.speakingCueCard,
+        speakingQuestions: assignmentData.speakingQuestions,
+        speakingPart3Groups: assignmentData.speakingPart3Groups,
+        speakingTopicCount: assignmentData.speakingTopicCount,
+        selectedSpeakingExerciseIds: assignmentData.selectedSpeakingExerciseIds,
       },
     };
 
@@ -2043,6 +2080,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modelAnswer: updates.modelAnswer !== undefined ? updates.modelAnswer : existing.modelAnswer,
         modelAnswerReleaseCondition: updates.modelAnswerReleaseCondition || existing.modelAnswerReleaseCondition || 'after_graded',
         scoreVisibility: updates.scoreVisibility !== undefined ? updates.scoreVisibility : existing.scoreVisibility || 'private',
+        speakingPart: updates.speakingPart !== undefined ? updates.speakingPart : existing.speakingPart,
+        speakingParts: updates.speakingParts !== undefined ? updates.speakingParts : existing.speakingParts,
+        speakingTopics: updates.speakingTopics !== undefined ? updates.speakingTopics : existing.speakingTopics,
+        speakingCueCard: updates.speakingCueCard !== undefined ? updates.speakingCueCard : existing.speakingCueCard,
+        speakingQuestions: updates.speakingQuestions !== undefined ? updates.speakingQuestions : existing.speakingQuestions,
+        speakingPart3Groups: updates.speakingPart3Groups !== undefined ? updates.speakingPart3Groups : existing.speakingPart3Groups,
+        speakingTopicCount: updates.speakingTopicCount !== undefined ? updates.speakingTopicCount : existing.speakingTopicCount,
+        selectedSpeakingExerciseIds: updates.selectedSpeakingExerciseIds !== undefined ? updates.selectedSpeakingExerciseIds : existing.selectedSpeakingExerciseIds,
       },
     };
 

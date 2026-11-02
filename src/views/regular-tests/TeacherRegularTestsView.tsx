@@ -609,7 +609,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                 (card.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
                   g.cueCardTopic.toLowerCase().includes(card.topic.toLowerCase().slice(0, 15)))) ||
               (g.cueCardId && g.cueCardId === (card as any).id)
-          ) || p3Groups[idx];
+          );
         if (found && found.questions && found.questions.length > 0) {
           matchedGroups.push({
             id: found.id || `p3_g_${idx + 1}`,
@@ -673,6 +673,20 @@ export const TeacherRegularTestsView: React.FC = () => {
           ? selectedIdxs.map((i) => questions[i]).filter(Boolean)
           : questions;
 
+      const filteredGroups = groups
+        .map((g) => ({
+          ...g,
+          questions: g.questions.filter((q) => finalQuestions.includes(q)),
+        }))
+        .filter((g) => g.questions.length > 0);
+
+      const finalGroups =
+        filteredGroups.length > 0
+          ? filteredGroups
+          : finalQuestions.length > 0
+          ? [{ id: 'p3_custom_grp', cueCardTopic: selectedSpeakingResource.title, questions: finalQuestions }]
+          : [];
+
       const newSec: RegularTestSection = {
         id: `sec_${Date.now()}_spk3`,
         skill: 'speaking',
@@ -680,7 +694,7 @@ export const TeacherRegularTestsView: React.FC = () => {
         resourceId: selectedSpeakingResource.id,
         speakingPart: 'part3',
         speakingQuestions: finalQuestions,
-        speakingPart3Groups: groups,
+        speakingPart3Groups: finalGroups,
         durationMinutes: 5,
       };
 

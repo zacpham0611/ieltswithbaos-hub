@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { Resource, Lesson, CourseSkill, ResourceType, GeneratedReadingTest, MaterialFolder } from '../types';
@@ -35,7 +35,11 @@ import {
   Home,
   LayoutGrid,
   List,
+  ChevronDown,
+  PenTool,
 } from 'lucide-react';
+import { ListeningImportModal } from '../components/ListeningImportModal';
+import { WritingImportModal } from '../components/WritingImportModal';
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
 );
@@ -91,6 +95,24 @@ export const ResourcesView: React.FC = () => {
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
   const [showAiLessonModal, setShowAiLessonModal] = useState(false);
   const [showSmartImportModal, setShowSmartImportModal] = useState(false);
+  const [showListeningImportModal, setShowListeningImportModal] = useState(false);
+  const [showWritingImportModal, setShowWritingImportModal] = useState(false);
+  const [showImportDropdown, setShowImportDropdown] = useState(false);
+  const importDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (importDropdownRef.current && !importDropdownRef.current.contains(e.target as Node)) {
+        setShowImportDropdown(false);
+      }
+    };
+    if (showImportDropdown) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showImportDropdown]);
 
   // New Resource Form
   const [resTitle, setResTitle] = useState('');
@@ -456,33 +478,87 @@ export const ResourcesView: React.FC = () => {
 
         {isTeacher && (
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setShowSmartImportModal(true)}
-              className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5"
-            >
-              <FileUp className="w-4 h-4 text-white" />
-              <span>Smart Document Import</span>
-            </button>
+            {/* Consolidated Import Button with Dropdown */}
+            <div className="relative" ref={importDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowImportDropdown((prev) => !prev)}
+                className="px-4 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-2 cursor-pointer"
+              >
+                <FileUp className="w-4 h-4 text-white" />
+                <span>Import Document / Nhập tài liệu</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showImportDropdown ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showImportDropdown && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="px-3.5 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                    Chọn loại tài liệu nhập
+                  </div>
+
+                  {/* Reading / Smart Document Import */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportDropdown(false);
+                      setShowSmartImportModal(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-blue-50/70 transition-colors flex items-start space-x-3 text-xs group cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900 group-hover:text-blue-700">Reading / Smart Document</div>
+                      <div className="text-[11px] text-slate-500 leading-tight">Nhập tài liệu đọc (PDF/DOCX), tự tạo bài làm trực tuyến & Word</div>
+                    </div>
+                  </button>
+
+                  {/* Listening Document */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportDropdown(false);
+                      setShowListeningImportModal(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-purple-50/70 transition-colors flex items-start space-x-3 text-xs group cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform">
+                      <Headphones className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900 group-hover:text-purple-700">Listening Document</div>
+                      <div className="text-[11px] text-slate-500 leading-tight">Nhập đề Listening (PDF/DOCX), gắn audio đề hoặc từng Section</div>
+                    </div>
+                  </button>
+
+                  {/* Writing Document */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportDropdown(false);
+                      setShowWritingImportModal(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50/70 transition-colors flex items-start space-x-3 text-xs group cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform">
+                      <PenTool className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900 group-hover:text-emerald-700">Writing Document</div>
+                      <div className="text-[11px] text-slate-500 leading-tight">Nhận diện Task 1/2, trích xuất biểu đồ / hình ảnh tự động</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => setShowAiLessonModal(true)}
-              className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 transition-colors flex items-center space-x-1.5"
+              className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 transition-colors flex items-center space-x-1.5 cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-indigo-600" />
               <span>{t('resources.aiLessonBtn')}</span>
-            </button>
-            <button
-              onClick={() => setShowAddResModal(true)}
-              className="px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 shadow-xs transition-colors flex items-center space-x-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>{t('resources.addResourceBtn')}</span>
-            </button>
-            <button
-              onClick={() => setShowAddLessonModal(true)}
-              className="px-3.5 py-2 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-900 shadow-xs transition-colors flex items-center space-x-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>{t('resources.createLessonBtn')}</span>
             </button>
           </div>
         )}
@@ -2038,6 +2114,22 @@ export const ResourcesView: React.FC = () => {
             onClose={() => setShowSmartImportModal(false)}
           />
         </React.Suspense>
+      )}
+
+      {/* Listening Document Import Modal */}
+      {showListeningImportModal && (
+        <ListeningImportModal
+          isOpen={showListeningImportModal}
+          onClose={() => setShowListeningImportModal(false)}
+        />
+      )}
+
+      {/* Writing Document Import Modal */}
+      {showWritingImportModal && (
+        <WritingImportModal
+          isOpen={showWritingImportModal}
+          onClose={() => setShowWritingImportModal(false)}
+        />
       )}
     </div>
   );

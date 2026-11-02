@@ -429,6 +429,7 @@ export interface Assignment {
   // Speaking Specific
   speakingPart?: 'part1' | 'part2' | 'part3' | 'full';
   speakingParts?: Array<'part1' | 'part2' | 'part3'>;
+  speakingTopicCount?: number;
   speakingTopics?: SpeakingTopic[];
   speakingCueCard?: SpeakingCueCard;
   speakingCueCards?: SpeakingCueCard[];
@@ -436,6 +437,7 @@ export interface Assignment {
   speakingPart3Groups?: SpeakingPart3Group[];
   selectedSpeakingExerciseIds?: string[];
   // Listening Specific
+  listeningContent?: ListeningTestContent;
   listeningAudioUrl?: string;
   listeningAudioDurationSeconds?: number;
   listeningAudioMode?: 'continuous' | 'segmented';

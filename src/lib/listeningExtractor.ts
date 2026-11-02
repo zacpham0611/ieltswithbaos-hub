@@ -22,18 +22,20 @@ export function parseListeningDocument(
   const rawParts: { partNumber: number; title: string; lines: string[] }[] = [];
   let currentPartIndex = 1;
   let currentPartLines: string[] = [];
+  let hasFoundFirstPart = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const match = line.match(partHeaderRegex);
     if (match) {
-      if (currentPartLines.some((l) => l.trim().length > 0)) {
+      if (hasFoundFirstPart && currentPartLines.some((l) => l.trim().length > 0)) {
         rawParts.push({
           partNumber: currentPartIndex,
           title: `Part ${currentPartIndex}`,
           lines: currentPartLines,
         });
       }
+      hasFoundFirstPart = true;
       currentPartLines = [];
       currentPartIndex = parseInt(match[1], 10);
     } else {

@@ -324,6 +324,7 @@ export const AssignmentsView: React.FC = () => {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   // Student Speaking taking state
+  const [activeSpeakingStudentTab, setActiveSpeakingStudentTab] = useState<'part1' | 'part2' | 'part3'>('part1');
   const [studentSpeakingAudios, setStudentSpeakingAudios] = useState<
     Record<string, { blob: Blob | File; duration: number; url: string }>
   >({});
@@ -4955,292 +4956,355 @@ export const AssignmentsView: React.FC = () => {
                         </div>
                       )}
 
-                      {/* PART 1: TOPIC-BASED */}
-                      {(speakingInfo.hasPart1 || speakingInfo.part === 'part1') && (
-                        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
-                          <div className="pb-3 border-b border-slate-100">
-                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
-                              IELTS Speaking Part 1
-                            </span>
-                            <h3 className="text-base font-bold text-slate-900 mt-1">
-                              Topic-based Questions
-                            </h3>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              Trả lời từng câu hỏi bên dưới. Bạn có thể thu âm trực tiếp qua mic hoặc tải lên file âm thanh riêng biệt cho từng câu.
-                            </p>
-                          </div>
+                      {(() => {
+                        const enabledSpeakingParts: Array<'part1' | 'part2' | 'part3'> = [];
+                        if (speakingInfo.hasPart1 || speakingInfo.part === 'part1') enabledSpeakingParts.push('part1');
+                        if (speakingInfo.hasPart2 || speakingInfo.part === 'part2') enabledSpeakingParts.push('part2');
+                        if (speakingInfo.hasPart3 || speakingInfo.part === 'part3') enabledSpeakingParts.push('part3');
 
-                          {speakingInfo.topics && speakingInfo.topics.length > 0 ? (
-                            <div className="space-y-6">
-                              {speakingInfo.topics.map((topic, tIdx) => (
-                                <div key={tIdx} className="p-4 bg-purple-50/40 rounded-xl border border-purple-200 space-y-4">
-                                  <div className="flex items-center space-x-2">
-                                    <span className="px-2 py-0.5 bg-purple-600 text-white rounded text-[11px] font-bold uppercase">
-                                      Chủ đề {tIdx + 1}
+                        const currentActivePartTab = enabledSpeakingParts.includes(activeSpeakingStudentTab)
+                          ? activeSpeakingStudentTab
+                          : (enabledSpeakingParts[0] || 'part1');
+
+                        const isPart1Visible = enabledSpeakingParts.length <= 1
+                          ? (speakingInfo.hasPart1 || speakingInfo.part === 'part1')
+                          : currentActivePartTab === 'part1';
+
+                        const isPart2Visible = enabledSpeakingParts.length <= 1
+                          ? (speakingInfo.hasPart2 || speakingInfo.part === 'part2')
+                          : currentActivePartTab === 'part2';
+
+                        const isPart3Visible = enabledSpeakingParts.length <= 1
+                          ? (speakingInfo.hasPart3 || speakingInfo.part === 'part3')
+                          : currentActivePartTab === 'part3';
+
+                        return (
+                          <>
+                            {/* MULTI-PART NAVIGATION TABS (if multiple parts enabled) */}
+                            {enabledSpeakingParts.length > 1 && (
+                              <div className="bg-white p-3 rounded-xl border border-slate-200 flex flex-wrap items-center gap-2 shadow-2xs">
+                                <span className="text-xs font-bold text-slate-500 mr-2 uppercase tracking-wider">Phần thi Speaking:</span>
+                                {enabledSpeakingParts.map((part) => {
+                                  const isActive = currentActivePartTab === part;
+                                  const label =
+                                    part === 'part1'
+                                      ? 'Part 1: Topic Questions'
+                                      : part === 'part2'
+                                      ? 'Part 2: Long Turn (Cue Card)'
+                                      : 'Part 3: Discussion';
+                                  return (
+                                    <button
+                                      key={part}
+                                      type="button"
+                                      onClick={() => setActiveSpeakingStudentTab(part)}
+                                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                        isActive
+                                          ? 'bg-purple-600 text-white shadow-xs'
+                                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                      }`}
+                                    >
+                                      {label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* PART 1: TOPIC-BASED */}
+                            {(speakingInfo.hasPart1 || speakingInfo.part === 'part1') && (
+                              <div className={isPart1Visible ? 'block' : 'hidden'}>
+                                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
+                                  <div className="pb-3 border-b border-slate-100">
+                                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
+                                      IELTS Speaking Part 1
                                     </span>
-                                    <h4 className="text-sm font-bold text-slate-900">{topic.title}</h4>
-                                  </div>
-
-                                  <div className="space-y-4">
-                                    {topic.questions.map((q, qIdx) => {
-                                      const questionKey = `p1_${tIdx}_${qIdx}`;
-                                      return (
-                                        <div key={qIdx} className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
-                                          <p className="text-sm font-semibold text-slate-900">
-                                            <span className="text-purple-700 font-bold mr-1.5">
-                                              Câu {tIdx + 1}.{qIdx + 1}:
-                                            </span>
-                                            {q}
-                                          </p>
-
-                                          <SpeakingAudioRecorder
-                                            questionId={questionKey}
-                                            maxSeconds={60}
-                                            initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
-                                            onAudioReady={(blob, duration, url) => {
-                                              setStudentSpeakingAudios((prev) => ({
-                                                ...prev,
-                                                [questionKey]: { blob, duration, url },
-                                              }));
-                                            }}
-                                            onAudioClear={() => {
-                                              setStudentSpeakingAudios((prev) => {
-                                                const next = { ...prev };
-                                                delete next[questionKey];
-                                                return next;
-                                              });
-                                            }}
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
-                              Không có chủ đề Part 1 nào được cấu hình cho bài tập này.
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* PART 2: INDIVIDUAL LONG TURN */}
-                      {(speakingInfo.hasPart2 || speakingInfo.part === 'part2') && (
-                        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
-                          <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
-                            <div>
-                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
-                                IELTS Speaking Part 2
-                              </span>
-                              <h3 className="text-base font-bold text-slate-900 mt-1">
-                                Individual Long Turn (Cue Card)
-                              </h3>
-                            </div>
-                            <span className="text-xs text-slate-500 font-medium">
-                              1 phút chuẩn bị • 1-2 phút nói
-                            </span>
-                          </div>
-
-                          {/* Cue Card Frame */}
-                          <div className="p-5 bg-amber-50/60 rounded-xl border-2 border-amber-300 shadow-2xs space-y-3">
-                            <p className="text-base font-bold text-slate-900">
-                              {speakingInfo.cueCard?.topic || activeAssignment.title}
-                            </p>
-                            <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                              You should say:
-                            </p>
-                            <ul className="list-disc list-inside text-sm text-slate-800 space-y-1.5 pl-1">
-                              {(speakingInfo.cueCard?.points || ['What it was', 'When it happened', 'Why it is memorable']).map((pt, i) => (
-                                <li key={i}>{pt}</li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          {/* 60-Second Preparation Timer */}
-                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div>
-                              <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                                Thời gian chuẩn bị ghi chú (60 giây)
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                Nhấn bắt đầu để đếm ngược 1 phút chuẩn bị trước khi thu âm bài nói.
-                              </p>
-                            </div>
-
-                            <div className="flex items-center space-x-3">
-                              <span
-                                className={`text-xl font-mono font-bold px-3 py-1 rounded-lg border ${
-                                  speakingPrepRunning
-                                    ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
-                                    : speakingPrepCountdown === 0
-                                    ? 'bg-slate-100 text-slate-700 border-slate-200'
-                                    : 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                                }`}
-                              >
-                                {speakingPrepCountdown > 0 ? `${speakingPrepCountdown}s` : '00s'}
-                              </span>
-
-                              {!speakingPrepRunning ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSpeakingPrepCountdown(60);
-                                    setSpeakingPrepRunning(true);
-                                  }}
-                                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
-                                >
-                                  Bắt đầu 1 phút chuẩn bị
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSpeakingPrepRunning(false);
-                                    setSpeakingPrepCountdown(0);
-                                  }}
-                                  className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold transition-colors"
-                                >
-                                  Dừng / Đặt lại
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Part 2 Audio Recorder */}
-                          <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                              Thu âm bài nói Part 2 (Tối đa 2 phút)
-                            </label>
-                            <SpeakingAudioRecorder
-                              questionId="p2_cue"
-                              maxSeconds={speakingInfo.cueCard?.speakTimeSeconds || 120}
-                              initialAudioUrl={studentSpeakingAudios.p2_cue?.url}
-                              onAudioReady={(blob, duration, url) => {
-                                setStudentSpeakingAudios((prev) => ({
-                                  ...prev,
-                                  p2_cue: { blob, duration, url },
-                                }));
-                              }}
-                              onAudioClear={() => {
-                                setStudentSpeakingAudios((prev) => {
-                                  const next = { ...prev };
-                                  delete next.p2_cue;
-                                  return next;
-                                });
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* PART 3: INDEPENDENT DISCUSSION */}
-                      {(speakingInfo.hasPart3 || speakingInfo.part === 'part3') && (
-                        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
-                          <div className="pb-3 border-b border-slate-100">
-                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
-                              IELTS Speaking Part 3
-                            </span>
-                            <h3 className="text-base font-bold text-slate-900 mt-1">
-                              Two-way Discussion Questions
-                            </h3>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              Thảo luận các câu hỏi chuyên sâu mở rộng từ chủ đề. Trả lời từng câu hỏi với bản thu âm độc lập.
-                            </p>
-                          </div>
-
-                          {speakingInfo.groups && speakingInfo.groups.length > 0 ? (
-                            <div className="space-y-6">
-                              {speakingInfo.groups.map((grp, gIdx) => (
-                                <div key={grp.id || gIdx} className="p-4 bg-purple-50/40 rounded-xl border border-purple-200 space-y-4">
-                                  <div className="flex items-center space-x-2">
-                                    <span className="px-2 py-0.5 bg-purple-600 text-white rounded text-[11px] font-bold uppercase">
-                                      Nhóm {gIdx + 1}
-                                    </span>
-                                    <h4 className="text-sm font-bold text-slate-900">
-                                      {grp.cueCardTopic ? `Chủ đề liên kết: ${grp.cueCardTopic}` : `Chủ đề ${gIdx + 1}`}
-                                    </h4>
-                                  </div>
-                                  <div className="space-y-3">
-                                    {grp.questions.map((q, qIdx) => {
-                                      const questionKey = `p3_g${gIdx}_q${qIdx}`;
-                                      return (
-                                        <div key={qIdx} className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
-                                          <p className="text-sm font-semibold text-slate-900">
-                                            <span className="text-purple-700 font-bold mr-1.5">
-                                              Câu {gIdx + 1}.{qIdx + 1}:
-                                            </span>
-                                            {q}
-                                          </p>
-
-                                          <SpeakingAudioRecorder
-                                            questionId={questionKey}
-                                            maxSeconds={90}
-                                            initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
-                                            onAudioReady={(blob, duration, url) => {
-                                              setStudentSpeakingAudios((prev) => ({
-                                                ...prev,
-                                                [questionKey]: { blob, duration, url },
-                                              }));
-                                            }}
-                                            onAudioClear={() => {
-                                              setStudentSpeakingAudios((prev) => {
-                                                const next = { ...prev };
-                                                delete next[questionKey];
-                                                return next;
-                                              });
-                                            }}
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : speakingInfo.questions && speakingInfo.questions.length > 0 ? (
-                            <div className="space-y-4">
-                              {speakingInfo.questions.map((q, qIdx) => {
-                                const questionKey = `p3_${qIdx}`;
-                                return (
-                                  <div key={qIdx} className="p-4 bg-slate-50/70 rounded-xl border border-slate-200 shadow-2xs space-y-3">
-                                    <p className="text-sm font-semibold text-slate-900">
-                                      <span className="text-purple-700 font-bold mr-1.5">
-                                        Câu {qIdx + 1}:
-                                      </span>
-                                      {q}
+                                    <h3 className="text-base font-bold text-slate-900 mt-1">
+                                      Topic-based Questions
+                                    </h3>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                      Trả lời từng câu hỏi bên dưới. Bạn có thể thu âm trực tiếp qua mic hoặc tải lên file âm thanh riêng biệt cho từng câu.
                                     </p>
+                                  </div>
 
+                                  {speakingInfo.topics && speakingInfo.topics.length > 0 ? (
+                                    <div className="space-y-6">
+                                      {speakingInfo.topics.map((topic, tIdx) => (
+                                        <div key={tIdx} className="p-4 bg-purple-50/40 rounded-xl border border-purple-200 space-y-4">
+                                          <div className="flex items-center space-x-2">
+                                            <span className="px-2 py-0.5 bg-purple-600 text-white rounded text-[11px] font-bold uppercase">
+                                              Chủ đề {tIdx + 1}
+                                            </span>
+                                            <h4 className="text-sm font-bold text-slate-900">{topic.title}</h4>
+                                          </div>
+
+                                          <div className="space-y-4">
+                                            {topic.questions.map((q, qIdx) => {
+                                              const questionKey = `p1_${tIdx}_${qIdx}`;
+                                              return (
+                                                <div key={qIdx} className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                                                  <p className="text-sm font-semibold text-slate-900">
+                                                    <span className="text-purple-700 font-bold mr-1.5">
+                                                      Câu {tIdx + 1}.{qIdx + 1}:
+                                                    </span>
+                                                    {q}
+                                                  </p>
+
+                                                  <SpeakingAudioRecorder
+                                                    questionId={questionKey}
+                                                    maxSeconds={60}
+                                                    initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
+                                                    onAudioReady={(blob, duration, url) => {
+                                                      setStudentSpeakingAudios((prev) => ({
+                                                        ...prev,
+                                                        [questionKey]: { blob, duration, url },
+                                                      }));
+                                                    }}
+                                                    onAudioClear={() => {
+                                                      setStudentSpeakingAudios((prev) => {
+                                                        const next = { ...prev };
+                                                        delete next[questionKey];
+                                                        return next;
+                                                      });
+                                                    }}
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
+                                      Không có chủ đề Part 1 nào được cấu hình cho bài tập này.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* PART 2: INDIVIDUAL LONG TURN */}
+                            {(speakingInfo.hasPart2 || speakingInfo.part === 'part2') && (
+                              <div className={isPart2Visible ? 'block' : 'hidden'}>
+                                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
+                                  <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
+                                    <div>
+                                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
+                                        IELTS Speaking Part 2
+                                      </span>
+                                      <h3 className="text-base font-bold text-slate-900 mt-1">
+                                        Individual Long Turn (Cue Card)
+                                      </h3>
+                                    </div>
+                                    <span className="text-xs text-slate-500 font-medium">
+                                      1 phút chuẩn bị • 1-2 phút nói
+                                    </span>
+                                  </div>
+
+                                  {/* Cue Card Frame */}
+                                  <div className="p-5 bg-amber-50/60 rounded-xl border-2 border-amber-300 shadow-2xs space-y-3">
+                                    <p className="text-base font-bold text-slate-900">
+                                      {speakingInfo.cueCard?.topic || activeAssignment.title}
+                                    </p>
+                                    <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                                      You should say:
+                                    </p>
+                                    <ul className="list-disc list-inside text-sm text-slate-800 space-y-1.5 pl-1">
+                                      {(speakingInfo.cueCard?.points || ['What it was', 'When it happened', 'Why it is memorable']).map((pt, i) => (
+                                        <li key={i}>{pt}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+
+                                  {/* 60-Second Preparation Timer */}
+                                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                                        Thời gian chuẩn bị ghi chú (60 giây)
+                                      </p>
+                                      <p className="text-xs text-slate-500">
+                                        Nhấn bắt đầu để đếm ngược 1 phút chuẩn bị trước khi thu âm bài nói.
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center space-x-3">
+                                      <span
+                                        className={`text-xl font-mono font-bold px-3 py-1 rounded-lg border ${
+                                          speakingPrepRunning
+                                            ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                                            : speakingPrepCountdown === 0
+                                            ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                            : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                        }`}
+                                      >
+                                        {speakingPrepCountdown > 0 ? `${speakingPrepCountdown}s` : '00s'}
+                                      </span>
+
+                                      {!speakingPrepRunning ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSpeakingPrepCountdown(60);
+                                            setSpeakingPrepRunning(true);
+                                          }}
+                                          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                                        >
+                                          Bắt đầu 1 phút chuẩn bị
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSpeakingPrepRunning(false);
+                                            setSpeakingPrepCountdown(0);
+                                          }}
+                                          className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+                                        >
+                                          Dừng / Đặt lại
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Part 2 Audio Recorder */}
+                                  <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                      Thu âm bài nói Part 2 (Tối đa 2 phút)
+                                    </label>
                                     <SpeakingAudioRecorder
-                                      questionId={questionKey}
-                                      maxSeconds={90}
-                                      initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
+                                      questionId="p2_cue"
+                                      maxSeconds={speakingInfo.cueCard?.speakTimeSeconds || 120}
+                                      initialAudioUrl={studentSpeakingAudios.p2_cue?.url}
                                       onAudioReady={(blob, duration, url) => {
                                         setStudentSpeakingAudios((prev) => ({
                                           ...prev,
-                                          [questionKey]: { blob, duration, url },
+                                          p2_cue: { blob, duration, url },
                                         }));
                                       }}
                                       onAudioClear={() => {
                                         setStudentSpeakingAudios((prev) => {
                                           const next = { ...prev };
-                                          delete next[questionKey];
+                                          delete next.p2_cue;
                                           return next;
                                         });
                                       }}
                                     />
                                   </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
-                              Không có câu hỏi thảo luận Part 3 nào được cấu hình cho bài tập này.
-                            </div>
-                          )}
-                        </div>
-                      )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* PART 3: INDEPENDENT DISCUSSION */}
+                            {(speakingInfo.hasPart3 || speakingInfo.part === 'part3') && (
+                              <div className={isPart3Visible ? 'block' : 'hidden'}>
+                                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-5">
+                                  <div className="pb-3 border-b border-slate-100">
+                                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-purple-100 text-purple-800">
+                                      IELTS Speaking Part 3
+                                    </span>
+                                    <h3 className="text-base font-bold text-slate-900 mt-1">
+                                      Two-way Discussion Questions
+                                    </h3>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                      Thảo luận các câu hỏi chuyên sâu mở rộng từ chủ đề. Trả lời từng câu hỏi với bản thu âm độc lập.
+                                    </p>
+                                  </div>
+
+                                  {speakingInfo.groups && speakingInfo.groups.length > 0 ? (
+                                    <div className="space-y-6">
+                                      {speakingInfo.groups.map((grp, gIdx) => (
+                                        <div key={grp.id || gIdx} className="p-4 bg-purple-50/40 rounded-xl border border-purple-200 space-y-4">
+                                          <div className="flex items-center space-x-2">
+                                            <span className="px-2 py-0.5 bg-purple-600 text-white rounded text-[11px] font-bold uppercase">
+                                              Nhóm {gIdx + 1}
+                                            </span>
+                                            <h4 className="text-sm font-bold text-slate-900">
+                                              {grp.cueCardTopic ? `Chủ đề liên kết: ${grp.cueCardTopic}` : `Chủ đề ${gIdx + 1}`}
+                                            </h4>
+                                          </div>
+                                          <div className="space-y-3">
+                                            {grp.questions.map((q, qIdx) => {
+                                              const questionKey = `p3_g${gIdx}_q${qIdx}`;
+                                              return (
+                                                <div key={qIdx} className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                                                  <p className="text-sm font-semibold text-slate-900">
+                                                    <span className="text-purple-700 font-bold mr-1.5">
+                                                      Câu {gIdx + 1}.{qIdx + 1}:
+                                                    </span>
+                                                    {q}
+                                                  </p>
+
+                                                  <SpeakingAudioRecorder
+                                                    questionId={questionKey}
+                                                    maxSeconds={90}
+                                                    initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
+                                                    onAudioReady={(blob, duration, url) => {
+                                                      setStudentSpeakingAudios((prev) => ({
+                                                        ...prev,
+                                                        [questionKey]: { blob, duration, url },
+                                                      }));
+                                                    }}
+                                                    onAudioClear={() => {
+                                                      setStudentSpeakingAudios((prev) => {
+                                                        const next = { ...prev };
+                                                        delete next[questionKey];
+                                                        return next;
+                                                      });
+                                                    }}
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : speakingInfo.questions && speakingInfo.questions.length > 0 ? (
+                                    <div className="space-y-4">
+                                      {speakingInfo.questions.map((q, qIdx) => {
+                                        const questionKey = `p3_${qIdx}`;
+                                        return (
+                                          <div key={qIdx} className="p-4 bg-slate-50/70 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                                            <p className="text-sm font-semibold text-slate-900">
+                                              <span className="text-purple-700 font-bold mr-1.5">
+                                                Câu {qIdx + 1}:
+                                              </span>
+                                              {q}
+                                            </p>
+
+                                            <SpeakingAudioRecorder
+                                              questionId={questionKey}
+                                              maxSeconds={90}
+                                              initialAudioUrl={studentSpeakingAudios[questionKey]?.url}
+                                              onAudioReady={(blob, duration, url) => {
+                                                setStudentSpeakingAudios((prev) => ({
+                                                  ...prev,
+                                                  [questionKey]: { blob, duration, url },
+                                                }));
+                                              }}
+                                              onAudioClear={() => {
+                                                setStudentSpeakingAudios((prev) => {
+                                                  const next = { ...prev };
+                                                  delete next[questionKey];
+                                                  return next;
+                                                });
+                                              }}
+                                            />
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="p-4 bg-slate-50 rounded-lg text-xs text-slate-500 text-center">
+                                      Không có câu hỏi thảo luận Part 3 nào được cấu hình cho bài tập này.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
 
                       {/* SUBMIT ACTION BAR */}
                       {!isTeacher && (
@@ -6809,6 +6873,7 @@ export const AssignmentsView: React.FC = () => {
                             disabled={formSpeakingSelectedExerciseIds.length === 0}
                             onClick={() => {
                               setFormSpeakingPart(resPart);
+                              setFormSpeakingParts((prev) => Array.from(new Set([...prev, resPart])));
                               if (resPart === 'part1') {
                                 const selected = part1Topics.filter(
                                   (t) =>

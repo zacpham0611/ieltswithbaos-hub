@@ -131,8 +131,9 @@ export const SpeakingSectionWorkspace: React.FC<SpeakingSectionWorkspaceProps> =
   const [part2State, setPart2State] = useState<
     'p2_ready' | 'p2_reading' | 'p2_prep' | 'p2_transition' | 'p2_recording' | 'p2_saving' | 'p2_saved'
   >(isSectionAlreadyDone ? 'p2_saved' : 'p2_ready');
-  const [part2Timer, setPart2Timer] = useState<number>(3);
+  const [part2Timer, setPart2Timer] = useState<number>(7);
   const [scratchpadNotes, setScratchpadNotes] = useState<string>('');
+  const part2IntervalRef = useRef<number | null>(null);
 
   // MediaRecorder & Recording state
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
@@ -150,6 +151,7 @@ export const SpeakingSectionWorkspace: React.FC<SpeakingSectionWorkspaceProps> =
   useEffect(() => {
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (part2IntervalRef.current) clearInterval(part2IntervalRef.current);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -372,14 +374,15 @@ export const SpeakingSectionWorkspace: React.FC<SpeakingSectionWorkspaceProps> =
   };
 
   const handleStartPart2Reading = () => {
+    if (part2IntervalRef.current) clearInterval(part2IntervalRef.current);
     setPart2State('p2_reading');
-    setPart2Timer(3);
-    let left = 3;
-    const interval = window.setInterval(() => {
+    setPart2Timer(7);
+    let left = 7;
+    part2IntervalRef.current = window.setInterval(() => {
       left -= 1;
       setPart2Timer(left);
       if (left <= 0) {
-        clearInterval(interval);
+        if (part2IntervalRef.current) clearInterval(part2IntervalRef.current);
         // Transition to 60s prep
         handleStartPart2Prep();
       }
@@ -388,14 +391,15 @@ export const SpeakingSectionWorkspace: React.FC<SpeakingSectionWorkspaceProps> =
 
   // Step 2 -> Step 3: 60s prep timer
   const handleStartPart2Prep = () => {
+    if (part2IntervalRef.current) clearInterval(part2IntervalRef.current);
     setPart2State('p2_prep');
     setPart2Timer(60);
     let left = 60;
-    const interval = window.setInterval(() => {
+    part2IntervalRef.current = window.setInterval(() => {
       left -= 1;
       setPart2Timer(left);
       if (left <= 0) {
-        clearInterval(interval);
+        if (part2IntervalRef.current) clearInterval(part2IntervalRef.current);
         // Transition to 5s warning before auto record
         handleStartPart2Transition();
       }
@@ -404,14 +408,15 @@ export const SpeakingSectionWorkspace: React.FC<SpeakingSectionWorkspaceProps> =
 
   // Step 3 -> Step 4: 5s transition countdown
   const handleStartPart2Transition = () => {
+    if (part2IntervalRef.current) clearInterval(part2IntervalRef.current);
     setPart2State('p2_transition');
     setPart2Timer(5);
     let left = 5;
-    const interval = window.setInterval(async () => {
+    part2IntervalRef.current = window.setInterval(async () => {
       left -= 1;
       setPart2Timer(left);
       if (left <= 0) {
-        clearInterval(interval);
+        if (part2IntervalRef.current) clearInterval(part2IntervalRef.current);
         // Automatic 2-minute recording starts!
         setPart2State('p2_recording');
         try {
@@ -707,7 +712,7 @@ export const SpeakingSectionWorkspace: React.FC<SpeakingSectionWorkspaceProps> =
                       </span>
                     </div>
                     <div className="space-y-0.5">
-                      <h4 className="text-sm font-bold text-slate-800">Thời gian đọc đề Cue Card (3s)</h4>
+                      <h4 className="text-sm font-bold text-slate-800">Thời gian đọc đề Cue Card (7s)</h4>
                       <p className="text-xs text-purple-700 font-semibold">
                         Đang chuyển sang 1 phút chuẩn bị sau {part2Timer} giây...
                       </p>
