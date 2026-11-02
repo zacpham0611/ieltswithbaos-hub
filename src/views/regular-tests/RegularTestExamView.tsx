@@ -61,7 +61,10 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [saveRevisionSeq, setSaveRevisionSeq] = useState<number>(attempt.saveRevisionSequence || 0);
 
-  // Synced Timer State
+  // Timing Mode
+  const isPerSection = test.timingMode === 'per_section';
+
+  // Synced Timer State (Overall Timer mode)
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => {
     const res = calculateRemainingSeconds({
       serverStartTime: attempt.serverStartTime,
@@ -70,6 +73,37 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
       hardDeadline: test.hardDeadline,
     });
     return res.remainingSeconds;
+  });
+
+  // Individual Skill Timers (per_section mode)
+  const [skillRemainingSeconds, setSkillRemainingSeconds] = useState<Record<string, number>>(() => {
+    if (attempt.answers?._skillTimers && typeof attempt.answers._skillTimers === 'object') {
+      return { ...attempt.answers._skillTimers };
+    }
+    const initial: Record<string, number> = {};
+    const testSkills = test.skills && test.skills.length > 0 ? test.skills : ['reading'];
+    testSkills.forEach((s) => {
+      if (test.sectionTimers && test.sectionTimers[s]) {
+        initial[s] = test.sectionTimers[s] * 60;
+      } else {
+        const sec = sections.find((x) => x.skill === s);
+        initial[s] = (sec?.durationMinutes || (s === 'speaking' ? 15 : 60)) * 60;
+      }
+    });
+    return initial;
+  });
+
+  const [lockedSkills, setLockedSkills] = useState<Record<string, boolean>>(() => {
+    const initialLocked: Record<string, boolean> = {};
+    if (attempt.answers?._lockedSkills && typeof attempt.answers._lockedSkills === 'object') {
+      return { ...attempt.answers._lockedSkills };
+    }
+    if (attempt.answers?._skillTimers) {
+      Object.entries(attempt.answers._skillTimers).forEach(([s, sec]) => {
+        if ((sec as number) <= 0) initialLocked[s] = true;
+      });
+    }
+    return initialLocked;
   });
 
   // Strict mode alerts
@@ -117,25 +151,96 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
   // Server Countdown Timer Tick
   useEffect(() => {
-    const timer = setInterval(() => {
-      const res = calculateRemainingSeconds({
-        serverStartTime: attempt.serverStartTime,
-        durationMinutes: test.durationMinutes,
-        extraTimeMinutes: attempt.extraTimeMinutes,
-        hardDeadline: test.hardDeadline,
-      });
+    if (isPerSection) {
+      const activeSkill = currentSection?.skill;
+      if (!activeSkill || lockedSkills[activeSkill] || submitting) return;
 
-      setRemainingSeconds(res.remainingSeconds);
+      const timer = setInterval(() => {
+        setSkillRemainingSeconds((prev) => {
+          const currentRemaining = prev[activeSkill] ?? 0;
+          if (currentRemaining <= 1) {
+            const nextRemaining = { ...prev, [activeSkill]: 0 };
+            const nextLocked = { ...lockedSkills, [activeSkill]: true };
+            setLockedSkills(nextLocked);
 
-      // Auto-submit when time expires
-      if (res.isExpired && !submitting) {
-        clearInterval(timer);
-        handleFinalSubmit(true);
-      }
-    }, 1000);
+            const testSkills = test.skills && test.skills.length > 0 ? test.skills : ['reading'];
+            const allLocked = testSkills.every((s) => nextLocked[s] || (nextRemaining[s] ?? 0) <= 0);
 
-    return () => clearInterval(timer);
-  }, [attempt.serverStartTime, attempt.extraTimeMinutes, test.durationMinutes, test.hardDeadline, submitting]);
+            if (allLocked) {
+              if (!submitting) {
+                handleFinalSubmit(true);
+              }
+            } else {
+              const nextSecIdx = sections.findIndex(
+                (sec) => !nextLocked[sec.skill] && (nextRemaining[sec.skill] ?? 1) > 0
+              );
+              if (nextSecIdx !== -1) {
+                alert(`Thời gian làm bài cho phần thi ${activeSkill.toUpperCase()} đã hết. Hệ thống chuyển sang phần thi tiếp theo.`);
+                setCurrentSectionIndex(nextSecIdx);
+              }
+            }
+
+            const updatedAnswers = {
+              ...answersRef.current,
+              _skillTimers: nextRemaining,
+              _lockedSkills: nextLocked,
+            };
+            answersRef.current = updatedAnswers;
+            setAnswers(updatedAnswers);
+            triggerAutosave(updatedAnswers);
+
+            return nextRemaining;
+          }
+
+          const nextRemaining = { ...prev, [activeSkill]: currentRemaining - 1 };
+
+          if (currentRemaining % 10 === 0) {
+            const updatedAnswers = {
+              ...answersRef.current,
+              _skillTimers: nextRemaining,
+            };
+            answersRef.current = updatedAnswers;
+            triggerAutosave(updatedAnswers);
+          }
+
+          return nextRemaining;
+        });
+      }, 1000);
+
+      return () => clearInterval(timer);
+    } else {
+      const timer = setInterval(() => {
+        const res = calculateRemainingSeconds({
+          serverStartTime: attempt.serverStartTime,
+          durationMinutes: test.durationMinutes,
+          extraTimeMinutes: attempt.extraTimeMinutes,
+          hardDeadline: test.hardDeadline,
+        });
+
+        setRemainingSeconds(res.remainingSeconds);
+
+        // Auto-submit when time expires
+        if (res.isExpired && !submitting) {
+          clearInterval(timer);
+          handleFinalSubmit(true);
+        }
+      }, 1000);
+
+      return () => clearInterval(timer);
+    }
+  }, [
+    isPerSection,
+    currentSection?.skill,
+    lockedSkills,
+    submitting,
+    sections,
+    test.skills,
+    attempt.serverStartTime,
+    attempt.extraTimeMinutes,
+    test.durationMinutes,
+    test.hardDeadline,
+    triggerAutosave,
+  ]);
 
   // Anti-cheating: Fullscreen & Tab Switch Tracking
   useEffect(() => {
@@ -216,6 +321,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
   // Reading Answer Change Handler
   const handleReadingAnswerChange = (questionId: string, value: string) => {
+    if (isPerSection && lockedSkills[currentSection?.skill || '']) return;
     const updatedReading = {
       ...(answers.reading || {}),
       [questionId]: value,
@@ -228,6 +334,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
   // Writing Text Change Handler
   const handleWritingTextChange = (text: string) => {
+    if (isPerSection && lockedSkills[currentSection?.skill || '']) return;
     const words = text.trim() ? text.trim().split(/\s+/).length : 0;
     const newAnswers = {
       ...answers,
@@ -359,18 +466,36 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
         {/* Center: Synced Timer */}
         <div className="flex items-center space-x-2">
-          <div
-            className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl border text-xs font-mono font-bold tracking-wider ${
-              remainingSeconds < 60
-                ? 'bg-rose-950 text-rose-300 border-rose-700 animate-pulse'
-                : remainingSeconds < 300
-                ? 'bg-amber-950 text-amber-300 border-amber-700'
-                : 'bg-slate-800 text-blue-300 border-slate-700'
-            }`}
-          >
-            <Clock className="w-4 h-4" />
-            <span>{formatTime(remainingSeconds)}</span>
-          </div>
+          {isPerSection ? (
+            <div
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl border text-xs font-mono font-bold tracking-wider ${
+                (skillRemainingSeconds[currentSection?.skill || 'reading'] ?? 0) < 60
+                  ? 'bg-rose-950 text-rose-300 border-rose-700 animate-pulse'
+                  : (skillRemainingSeconds[currentSection?.skill || 'reading'] ?? 0) < 300
+                  ? 'bg-amber-950 text-amber-300 border-amber-700'
+                  : 'bg-slate-800 text-blue-300 border-slate-700'
+              }`}
+            >
+              <Clock className="w-4 h-4 text-blue-400" />
+              <span className="text-[10px] text-blue-400 uppercase font-sans mr-0.5">
+                {currentSection?.skill}:
+              </span>
+              <span>{formatTime(skillRemainingSeconds[currentSection?.skill || 'reading'] ?? 0)}</span>
+            </div>
+          ) : (
+            <div
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl border text-xs font-mono font-bold tracking-wider ${
+                remainingSeconds < 60
+                  ? 'bg-rose-950 text-rose-300 border-rose-700 animate-pulse'
+                  : remainingSeconds < 300
+                  ? 'bg-amber-950 text-amber-300 border-amber-700'
+                  : 'bg-slate-800 text-blue-300 border-slate-700'
+              }`}
+            >
+              <Clock className="w-4 h-4 text-blue-400" />
+              <span>{formatTime(remainingSeconds)}</span>
+            </div>
+          )}
 
           <div className="text-[11px] text-slate-400 flex items-center gap-1 font-medium px-2">
             <Save className={`w-3.5 h-3.5 ${saveStatus === 'saving' ? 'text-amber-400 animate-spin' : 'text-emerald-400'}`} />
@@ -382,25 +507,39 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
         <div className="flex items-center space-x-3">
           {sections.length > 1 && (
             <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-lg">
-              {sections.map((sec, idx) => (
-                <button
-                  key={sec.id}
-                  onClick={() => {
-                    if (test.timingMode === 'per_section' && idx !== currentSectionIndex) {
-                      alert('Sequential section lock is active. You cannot return to or skip sections.');
-                      return;
-                    }
-                    setCurrentSectionIndex(idx);
-                  }}
-                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-colors ${
-                    idx === currentSectionIndex
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {sec.skill === 'reading' ? 'Reading' : sec.skill === 'writing' ? 'Writing' : 'Speaking'}
-                </button>
-              ))}
+              {sections.map((sec, idx) => {
+                const isSecLocked = isPerSection && Boolean(lockedSkills[sec.skill]);
+                return (
+                  <button
+                    key={sec.id}
+                    onClick={() => {
+                      if (isPerSection) {
+                        if (lockedSkills[sec.skill]) {
+                          alert(`Phần thi ${sec.skill.toUpperCase()} đã hết thời gian làm bài và đã bị khóa.`);
+                          return;
+                        }
+                        const updatedAnswers = {
+                          ...answers,
+                          _skillTimers: skillRemainingSeconds,
+                        };
+                        setAnswers(updatedAnswers);
+                        triggerAutosave(updatedAnswers);
+                      }
+                      setCurrentSectionIndex(idx);
+                    }}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-colors flex items-center gap-1 ${
+                      idx === currentSectionIndex
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : isSecLocked
+                        ? 'text-slate-500 hover:text-slate-400 opacity-60'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {isSecLocked && <Lock className="w-3 h-3 text-rose-400" />}
+                    <span>{sec.skill === 'reading' ? 'Reading' : sec.skill === 'writing' ? 'Writing' : 'Speaking'}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -419,6 +558,16 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
         <div className="bg-amber-500 text-slate-900 px-4 py-2 text-xs font-bold text-center flex items-center justify-center gap-2 animate-fade-in shadow-md">
           <AlertTriangle className="w-4 h-4" />
           {t('regularTests.writingLargePasteWarning')}
+        </div>
+      )}
+
+      {/* Per Section Lock Warning Banner */}
+      {isPerSection && lockedSkills[currentSection?.skill || ''] && (
+        <div className="bg-rose-600 text-white px-4 py-2 text-xs font-bold text-center flex items-center justify-center gap-2 shadow-sm shrink-0">
+          <Lock className="w-4 h-4" />
+          <span>
+            Phần thi {currentSection?.skill?.toUpperCase()} đã hết thời gian làm bài và đã bị khóa. Vui lòng chuyển sang phần thi khác hoặc bấm Kết thúc & Nộp bài.
+          </span>
         </div>
       )}
 
