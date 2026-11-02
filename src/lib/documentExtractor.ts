@@ -1069,7 +1069,10 @@ function extractPassageHtml(
 }
 
 export function parseDocumentStructure(rawText: string, fallbackName: string, htmlContent?: string): DocumentStructure {
-  const cleanRaw = rawText.replace(/\r\n/g, '\n');
+  const cleanRaw = rawText
+    .replace(/\r\n/g, '\n')
+    .replace(/\[\-\-\- Page \d+ \-\-\-\]/g, '')
+    .replace(/\[page \d+\]/gi, '');
   const lines = cleanRaw.split('\n').map((l) => l.trim()).filter(Boolean);
 
   const title = fallbackName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
@@ -1188,7 +1191,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
   // 2. Identify Test Boundaries if multi-test document (e.g. TEST 1, TEST 2, etc.)
   // Disambiguate true test boundaries from running page headers (e.g. "Test 1" repeated at top of every page)
   const trueTestSplitterRegex =
-    /(?:^|\n)(?=(?:TEST\s+\d+|PRACTICE\s+TEST\s+\d+)\b[\s\S]{0,450}?(?:READING\s+PASSAGE\s+1\b|PASSAGE\s+1\b|SECTION\s+1\b|Questions?\s+1\s*[\-\–to]))/i;
+    /(?:^|\n)(?=(?:T\s*EST|PRACTICE\s+TEST)\s+\d+\b[\s\S]{0,180}?\n\s*(?:READING\s+PASSAGE\s+1\b|READING\s+TEST\s+1\b|PASSAGE\s+1\b|SECTION\s+1\b)(?!\?))/i;
   const rawTestChunks = contentText.split(trueTestSplitterRegex).filter((s) => s.trim().length > 50);
 
   const hasExplicitTests = rawTestChunks.length > 1;
@@ -1209,7 +1212,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
 
     // Split on Passages within this Test (ignoring in-sentence references like "Reading Passage 2 has seven paragraphs")
     const passageSplitterRegex =
-      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|has|contains|is|refers|below|above|on\s+pages?|in\s+pages?|from\s+pages?|pages?\s+\d+|do\b|statements\b|given\b)))/i;
+      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|has|contains|is|refers|below|above|on\s+pages?|in\s+pages?|from\s+pages?|pages?\s+\d+|do\b|statements\b|given\b|\?)))/i;
     const rawPassageChunks = tChunk.split(passageSplitterRegex).filter((p) => p.trim().length > 50);
     // Filter out leading preamble / introductory metadata chunks and fragmented page references
     const filteredChunks = rawPassageChunks.filter((p) => {
@@ -1224,8 +1227,11 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
       if (/^(?:(?:reading\s+)?passage\s+\d+\s+)?(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?[\.\:\s]*$/i.test(trimmed)) {
         return false;
       }
+      if (/^and\s+\d+[\.\:\s]*$/i.test(trimmed)) {
+        return false;
+      }
 
-      const isPassageHead = /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|on\s+pages?|in\s+pages?))/i.test(trimmed);
+      const isPassageHead = /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|on\s+pages?|in\s+pages?|\?))/i.test(trimmed);
       if (isPassageHead) return true;
       // If chunk does not start with a passage header, keep it ONLY if it contains questions or substantial reading body (> 200 words)
       const hasQuestions = /(?:^|\n)(?:Questions?\s+\d+|\d{1,2}[\.\:\)])/i.test(trimmed);
@@ -1637,7 +1643,16 @@ function parseSinglePassage(
   passageAnswerKeys?: Record<string, string>;
   passageAnswerDetails?: Record<string, ExtractedAnswerItem>;
 } {
-  const pLines = passageChunk.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Filter out running page markers and headers like "Test 1", "Test 2", "[--- Page \d+ ---]"
+  const pLines = passageChunk
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => {
+      if (!l) return false;
+      if (/^\[\-\-\- Page \d+ \-\-\-\]$/i.test(l)) return false;
+      if (/^(?:T\s*est|Practice\s+Test)\s+\d+$/i.test(l)) return false;
+      return true;
+    });
   if (pLines.length === 0) {
     return {
       passageTitle: `Passage ${passageIndex}`,
@@ -1673,9 +1688,12 @@ function parseSinglePassage(
     }
 
     // Skip timing or meta notes like "Questions 1–13 – You should spend about 20 minutes on questions 1–13..."
+    // and multi-line wrapped instruction lines like "Passage 2 on pages 6 and 7."
     while (
       nextIdx < pLines.length &&
-      (/^(?:questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend|you\s+should\s+spend\s+about\s+\d+\s+minutes|which\s+are\s+based\s+on|(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?\.?$)/i.test(pLines[nextIdx]))
+      (/^(?:questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend|you\s+should\s+spend|which\s+are\s+based\s+on|based\s+on|(?:(?:reading\s+)?passage\s+\d+\s+)?(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?\.?$|and\s+\d+\.?$|(?:on\s+)?pages?\s+\d+)/i.test(
+        pLines[nextIdx]
+      ))
     ) {
       nextIdx++;
     }
@@ -1704,10 +1722,21 @@ function parseSinglePassage(
     .replace(/[\:\-\–\.\s]+$/, '')
     .trim();
   if (
-    /^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+|reading\s+passage\s+\d+\s+on\s+pages?)/i.test(passageTitle) ||
+    /^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+|reading\s+passage\s+\d+\s+on\s+pages?|and\s+\d+)/i.test(passageTitle) ||
     passageTitle.length < 3
   ) {
     passageTitle = `Passage ${passageIndex}`;
+  }
+
+  // Fallback if passageTitle became "Passage X" but actual title is at contentStartIndex:
+  if (
+    (/^passage\s+\d+$/i.test(passageTitle) || /^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+)/i.test(passageTitle)) &&
+    contentStartIndex < pLines.length &&
+    pLines[contentStartIndex].length < 120 &&
+    !/^(?:questions?|\d+[\.\:\)]|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi|read\s+the|you\s+should|in\s+boxes|true|false|not\s+given)/i.test(pLines[contentStartIndex])
+  ) {
+    passageTitle = pLines[contentStartIndex];
+    contentStartIndex++;
   }
 
   // 1.5. Detect if passage has its own localized answer key block at end of passage

@@ -89,6 +89,8 @@ export interface Resource {
   folderId?: string | null;
   isPublished: boolean;
   createdAt: string;
+  isArchived?: boolean;
+  mergedIntoTestId?: string;
   speakingPart?: 'part1' | 'part2' | 'part3';
   speakingPart1?: SpeakingPart1LibraryContent;
   speakingPart2?: SpeakingPart2LibraryContent;

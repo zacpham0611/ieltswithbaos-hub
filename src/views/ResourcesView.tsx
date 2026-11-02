@@ -41,6 +41,8 @@ import {
 } from 'lucide-react';
 import { ListeningImportModal } from '../components/ListeningImportModal';
 import { WritingImportModal } from '../components/WritingImportModal';
+import { MergePassagesModal } from '../components/MergePassagesModal';
+import { ReadingResourceEditorModal } from '../components/ReadingResourceEditorModal';
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
 );
@@ -101,6 +103,26 @@ export const ResourcesView: React.FC = () => {
   const [showListeningImportModal, setShowListeningImportModal] = useState(false);
   const [showWritingImportModal, setShowWritingImportModal] = useState(false);
 
+  // Merge 3 Passages into a Reading Test State
+  const [selectedPassageIdsForMerge, setSelectedPassageIdsForMerge] = useState<string[]>([]);
+  const [showMergePassagesModal, setShowMergePassagesModal] = useState(false);
+
+  // Edit Reading Resource State
+  const [readingResourceToEdit, setReadingResourceToEdit] = useState<Resource | null>(null);
+
+  const togglePassageSelection = (id: string) => {
+    setSelectedPassageIdsForMerge((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((pId) => pId !== id);
+      }
+      if (prev.length >= 3) {
+        alert('Bạn chỉ có thể chọn tối đa 3 Passage để gộp thành Test. Vui lòng bỏ chọn bớt trước khi chọn bài khác.');
+        return prev;
+      }
+      return [...prev, id];
+    });
+  };
+
   // New Resource Form
   const [resTitle, setResTitle] = useState('');
   const [resType, setResType] = useState<ResourceType>('pdf');
@@ -136,7 +158,18 @@ export const ResourcesView: React.FC = () => {
     ? resources.filter((r) => r.teacherId === currentUser.id)
     : resources.filter((r) => r.isPublished);
 
-  const filteredResources = visibleResources.filter((r) => {
+  const nonArchivedResources = visibleResources.filter((r) => {
+    if (r.isArchived) return false;
+    if (r.content) {
+      try {
+        const parsed = JSON.parse(r.content);
+        if (parsed.isArchived) return false;
+      } catch {}
+    }
+    return true;
+  });
+
+  const filteredResources = nonArchivedResources.filter((r) => {
     const matchesSearch =
       r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -621,6 +654,37 @@ export const ResourcesView: React.FC = () => {
                   <span>+ Thư mục mới</span>
                 </button>
               )}
+
+              {/* Merge 3 Passages Button */}
+              {isTeacher && (
+                <button
+                  type="button"
+                  disabled={selectedPassageIdsForMerge.length !== 3}
+                  onClick={() => setShowMergePassagesModal(true)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 ${
+                    selectedPassageIdsForMerge.length === 3
+                      ? 'bg-purple-600 hover:bg-purple-700 text-white cursor-pointer shadow-purple-200'
+                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  }`}
+                  title={
+                    selectedPassageIdsForMerge.length === 3
+                      ? 'Gộp 3 Passage đã chọn thành một Reading Test mới'
+                      : 'Chọn đúng 3 bài Reading Passage trong thư viện để kích hoạt gộp test'
+                  }
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>+ Gộp 3 Passage thành Test</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                      selectedPassageIdsForMerge.length === 3
+                        ? 'bg-purple-800 text-purple-100'
+                        : 'bg-slate-200 text-slate-500'
+                    }`}
+                  >
+                    {selectedPassageIdsForMerge.length}/3
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -817,6 +881,11 @@ export const ResourcesView: React.FC = () => {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px]">
                       <tr>
+                        {isTeacher && (
+                          <th className="py-3 px-3 w-8 text-center">
+                            <span className="sr-only">Chọn</span>
+                          </th>
+                        )}
                         <th className="py-3 px-4">{t('resources.tableTitle')}</th>
                         <th className="py-3 px-4">Kỹ năng & Thư mục</th>
                         <th className="py-3 px-4">{t('resources.tableTags')}</th>
@@ -827,7 +896,7 @@ export const ResourcesView: React.FC = () => {
                     <tbody className="divide-y divide-slate-100">
                       {materialsInCurrentFolder.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="py-8 text-center text-slate-400">
+                          <td colSpan={isTeacher ? 6 : 5} className="py-8 text-center text-slate-400">
                             Chưa có tài liệu nào trong thư mục này.
                           </td>
                         </tr>
@@ -835,9 +904,34 @@ export const ResourcesView: React.FC = () => {
                         materialsInCurrentFolder.map((res) => {
                           const isAiReadingTest =
                             res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+                          const isReadingResource =
+                            res.skill === 'reading' ||
+                            res.tags.includes('reading') ||
+                            (res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
+                          const isSelectedForMerge = selectedPassageIdsForMerge.includes(res.id);
 
                           return (
-                            <tr key={res.id} className="hover:bg-slate-50/70 transition-colors">
+                            <tr
+                              key={res.id}
+                              className={`hover:bg-slate-50/70 transition-colors ${
+                                isSelectedForMerge ? 'bg-purple-50/60' : ''
+                              }`}
+                            >
+                              {isTeacher && (
+                                <td className="py-3 px-3 text-center">
+                                  {isReadingResource ? (
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelectedForMerge}
+                                      onChange={() => togglePassageSelection(res.id)}
+                                      className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500 cursor-pointer"
+                                      title="Chọn để gộp 3 passage thành đề thi"
+                                    />
+                                  ) : (
+                                    <span className="w-4 h-4 block" />
+                                  )}
+                                </td>
+                              )}
                               <td className="py-3 px-4">
                                 <div className="flex items-center space-x-2.5">
                                   <span className="p-1.5 bg-slate-100 rounded-lg shrink-0">
@@ -903,6 +997,17 @@ export const ResourcesView: React.FC = () => {
 
                               <td className="py-3 px-4 text-right">
                                 <div className="flex items-center justify-end space-x-2">
+                                  {isTeacher && isReadingResource && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setReadingResourceToEdit(res)}
+                                      className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-semibold border border-blue-200 flex items-center space-x-1 transition-colors"
+                                      title="Chỉnh sửa chi tiết bài đọc & câu hỏi"
+                                    >
+                                      <PenTool className="w-3 h-3 text-blue-600" />
+                                      <span>Sửa nội dung</span>
+                                    </button>
+                                  )}
                                   {isAiReadingTest && res.content && (
                                     <button
                                       type="button"
@@ -981,6 +1086,11 @@ export const ResourcesView: React.FC = () => {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px]">
                   <tr>
+                    {isTeacher && (
+                      <th className="py-3 px-3 w-8 text-center">
+                        <span className="sr-only">Chọn</span>
+                      </th>
+                    )}
                     <th className="py-3 px-4">{t('resources.tableTitle')}</th>
                     <th className="py-3 px-4">{t('resources.tableFolderSkill')}</th>
                     <th className="py-3 px-4">{t('resources.tableTags')}</th>
@@ -991,7 +1101,7 @@ export const ResourcesView: React.FC = () => {
                 <tbody className="divide-y divide-slate-100">
                   {filteredResources.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-400">
+                      <td colSpan={isTeacher ? 6 : 5} className="py-8 text-center text-slate-400">
                         {t('resources.noResources')}
                       </td>
                     </tr>
@@ -999,9 +1109,34 @@ export const ResourcesView: React.FC = () => {
                     filteredResources.map((res) => {
                       const isAiReadingTest =
                         res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+                      const isReadingResource =
+                        res.skill === 'reading' ||
+                        res.tags.includes('reading') ||
+                        (res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
+                      const isSelectedForMerge = selectedPassageIdsForMerge.includes(res.id);
 
                       return (
-                        <tr key={res.id} className="hover:bg-slate-50/70 transition-colors">
+                        <tr
+                          key={res.id}
+                          className={`hover:bg-slate-50/70 transition-colors ${
+                            isSelectedForMerge ? 'bg-purple-50/60' : ''
+                          }`}
+                        >
+                          {isTeacher && (
+                            <td className="py-3 px-3 text-center">
+                              {isReadingResource ? (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelectedForMerge}
+                                  onChange={() => togglePassageSelection(res.id)}
+                                  className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500 cursor-pointer"
+                                  title="Chọn để gộp 3 passage thành đề thi"
+                                />
+                              ) : (
+                                <span className="w-4 h-4 block" />
+                              )}
+                            </td>
+                          )}
                           <td className="py-3 px-4">
                             <div className="flex items-center space-x-2.5">
                               <span className="p-1.5 bg-slate-100 rounded-lg shrink-0">
@@ -1067,6 +1202,17 @@ export const ResourcesView: React.FC = () => {
 
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end space-x-2">
+                              {isTeacher && isReadingResource && (
+                                <button
+                                  type="button"
+                                  onClick={() => setReadingResourceToEdit(res)}
+                                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-semibold border border-blue-200 flex items-center space-x-1 transition-colors"
+                                  title="Chỉnh sửa chi tiết bài đọc & câu hỏi"
+                                >
+                                  <PenTool className="w-3 h-3 text-blue-600" />
+                                  <span>Sửa nội dung</span>
+                                </button>
+                              )}
                               {isAiReadingTest && res.content && (
                                 <button
                                   type="button"
@@ -2193,6 +2339,37 @@ export const ResourcesView: React.FC = () => {
           onClose={() => setShowWritingImportModal(false)}
           targetFolderId={currentFolderId}
           targetFolderName={currentFolder ? currentFolder.name : undefined}
+        />
+      )}
+
+      {/* Feature 1: Merge 3 Passages into a Reading Test Modal */}
+      {showMergePassagesModal && (
+        <MergePassagesModal
+          isOpen={showMergePassagesModal}
+          onClose={() => setShowMergePassagesModal(false)}
+          selectedPassageIds={selectedPassageIdsForMerge}
+          resources={resources}
+          folders={folders}
+          currentFolderId={currentFolderId}
+          onMergeSuccess={() => {
+            setSelectedPassageIdsForMerge([]);
+          }}
+          addResource={addResource}
+          updateResource={updateResource}
+        />
+      )}
+
+      {/* Feature 2: Interactive Reading Resource Editor Modal */}
+      {readingResourceToEdit && (
+        <ReadingResourceEditorModal
+          isOpen={Boolean(readingResourceToEdit)}
+          onClose={() => setReadingResourceToEdit(null)}
+          resource={readingResourceToEdit}
+          folders={folders}
+          onSaveSuccess={() => {
+            setReadingResourceToEdit(null);
+          }}
+          updateResource={updateResource}
         />
       )}
     </div>
