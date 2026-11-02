@@ -1412,17 +1412,56 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                 }}
                                 className="flex-1 p-2 border border-slate-200 rounded-lg text-xs text-slate-800"
                               />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const newTopics = [...editedSpeakingPart1.topics];
-                                  newTopics[tIdx].questions = newTopics[tIdx].questions.filter((_, i) => i !== qIdx);
-                                  setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
-                                }}
-                                className="p-1 text-slate-400 hover:text-red-500 rounded"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center space-x-1">
+                                {qIdx > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newTopics = [...editedSpeakingPart1.topics];
+                                      const qs = [...newTopics[tIdx].questions];
+                                      const tmp = qs[qIdx];
+                                      qs[qIdx] = qs[qIdx - 1];
+                                      qs[qIdx - 1] = tmp;
+                                      newTopics[tIdx].questions = qs;
+                                      setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                                    title="Di chuyển lên"
+                                  >
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {qIdx < top.questions.length - 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newTopics = [...editedSpeakingPart1.topics];
+                                      const qs = [...newTopics[tIdx].questions];
+                                      const tmp = qs[qIdx];
+                                      qs[qIdx] = qs[qIdx + 1];
+                                      qs[qIdx + 1] = tmp;
+                                      newTopics[tIdx].questions = qs;
+                                      setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                                    title="Di chuyển xuống"
+                                  >
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newTopics = [...editedSpeakingPart1.topics];
+                                    newTopics[tIdx].questions = newTopics[tIdx].questions.filter((_, i) => i !== qIdx);
+                                    setEditedSpeakingPart1({ ...editedSpeakingPart1, topics: newTopics });
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-red-500 rounded hover:bg-slate-100"
+                                  title="Xóa câu hỏi"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
                           ))}
                           <button
@@ -1592,15 +1631,49 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                     <div className="space-y-4">
                       {(editedSpeakingPart3.groups || []).map((grp, gIdx) => (
                         <div key={grp.id || gIdx} className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
-                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                            <div className="flex items-center space-x-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-100 gap-2">
+                            <div className="flex flex-wrap items-center gap-2 flex-1">
                               <span className="font-extrabold text-xs uppercase tracking-wider text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
                                 Nhóm {gIdx + 1}: Liên kết Cue Card
                               </span>
+                              {editedSpeakingPart2?.cueCards && editedSpeakingPart2.cueCards.length > 0 && (
+                                <select
+                                  value={
+                                    editedSpeakingPart2.cueCards.some((c) => c.topic === grp.cueCardTopic)
+                                      ? grp.cueCardTopic
+                                      : '__custom__'
+                                  }
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const updatedGroups = [...editedSpeakingPart3.groups];
+                                    if (val !== '__custom__') {
+                                      const matched = editedSpeakingPart2?.cueCards?.find((c) => c.topic === val);
+                                      updatedGroups[gIdx] = {
+                                        ...updatedGroups[gIdx],
+                                        cueCardTopic: val,
+                                        cueCardId: matched?.id,
+                                      };
+                                      setEditedSpeakingPart3({
+                                        ...editedSpeakingPart3,
+                                        groups: updatedGroups,
+                                      });
+                                    }
+                                  }}
+                                  className="text-xs border border-emerald-300 rounded-lg px-2 py-1 bg-emerald-50/50 text-emerald-900 font-medium max-w-[240px] truncate"
+                                  title="Chọn Cue Card từ Part 2 để liên kết"
+                                >
+                                  <option value="__custom__">-- Chọn nhanh Cue Card --</option>
+                                  {editedSpeakingPart2.cueCards.map((card, cIdx) => (
+                                    <option key={card.id || cIdx} value={card.topic}>
+                                      Card {cIdx + 1}: {card.topic}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
                               <input
                                 type="text"
                                 value={grp.cueCardTopic || ''}
-                                placeholder="Chủ đề Cue Card liên kết (e.g. Describe a gift, Describe a journey...)"
+                                placeholder="Tên chủ đề hoặc Cue Card liên kết..."
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   const updatedGroups = [...editedSpeakingPart3.groups];
@@ -1610,7 +1683,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                     groups: updatedGroups,
                                   });
                                 }}
-                                className="font-bold text-xs text-slate-800 p-1 border border-slate-200 rounded-md focus:border-emerald-500"
+                                className="font-bold text-xs text-slate-800 px-2.5 py-1 border border-slate-300 rounded-lg focus:border-emerald-500 flex-1 min-w-[200px]"
                               />
                             </div>
                             <div className="flex items-center space-x-2">
@@ -1662,23 +1735,72 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                   }}
                                   className="flex-1 p-2 border border-slate-200 rounded-lg text-xs text-slate-800"
                                 />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updatedGroups = [...editedSpeakingPart3.groups];
-                                    const updatedGroupQs = updatedGroups[gIdx].questions.filter((_, i) => i !== qIdx);
-                                    updatedGroups[gIdx] = { ...updatedGroups[gIdx], questions: updatedGroupQs };
-                                    const allQs = updatedGroups.flatMap((g) => g.questions);
-                                    setEditedSpeakingPart3({
-                                      ...editedSpeakingPart3,
-                                      groups: updatedGroups,
-                                      questions: allQs,
-                                    });
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-red-500 rounded"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="flex items-center space-x-1">
+                                  {qIdx > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updatedGroups = [...editedSpeakingPart3.groups];
+                                        const qs = [...updatedGroups[gIdx].questions];
+                                        const tmp = qs[qIdx];
+                                        qs[qIdx] = qs[qIdx - 1];
+                                        qs[qIdx - 1] = tmp;
+                                        updatedGroups[gIdx] = { ...updatedGroups[gIdx], questions: qs };
+                                        const allQs = updatedGroups.flatMap((g) => g.questions);
+                                        setEditedSpeakingPart3({
+                                          ...editedSpeakingPart3,
+                                          groups: updatedGroups,
+                                          questions: allQs,
+                                        });
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                                      title="Di chuyển lên"
+                                    >
+                                      <ChevronUp className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {qIdx < grp.questions.length - 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updatedGroups = [...editedSpeakingPart3.groups];
+                                        const qs = [...updatedGroups[gIdx].questions];
+                                        const tmp = qs[qIdx];
+                                        qs[qIdx] = qs[qIdx + 1];
+                                        qs[qIdx + 1] = tmp;
+                                        updatedGroups[gIdx] = { ...updatedGroups[gIdx], questions: qs };
+                                        const allQs = updatedGroups.flatMap((g) => g.questions);
+                                        setEditedSpeakingPart3({
+                                          ...editedSpeakingPart3,
+                                          groups: updatedGroups,
+                                          questions: allQs,
+                                        });
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                                      title="Di chuyển xuống"
+                                    >
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updatedGroups = [...editedSpeakingPart3.groups];
+                                      const updatedGroupQs = updatedGroups[gIdx].questions.filter((_, i) => i !== qIdx);
+                                      updatedGroups[gIdx] = { ...updatedGroups[gIdx], questions: updatedGroupQs };
+                                      const allQs = updatedGroups.flatMap((g) => g.questions);
+                                      setEditedSpeakingPart3({
+                                        ...editedSpeakingPart3,
+                                        groups: updatedGroups,
+                                        questions: allQs,
+                                      });
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-red-500 rounded hover:bg-slate-100"
+                                    title="Xóa câu hỏi này"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>

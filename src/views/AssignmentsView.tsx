@@ -329,8 +329,8 @@ export const AssignmentsView: React.FC = () => {
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
-  // IELTS Reading Marker state
-  const [selectedMarkerColor, setSelectedMarkerColor] = useState<PastelMarkerColor | null>('pastel_yellow');
+  // IELTS Reading Marker state (defaults to null: unselected)
+  const [selectedMarkerColor, setSelectedMarkerColor] = useState<PastelMarkerColor | null>(null);
   const [readingMarkers, setReadingMarkers] = useState<ReadingMarkerItem[]>([]);
   const [floatingToolbarPos, setFloatingToolbarPos] = useState<{ x: number; y: number; text: string } | null>(null);
 
@@ -655,14 +655,8 @@ export const AssignmentsView: React.FC = () => {
       // Highlight immediately with selected marker color
       handleApplyMarker(text, selectedMarkerColor);
     } else {
-      // Display floating palette with 6 pastel colors
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      setFloatingToolbarPos({
-        x: rect.left + rect.width / 2,
-        y: Math.max(10, rect.top - 42),
-        text,
-      });
+      // No marker is selected: do NOT auto-highlight text
+      setFloatingToolbarPos(null);
     }
   };
 
@@ -2965,100 +2959,102 @@ export const AssignmentsView: React.FC = () => {
                 style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${splitWidth}%` : '100%' }}
                 className="bg-white p-6 h-[calc(100vh-220px)] min-h-[550px] overflow-y-auto space-y-4 shrink-0 transition-[width] duration-75"
               >
-                {/* Passage Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
-                  <div className="flex items-center space-x-2">
-                    <BookOpen className="w-5 h-5 text-blue-600" />
-                    <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                      {activeAssignment.passages && activeAssignment.passages.length > 1
-                        ? activeAssignment.passages[safePassageIndex]?.title || `Passage ${safePassageIndex + 1}`
-                        : t('assignments.readingPassageTitle')}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    {/* IELTS Marker Toolbar with 6 Pastel Rainbow Colors */}
-                    <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl shadow-2xs">
-                      <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center space-x-1">
-                        <Highlighter className="w-3.5 h-3.5 text-blue-600" />
-                        <span className="hidden md:inline">Marker:</span>
+                {/* Passage Header & Multi-Passage Tabs Sticky Container */}
+                <div className="sticky top-0 z-20 bg-white -mt-6 -mx-6 px-6 pt-4 pb-3 border-b border-slate-200 shadow-2xs space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2">
+                      <BookOpen className="w-5 h-5 text-blue-600" />
+                      <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                        {activeAssignment.passages && activeAssignment.passages.length > 1
+                          ? activeAssignment.passages[safePassageIndex]?.title || `Passage ${safePassageIndex + 1}`
+                          : t('assignments.readingPassageTitle')}
                       </span>
-                      {PASTEL_MARKER_COLORS.map((col) => {
-                        const isActive = selectedMarkerColor === col.id;
-                        return (
-                          <button
-                            key={col.id}
-                            type="button"
-                            onClick={() => setSelectedMarkerColor(isActive ? null : col.id)}
-                            style={{ backgroundColor: col.bgHex }}
-                            className={`w-5 h-5 rounded-full border transition-all ${
-                              isActive
-                                ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 border-slate-700 shadow-xs'
-                                : 'border-slate-300 hover:scale-105 opacity-85 hover:opacity-100'
-                            }`}
-                            title={`${col.label}${isActive ? ' (Click to deactivate marker)' : ' (Click to activate marker)'}`}
-                          />
-                        );
-                      })}
-                      {readingMarkers.some((m) => (m.passageIndex ?? 0) === safePassageIndex) && (
-                        <button
-                          type="button"
-                          onClick={() => handleClearPassageMarkers(safePassageIndex)}
-                          className="ml-1 px-1.5 py-0.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded text-xs flex items-center space-x-1 transition-colors"
-                          title="Clear all highlights in this passage"
-                        >
-                          <Eraser className="w-3.5 h-3.5" />
-                          <span className="hidden lg:inline text-[11px] font-semibold">Clear</span>
-                        </button>
-                      )}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
-                      className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                    >
-                      Font: {passageFontSize === 'normal' ? '17px' : '19px'}
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      {/* IELTS Marker Toolbar with 6 Pastel Rainbow Colors */}
+                      <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl shadow-2xs">
+                        <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center space-x-1">
+                          <Highlighter className="w-3.5 h-3.5 text-blue-600" />
+                          <span className="hidden md:inline">Marker:</span>
+                        </span>
+                        {PASTEL_MARKER_COLORS.map((col) => {
+                          const isActive = selectedMarkerColor === col.id;
+                          return (
+                            <button
+                              key={col.id}
+                              type="button"
+                              onClick={() => setSelectedMarkerColor(isActive ? null : col.id)}
+                              style={{ backgroundColor: col.bgHex }}
+                              className={`w-5 h-5 rounded-full border transition-all ${
+                                isActive
+                                  ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 border-slate-700 shadow-xs'
+                                  : 'border-slate-300 hover:scale-105 opacity-85 hover:opacity-100'
+                              }`}
+                              title={`${col.label}${isActive ? ' (Click to deactivate marker)' : ' (Click to activate marker)'}`}
+                            />
+                          );
+                        })}
+                        {readingMarkers.some((m) => (m.passageIndex ?? 0) === safePassageIndex) && (
+                          <button
+                            type="button"
+                            onClick={() => handleClearPassageMarkers(safePassageIndex)}
+                            className="ml-1 px-1.5 py-0.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded text-xs flex items-center space-x-1 transition-colors"
+                            title="Clear all highlights in this passage"
+                          >
+                            <Eraser className="w-3.5 h-3.5" />
+                            <span className="hidden lg:inline text-[11px] font-semibold">Clear</span>
+                          </button>
+                        )}
+                      </div>
 
-                    <span className="text-xs text-slate-400 font-mono hidden sm:inline">
-                      {((activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) || activeAssignment.readingPassage || '')
-                        .split(/\s+/)
-                        .filter(Boolean).length}{' '}
-                      words
-                    </span>
+                      <button
+                        type="button"
+                        onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
+                        className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                      >
+                        Font: {passageFontSize === 'normal' ? '17px' : '19px'}
+                      </button>
+
+                      <span className="text-xs text-slate-400 font-mono hidden sm:inline">
+                        {((activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) || activeAssignment.readingPassage || '')
+                          .split(/\s+/)
+                          .filter(Boolean).length}{' '}
+                        words
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Multi-Passage Tabs (If test contains multiple passages) */}
-                {activeAssignment.passages && activeAssignment.passages.length > 1 && (
-                  <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-2 overflow-x-auto">
-                    {activeAssignment.passages.map((p, pIdx) => {
-                      const pQuestionCount = allQuestionsIndexed.filter((item) => item.passageIndex === pIdx).length;
-                      return (
-                        <button
-                          key={p.id || pIdx}
-                          type="button"
-                          onClick={() => setActivePassageTab(pIdx)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 ${
-                            activePassageTab === pIdx
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                          }`}
-                        >
-                          <span>{p.title || `Passage ${pIdx + 1}`}</span>
-                          <span
-                            className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                              activePassageTab === pIdx ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'
+                  {/* Multi-Passage Tabs (Sticky with horizontal scroll support) */}
+                  {activeAssignment.passages && activeAssignment.passages.length > 1 && (
+                    <div className="flex items-center space-x-1.5 overflow-x-auto pt-1 pb-0.5">
+                      {activeAssignment.passages.map((p, pIdx) => {
+                        const pQuestionCount = allQuestionsIndexed.filter((item) => item.passageIndex === pIdx).length;
+                        return (
+                          <button
+                            key={p.id || pIdx}
+                            type="button"
+                            onClick={() => setActivePassageTab(pIdx)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 shrink-0 ${
+                              activePassageTab === pIdx
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                             }`}
                           >
-                            {pQuestionCount} Qs
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                            <span>{p.title || `Passage ${pIdx + 1}`}</span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                                activePassageTab === pIdx ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              {pQuestionCount} Qs
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
                 {/* Passage Text with Highlighting */}
                 <div
