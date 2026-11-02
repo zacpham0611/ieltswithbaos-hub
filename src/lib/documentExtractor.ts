@@ -23,6 +23,7 @@ export interface CandidateTest {
   testIndex: number;
   title: string;
   passageText: string;
+  htmlContent?: string;
   instructions: string;
   questions: ReadingQuestion[];
   questionGroups?: QuestionGroup[];
@@ -238,9 +239,32 @@ export async function extractDocxText(file: File): Promise<{ text: string; html:
     const mammothModule = await import('mammoth');
     const mammoth = (mammothModule as any).default || mammothModule;
     const arrayBuffer = await file.arrayBuffer();
+
+    let processedBuffer: ArrayBuffer = arrayBuffer;
+    try {
+      const JSZipModule = await import('jszip');
+      const JSZip = (JSZipModule as any).default || JSZipModule;
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const docXmlFile = zip.file('word/document.xml');
+      if (docXmlFile) {
+        let xml = await docXmlFile.async('string');
+        if (/<w:lastRenderedPageBreak/i.test(xml)) {
+          xml = xml.replace(/<w:lastRenderedPageBreak\s*\/?>/gi, '</w:r></w:p><w:p><w:r>');
+          zip.file('word/document.xml', xml);
+          processedBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+        }
+      }
+    } catch (zipErr) {
+      console.warn('DOCX page-break pre-processing skipped:', zipErr);
+      processedBuffer = arrayBuffer;
+    }
+
     const [rawResult, htmlResult] = await Promise.all([
-      mammoth.extractRawText({ arrayBuffer }),
-      mammoth.convertToHtml({ arrayBuffer }),
+      mammoth.extractRawText({ arrayBuffer: processedBuffer }),
+      mammoth.convertToHtml({
+        arrayBuffer: processedBuffer,
+        styleMap: ['u => u', 'strike => del', 'b => strong', 'i => em'],
+      }),
     ]);
 
     return {
@@ -758,6 +782,33 @@ export function parseAnswerTable(headers: string[], rows: string[][]): Record<st
   return results;
 }
 
+function extractPassageHtml(
+  fullHtml: string | undefined,
+  passageIndex: number,
+  passageTitle: string
+): string | undefined {
+  if (!fullHtml) return undefined;
+  const escapedTitle = passageTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const marker = new RegExp(
+    `(?:READING\\s+PASSAGE|PASSAGE|BÀI\\s+ĐỌC)\\s+${passageIndex}|${escapedTitle}`,
+    'i'
+  );
+  const nextMarker = new RegExp(
+    `(?:READING\\s+PASSAGE|PASSAGE|BÀI\\s+ĐỌC)\\s+${passageIndex + 1}`,
+    'i'
+  );
+
+  const startIdx = fullHtml.search(marker);
+  if (startIdx === -1) return undefined;
+  const sliceFrom = fullHtml.slice(startIdx);
+  const nextIdx = sliceFrom.search(nextMarker);
+  const rawSlice = nextIdx !== -1 ? sliceFrom.slice(0, nextIdx) : sliceFrom;
+
+  // Cut off questions section from passage body
+  const qSplit = rawSlice.search(/<p>[^<]*questions?\s+\d+[^<]*<\/p>|<h\d>[^<]*questions?\s+\d+[^<]*<\/h\d>/i);
+  return qSplit !== -1 ? rawSlice.slice(0, qSplit) : rawSlice;
+}
+
 export function parseDocumentStructure(rawText: string, fallbackName: string, htmlContent?: string): DocumentStructure {
   const cleanRaw = rawText.replace(/\r\n/g, '\n');
   const lines = cleanRaw.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -846,8 +897,22 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
     }
   }
 
-  const contentText =
-    answerKeyStartIndex !== -1 ? lines.slice(0, answerKeyStartIndex).join('\n') : cleanRaw;
+  let contentText = cleanRaw;
+  if (answerKeyStartIndex !== -1) {
+    const rawLinesWithEmpty = cleanRaw.split('\n');
+    let nonEmptyCount = 0;
+    let rawKeyIdx = -1;
+    for (let i = 0; i < rawLinesWithEmpty.length; i++) {
+      if (rawLinesWithEmpty[i].trim()) {
+        if (nonEmptyCount === answerKeyStartIndex) {
+          rawKeyIdx = i;
+          break;
+        }
+        nonEmptyCount++;
+      }
+    }
+    contentText = rawKeyIdx !== -1 ? rawLinesWithEmpty.slice(0, rawKeyIdx).join('\n') : cleanRaw;
+  }
 
   // 2. Identify Test Boundaries if multi-test document (e.g. TEST 1, TEST 2, etc.)
   const testSplitterRegex = /(?:^|\n)(?=(?:TEST\s+\d+|PRACTICE\s+TEST\s+\d+)\b)/i;
@@ -892,11 +957,14 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
         return;
       }
 
+      const passageHtml = htmlContent ? extractPassageHtml(htmlContent, passageIndex, passageTitle) : undefined;
+
       testPassages.push({
         id: `test_${testIndex}_passage_${passageIndex}`,
         passageIndex,
         title: passageTitle,
         content: passageContent,
+        htmlContent: passageHtml,
         questionGroups,
         questions,
         labeledParagraphs,
@@ -926,6 +994,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
         testIndex: candidateTests.length + 1,
         title: passageTitle,
         passageText: passageContent,
+        htmlContent: passageHtml,
         instructions: questionGroups[0]?.instructions || 'Read the text and answer the questions below.',
         questions,
         questionGroups,
@@ -1029,82 +1098,184 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
  * Formats passage paragraphs strictly according to IELTS standard:
  * Labeled paragraph: label on its own line, content on next line, separated from next paragraph by exactly one empty line.
  */
-export function formatPassageParagraphs(lines: string[]): {
+function isLikelySubsectionHeading(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length < 3 || trimmed.length > 70) return false;
+  if (trimmed.endsWith('.') || trimmed.endsWith(':') || trimmed.endsWith(';') || trimmed.endsWith(',')) return false;
+  if (trimmed.includes('\n')) return false;
+  if (/^(?:the\s+drive\s+to|the\s+role\s+of|the\s+nature\s+of|part\s+\d+|section\s+\d+)/i.test(trimmed)) return true;
+  const words = trimmed.split(/\s+/);
+  if (words.length >= 1 && words.length <= 7) {
+    const capitalized = words.filter((w) => /^[A-Z]/.test(w) || /^(to|of|in|and|the|a|an|for|with|by|on|at)$/i.test(w));
+    if (capitalized.length === words.length && !/^\d+/.test(trimmed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Standardizes passage paragraph structure.
+ * - Supports labeled paragraphs (A-K): label on its own line, content on next line.
+ * - Supports unlabeled passages with subsection headings (e.g. "The Drive to Acquire") and independent body paragraphs.
+ * - Preserves double newlines and page breaks without collapsing text into a single giant paragraph.
+ */
+export function formatPassageParagraphs(
+  lines: string[],
+  rawLines?: string[]
+): {
   formattedText: string;
   detectedParagraphLabels: string[];
   labeledParagraphs: { label: string; text: string }[];
+  headings?: string[];
 } {
-  if (lines.length === 0) return { formattedText: '', detectedParagraphLabels: [], labeledParagraphs: [] };
-
-  interface ParaBlock {
-    label?: string;
-    lines: string[];
-  }
-
-  const blocks: ParaBlock[] = [];
-  let currentBlock: ParaBlock = { lines: [] };
-  const detectedLabels = new Set<string>();
+  const effectiveLines = (rawLines && rawLines.length > 0) ? rawLines : lines;
+  if (effectiveLines.length === 0) return { formattedText: '', detectedParagraphLabels: [], labeledParagraphs: [] };
 
   const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-K])[\.\:\)]?$/i;
   const inlineLabelRegex =
     /^(?:(?:paragraph|section)\s+([A-K])[\.\:\)]?|\[([A-K])\]|\(([A-K])\)|([A-K])(?:[\.\:\)]|\t|\s{2,}))\s*(.*)$/i;
 
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i].trim();
-    if (!rawLine) continue;
+  // Check if explicit labels exist (e.g. A, B, C...)
+  let explicitLabelCount = 0;
+  for (const line of effectiveLines) {
+    const tr = line.trim();
+    if (!tr) continue;
+    if (standaloneLabelRegex.test(tr) && tr.length <= 15) explicitLabelCount++;
+    else if (inlineLabelRegex.test(tr)) explicitLabelCount++;
+  }
 
-    // Check standalone label (e.g. "A" or "Paragraph A" on its own line)
-    const standaloneMatch = rawLine.match(standaloneLabelRegex);
-    if (standaloneMatch && rawLine.length <= 15) {
-      const letter = standaloneMatch[1].toUpperCase();
-      detectedLabels.add(letter);
-      if (currentBlock.lines.length > 0 || currentBlock.label) {
-        blocks.push(currentBlock);
+  const hasExplicitLabels = explicitLabelCount >= 2;
+
+  if (hasExplicitLabels) {
+    interface ParaBlock {
+      label?: string;
+      lines: string[];
+    }
+
+    const blocks: ParaBlock[] = [];
+    let currentBlock: ParaBlock = { lines: [] };
+    const detectedLabels = new Set<string>();
+
+    for (let i = 0; i < effectiveLines.length; i++) {
+      const rawLine = effectiveLines[i].trim();
+      if (!rawLine) continue;
+
+      // Check standalone label (e.g. "A" or "Paragraph A" on its own line)
+      const standaloneMatch = rawLine.match(standaloneLabelRegex);
+      if (standaloneMatch && rawLine.length <= 15) {
+        const letter = standaloneMatch[1].toUpperCase();
+        detectedLabels.add(letter);
+        if (currentBlock.lines.length > 0 || currentBlock.label) {
+          blocks.push(currentBlock);
+        }
+        currentBlock = { label: letter, lines: [] };
+        continue;
       }
-      currentBlock = { label: letter, lines: [] };
+
+      // Check inline label (e.g. "A. In the early 19th century..." or "A\tBamboo...")
+      const inlineMatch = rawLine.match(inlineLabelRegex);
+      if (inlineMatch) {
+        const letter = (inlineMatch[1] || inlineMatch[2] || inlineMatch[3] || inlineMatch[4]).toUpperCase();
+        const content = inlineMatch[5]?.trim() || '';
+        detectedLabels.add(letter);
+        if (currentBlock.lines.length > 0 || currentBlock.label) {
+          blocks.push(currentBlock);
+        }
+        currentBlock = { label: letter, lines: content ? [content] : [] };
+        continue;
+      }
+
+      currentBlock.lines.push(rawLine);
+    }
+
+    if (currentBlock.lines.length > 0 || currentBlock.label) {
+      blocks.push(currentBlock);
+    }
+
+    const formattedParagraphs: string[] = [];
+    const labeledParagraphs: { label: string; text: string }[] = [];
+    for (const block of blocks) {
+      const content = block.lines.join(' ').replace(/\s{2,}/g, ' ').trim();
+      if (block.label) {
+        labeledParagraphs.push({ label: block.label, text: content });
+        if (content) {
+          formattedParagraphs.push(`${block.label}\n${content}`);
+        } else {
+          formattedParagraphs.push(block.label);
+        }
+      } else if (content) {
+        formattedParagraphs.push(content);
+      }
+    }
+
+    return {
+      formattedText: formattedParagraphs.join('\n\n'),
+      detectedParagraphLabels: Array.from(detectedLabels).sort(),
+      labeledParagraphs,
+      headings: [],
+    };
+  }
+
+  // Unlabeled passage: preserve double newlines, detect subsection headings, and separate body paragraphs
+  interface CustomBlock {
+    type: 'heading' | 'para';
+    text: string;
+  }
+  const blocks: CustomBlock[] = [];
+  let currentLines: string[] = [];
+  const headings: string[] = [];
+
+  const flushCurrent = () => {
+    if (currentLines.length > 0) {
+      const text = currentLines.join(' ').replace(/\s{2,}/g, ' ').trim();
+      if (text) {
+        blocks.push({ type: 'para', text });
+      }
+      currentLines = [];
+    }
+  };
+
+  for (let i = 0; i < effectiveLines.length; i++) {
+    const rawLine = effectiveLines[i].trim();
+    if (!rawLine) {
+      flushCurrent();
       continue;
     }
 
-    // Check inline label (e.g. "A. In the early 19th century..." or "A\tBamboo...")
-    const inlineMatch = rawLine.match(inlineLabelRegex);
-    if (inlineMatch) {
-      const letter = (inlineMatch[1] || inlineMatch[2] || inlineMatch[3] || inlineMatch[4]).toUpperCase();
-      const content = inlineMatch[5]?.trim() || '';
-      detectedLabels.add(letter);
-      if (currentBlock.lines.length > 0 || currentBlock.label) {
-        blocks.push(currentBlock);
-      }
-      currentBlock = { label: letter, lines: content ? [content] : [] };
+    if (isLikelySubsectionHeading(rawLine)) {
+      flushCurrent();
+      headings.push(rawLine);
+      blocks.push({ type: 'heading', text: rawLine });
       continue;
     }
 
-    currentBlock.lines.push(rawLine);
+    currentLines.push(rawLine);
   }
-
-  if (currentBlock.lines.length > 0 || currentBlock.label) {
-    blocks.push(currentBlock);
-  }
+  flushCurrent();
 
   const formattedParagraphs: string[] = [];
   const labeledParagraphs: { label: string; text: string }[] = [];
+  const detectedParagraphLabels: string[] = [];
+  let bodyIdx = 0;
+
   for (const block of blocks) {
-    const content = block.lines.join(' ').replace(/\s{2,}/g, ' ').trim();
-    if (block.label) {
-      labeledParagraphs.push({ label: block.label, text: content });
-      if (content) {
-        formattedParagraphs.push(`${block.label}\n${content}`);
-      } else {
-        formattedParagraphs.push(block.label);
-      }
-    } else if (content) {
-      formattedParagraphs.push(content);
+    if (block.type === 'heading') {
+      formattedParagraphs.push(`### ${block.text}`);
+    } else {
+      bodyIdx++;
+      const label = String.fromCharCode(65 + (bodyIdx - 1));
+      detectedParagraphLabels.push(label);
+      labeledParagraphs.push({ label, text: block.text });
+      formattedParagraphs.push(block.text);
     }
   }
 
   return {
     formattedText: formattedParagraphs.join('\n\n'),
-    detectedParagraphLabels: Array.from(detectedLabels).sort(),
+    detectedParagraphLabels,
     labeledParagraphs,
+    headings,
   };
 }
 
@@ -1235,8 +1406,29 @@ function parseSinglePassage(
     }
   }
 
+  // Extract raw body lines with blank lines preserved for paragraph detection
+  const rawAllLines = passageChunk.split('\n').map((l) => l.trim());
+  let rawPassageBodyLines: string[] = [];
+  const firstQLine = questionLines[0];
+  if (firstQLine) {
+    const qIdx = rawAllLines.findIndex((l) => l === firstQLine);
+    if (qIdx !== -1) {
+      let startIdx = 0;
+      for (let i = 0; i < qIdx; i++) {
+        if (rawAllLines[i] === passageTitle) {
+          startIdx = i + 1;
+          break;
+        }
+      }
+      rawPassageBodyLines = rawAllLines.slice(startIdx, qIdx);
+    }
+  }
+  if (rawPassageBodyLines.length === 0) {
+    rawPassageBodyLines = passageBodyLines;
+  }
+
   const { formattedText: passageContent, detectedParagraphLabels, labeledParagraphs } =
-    formatPassageParagraphs(passageBodyLines);
+    formatPassageParagraphs(passageBodyLines, rawPassageBodyLines);
 
   // 3. Parse Question Groups & Questions
   const questionGroups: QuestionGroup[] = [];

@@ -74,6 +74,7 @@ interface AppContextType {
   // Resources
   resources: Resource[];
   addResource: (resource: Omit<Resource, 'id' | 'teacherId' | 'createdAt'>) => Promise<void>;
+  updateResource: (id: string, updates: Partial<Resource>) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
   toggleResourcePublish: (id: string) => Promise<void>;
 
@@ -1682,6 +1683,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     refreshData();
+  };
+
+  const updateResource = async (id: string, updates: Partial<Resource>) => {
+    const payload: any = {};
+    if (updates.title !== undefined) payload.title = updates.title;
+    if (updates.type !== undefined) payload.type = updates.type;
+    if (updates.url !== undefined) payload.url = updates.url;
+    if (updates.content !== undefined) payload.content = updates.content;
+    if (updates.tags !== undefined) payload.tags = updates.tags;
+    if (updates.skill !== undefined) payload.skill = updates.skill;
+    if (updates.folder !== undefined) payload.folder = updates.folder;
+    if (updates.isPublished !== undefined) payload.is_published = updates.isPublished;
+    if (updates.courseId !== undefined) payload.course_id = updates.courseId;
+
+    if (Object.keys(payload).length > 0) {
+      await supabase.from('resources').update(payload).eq('id', id);
+    }
+    setResources((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
   };
 
   const deleteResource = async (id: string) => {
@@ -3597,6 +3616,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removeStudentFromCourse,
         resources,
         addResource,
+        updateResource,
         deleteResource,
         toggleResourcePublish,
         lessons,

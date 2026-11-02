@@ -82,6 +82,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
 
   // Active Document Extracted & Edited Content
+  const [libraryMaterialName, setLibraryMaterialName] = useState('');
   const [editedTitle, setEditedTitle] = useState('');
   const [editedRawText, setEditedRawText] = useState('');
   const [editedPassage, setEditedPassage] = useState('');
@@ -278,6 +279,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     setActiveFileId(doc.id);
     const candidateTests = doc.detectedStructure?.candidateTests || [];
     const tests = doc.detectedStructure?.tests || [];
+    const defaultLibName = doc.name.replace(/\.[^/.]+$/, '');
+    setLibraryMaterialName(defaultLibName);
 
     if (tests.length > 0) {
       const firstTest = tests[0];
@@ -474,10 +477,13 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       const tests = activeDoc.detectedStructure?.tests || [];
       if (tests.length > 0) {
         for (const t of tests) {
+          const testTitleToSave = tests.length === 1
+            ? (libraryMaterialName.trim() || t.title)
+            : (libraryMaterialName.trim() ? `${libraryMaterialName.trim()} - ${t.title}` : t.title);
           // Save combined multi-passage full test
           const allQs = t.allQuestions?.length ? t.allQuestions : t.passages.flatMap((p) => p.questions || []);
           const structuredPayload = {
-            title: t.title,
+            title: testTitleToSave,
             skill: 'reading',
             readingPassage: t.passages[0]?.content || '',
             content: t.passages[0]?.content || '',
@@ -492,10 +498,10 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             },
           };
           await addResource({
-            title: t.title,
+            title: testTitleToSave,
             type: 'doc',
             content: JSON.stringify(structuredPayload),
-            tags: ['smart-import', 'reading', 'full-test', t.title],
+            tags: ['smart-import', 'reading', 'full-test', testTitleToSave],
             skill: 'reading',
             folder: 'IELTS Full Tests',
             courseId: assignCourseId || null,
@@ -505,8 +511,11 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       } else {
         const cTests = activeDoc.detectedStructure?.candidateTests || [];
         for (const ct of cTests) {
+          const testTitleToSave = cTests.length === 1
+            ? (libraryMaterialName.trim() || ct.title)
+            : (libraryMaterialName.trim() ? `${libraryMaterialName.trim()} - ${ct.title}` : ct.title);
           const structuredPayload = {
-            title: ct.title,
+            title: testTitleToSave,
             skill: 'reading',
             readingPassage: ct.passageText,
             content: ct.passageText,
@@ -514,7 +523,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             questions: ct.questions || [],
           };
           await addResource({
-            title: ct.title,
+            title: testTitleToSave,
             type: 'doc',
             content: JSON.stringify(structuredPayload),
             tags: ['smart-import', 'reading'],
@@ -551,6 +560,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       const passageToSave =
         editedPassage || reviewedPassage || struct?.passageText || editedRawText;
       const titleToSave = (
+        libraryMaterialName ||
         editedTitle ||
         reviewedTitle ||
         struct?.title ||
@@ -712,7 +722,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       const dataUrl = await blobToDataUrl(blob);
 
       await addResource({
-        title: `${editedTitle} (DOCX)`,
+        title: `${libraryMaterialName.trim() || editedTitle || activeDoc.name} (DOCX)`,
         type: 'doc',
         url: dataUrl,
         content: editedRawText.slice(0, 5000),
@@ -864,7 +874,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     if (!activeDoc || !currentUser) return;
     try {
       await addResource({
-        title: `${editedTitle || activeDoc.name} (Source Document)`,
+        title: `${libraryMaterialName.trim() || editedTitle || activeDoc.name} (Source Document)`,
         type: activeDoc.type === 'pdf' ? 'pdf' : activeDoc.type === 'docx' ? 'doc' : 'note',
         content: editedRawText,
         tags: ['original-source', assignSkill, 'smart-import'],
@@ -1656,20 +1666,30 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             <div className="flex-1 min-h-0 flex flex-col p-3 sm:p-4 space-y-2.5">
               {/* Compact Toolbar row */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2 shrink-0">
-                <div className="flex items-center space-x-2.5 min-w-0">
+                <div className="flex flex-wrap items-center gap-2.5 min-w-0">
                   <span className="text-xs font-bold text-slate-800 shrink-0">
                     Previewing:
                   </span>
-                  <span className="text-xs font-medium text-slate-600 truncate max-w-[200px]" title={activeDoc.name}>
+                  <span className="text-xs font-medium text-slate-500 truncate max-w-[160px]" title={activeDoc.name}>
                     {activeDoc.name}
                   </span>
-                  <input
-                    type="text"
-                    value={editedTitle}
-                    onChange={(e) => setEditedTitle(e.target.value)}
-                    className="p-1 px-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden w-64"
-                    placeholder="Document / Assignment Title…"
-                  />
+                  <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg">
+                    <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">Tên tài liệu:</span>
+                    <input
+                      type="text"
+                      value={libraryMaterialName}
+                      onChange={(e) => setLibraryMaterialName(e.target.value)}
+                      className="p-1 px-2 border border-slate-300 rounded-md text-xs font-bold text-blue-700 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden w-52 sm:w-64"
+                      placeholder="Tên tài liệu thư viện..."
+                      title="Tên tài liệu sẽ lưu vào Thư viện tài nguyên"
+                    />
+                  </div>
+                  {editedTitle && (
+                    <div className="hidden md:flex items-center space-x-1 text-slate-400 text-xs">
+                      <span className="text-[11px] font-medium">Passage:</span>
+                      <span className="font-semibold text-slate-700 truncate max-w-[140px]">{editedTitle}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2 shrink-0">
                   <div className="bg-slate-100 p-0.5 rounded-lg flex text-xs font-semibold">

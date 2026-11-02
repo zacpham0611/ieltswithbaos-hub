@@ -177,6 +177,7 @@ export interface ParsedPassage {
   title: string;
   subtitle?: string;
   content: string;
+  htmlContent?: string;
   questionGroups?: QuestionGroup[];
   questions?: ReadingQuestion[];
   labeledParagraphs?: { label: string; text: string }[];
@@ -280,6 +281,7 @@ export interface Assignment {
   resources?: string[];
   // Reading Specific
   readingPassage?: string;
+  readingPassageHtml?: string;
   readingQuestions?: ReadingQuestion[];
   questionGroups?: QuestionGroup[];
   passages?: ParsedPassage[];
