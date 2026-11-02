@@ -13,6 +13,7 @@ import {
   blobToDataUrl,
 } from '../lib/docxGenerator';
 import { convertDocumentToAssignment } from '../lib/ai';
+import { formatWordLimitInstruction } from '../lib/assignmentGrader';
 import {
   extractSpeakingPartsFromDocument,
   type ExtractedSpeakingDocument,
@@ -2037,7 +2038,24 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                           editableQuestions.map((q, idx) => {
                             const updateQ = (patch: Partial<ReadingQuestion>) => {
                               const updated = [...editableQuestions];
-                              updated[idx] = { ...updated[idx], ...patch, isTeacherEdited: true };
+                              const targetQ = { ...updated[idx], ...patch, isTeacherEdited: true };
+                              updated[idx] = targetQ;
+
+                              // If this question shares resources, sync wordList, options, completionFormat to sibling questions
+                              if (targetQ.sharedResourceId && (patch.wordList || patch.options || patch.completionFormat)) {
+                                for (let i = 0; i < updated.length; i++) {
+                                  if (i !== idx && updated[i].sharedResourceId === targetQ.sharedResourceId) {
+                                    updated[i] = {
+                                      ...updated[i],
+                                      ...(patch.wordList ? { wordList: [...patch.wordList] } : {}),
+                                      ...(patch.options ? { options: [...patch.options] } : {}),
+                                      ...(patch.completionFormat ? { completionFormat: patch.completionFormat } : {}),
+                                      isTeacherEdited: true,
+                                    };
+                                  }
+                                }
+                              }
+
                               setEditableQuestions(updated);
                             };
                             const updateOption = (optIdx: number, val: string) => {
@@ -2049,7 +2067,15 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                             const removeOption = (optIdx: number) => updateQ({ options: (q.options || []).filter((_, i) => i !== optIdx) });
                             const isMC = q.type === 'multiple_choice' || q.type === 'multiple_select';
                             const isTFNG = q.type === 'true_false_not_given' || q.type === 'yes_no_not_given';
-                            const isCompletion = ['sentence_completion', 'summary_completion', 'note_completion', 'table_completion'].includes(q.type);
+                            const isCompletion = [
+                              'sentence_completion',
+                              'summary_completion',
+                              'note_completion',
+                              'table_completion',
+                              'flowchart_completion',
+                              'diagram_completion',
+                              'fill_in_the_blank',
+                            ].includes(q.type);
                             const isMatchingQ = ['matching_headings', 'matching_features', 'matching_information', 'matching_sentence_endings'].includes(q.type);
 
                             return (
@@ -2132,12 +2158,291 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                   </div>
                                 )}
 
-                                {/* Completion: word bank */}
+                                 {/* Completion: Word Limit, Answer Input Format & Shared Resources */}
                                 {isCompletion && (
-                                  <div className="space-y-1">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Word Bank (optional)</span>
-                                    <input type="text" value={(q.options || []).join(', ')} onChange={(e) => updateQ({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} className="w-full p-1.5 border border-slate-200 rounded text-xs bg-white" placeholder="Word, phrase, another word… (comma-separated)" />
-                                    <p className="text-[10px] text-slate-400 italic">Word limit: {q.wordLimit || q.maxWords ? `${q.wordLimit || q.maxWords} word(s)` : 'not set'}</p>
+                                  <div className="p-3 bg-indigo-50/50 border border-indigo-200 rounded-lg space-y-3">
+                                    <div className="flex items-center justify-between pb-1 border-b border-indigo-100 flex-wrap gap-2">
+                                      <span className="text-[11px] font-bold text-indigo-950 uppercase tracking-wide">
+                                        Completion Settings
+                                      </span>
+                                      {/* Format Selector Tabs */}
+                                      <div className="flex items-center bg-white rounded-md border border-indigo-200 p-0.5 text-[10px]">
+                                        <button
+                                          type="button"
+                                          onClick={() => updateQ({ completionFormat: 'text' })}
+                                          className={`px-2 py-0.5 rounded font-bold transition-colors ${
+                                            (!q.completionFormat || q.completionFormat === 'text')
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'text-indigo-900 hover:bg-indigo-50'
+                                          }`}
+                                        >
+                                          Text Input
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => updateQ({ completionFormat: 'options' })}
+                                          className={`px-2 py-0.5 rounded font-bold transition-colors ${
+                                            q.completionFormat === 'options'
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'text-indigo-900 hover:bg-indigo-50'
+                                          }`}
+                                        >
+                                          Choose from Options
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => updateQ({ completionFormat: 'word_list' })}
+                                          className={`px-2 py-0.5 rounded font-bold transition-colors ${
+                                            q.completionFormat === 'word_list'
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'text-indigo-900 hover:bg-indigo-50'
+                                          }`}
+                                        >
+                                          Word List (A-Z)
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Word Limit Section */}
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                                        <span className="font-semibold text-slate-700">Word Limit:</span>
+                                        <div className="flex items-center space-x-2">
+                                          <label className="flex items-center space-x-1">
+                                            <span className="text-[10px] text-slate-500">Max Words:</span>
+                                            <select
+                                              value={q.wordLimitCount || q.maxWords || 0}
+                                              onChange={(e) => {
+                                                const count = parseInt(e.target.value) || 0;
+                                                const allowNum = q.allowNumbers ?? false;
+                                                const instr = count > 0 ? formatWordLimitInstruction(count, allowNum) : '';
+                                                updateQ({
+                                                  wordLimitCount: count > 0 ? count : undefined,
+                                                  maxWords: count > 0 ? count : undefined,
+                                                  wordLimit: instr || undefined,
+                                                  wordLimitInstruction: instr || undefined,
+                                                });
+                                              }}
+                                              className="p-1 border border-indigo-200 rounded text-xs bg-white text-slate-800 font-semibold"
+                                            >
+                                              <option value="0">No limit</option>
+                                              <option value="1">1 word (ONE WORD)</option>
+                                              <option value="2">2 words (TWO WORDS)</option>
+                                              <option value="3">3 words (THREE WORDS)</option>
+                                              <option value="4">4 words (FOUR WORDS)</option>
+                                            </select>
+                                          </label>
+
+                                          {(q.wordLimitCount || q.maxWords) ? (
+                                            <label className="flex items-center space-x-1 cursor-pointer">
+                                              <input
+                                                type="checkbox"
+                                                checked={q.allowNumbers ?? false}
+                                                onChange={(e) => {
+                                                  const allowNum = e.target.checked;
+                                                  const count = q.wordLimitCount || q.maxWords || 1;
+                                                  const instr = formatWordLimitInstruction(count, allowNum);
+                                                  updateQ({
+                                                    allowNumbers: allowNum,
+                                                    wordLimit: instr,
+                                                    wordLimitInstruction: instr,
+                                                  });
+                                                }}
+                                                className="text-indigo-600 rounded text-xs"
+                                              />
+                                              <span className="text-[10px] font-semibold text-indigo-900">+ AND/OR A NUMBER</span>
+                                            </label>
+                                          ) : null}
+                                        </div>
+                                      </div>
+
+                                      {(q.wordLimitInstruction || q.wordLimit) && (
+                                        <div className="text-[10px] font-mono text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                          Instruction: {q.wordLimitInstruction || q.wordLimit}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Format A: Text Input */}
+                                    {(!q.completionFormat || q.completionFormat === 'text') && (
+                                      <div className="p-2 bg-white rounded border border-indigo-100 text-[10px] text-slate-500">
+                                        Students will type their answer directly into a text input. The system will enforce the configured word limit and validate against the answer key.
+                                      </div>
+                                    )}
+
+                                    {/* Format B: Choose from Options */}
+                                    {q.completionFormat === 'options' && (
+                                      <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Available Answer Options</span>
+                                          <button
+                                            type="button"
+                                            onClick={addOption}
+                                            className="text-[10px] px-1.5 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded font-bold"
+                                          >
+                                            + Add Option
+                                          </button>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                          {(q.options || []).map((opt, optIdx) => (
+                                            <div key={optIdx} className="flex items-center space-x-1">
+                                              <span className="text-[10px] font-bold text-slate-400 w-5 shrink-0">{String.fromCharCode(65 + optIdx)}.</span>
+                                              <input
+                                                type="text"
+                                                value={opt}
+                                                onChange={(e) => updateOption(optIdx, e.target.value)}
+                                                className="flex-1 p-1 border border-slate-200 rounded text-xs bg-white"
+                                                placeholder={`Option ${String.fromCharCode(65 + optIdx)}…`}
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => removeOption(optIdx)}
+                                                className="text-slate-300 hover:text-red-500 p-0.5"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          ))}
+                                          {(!q.options || q.options.length === 0) && (
+                                            <p className="text-[10px] text-slate-400 italic pl-1">No options yet — click &ldquo;+ Add Option&rdquo; above.</p>
+                                          )}
+                                        </div>
+
+                                        <label className="flex items-center space-x-1.5 text-[11px] text-slate-700 font-medium cursor-pointer pt-1">
+                                          <input
+                                            type="checkbox"
+                                            checked={q.preventDuplicateOptions ?? false}
+                                            onChange={(e) => updateQ({ preventDuplicateOptions: e.target.checked })}
+                                            className="text-indigo-600 rounded text-xs"
+                                          />
+                                          <span>Ngăn học sinh chọn trùng lặp giữa các câu hỏi (Prevent duplicate selection)</span>
+                                        </label>
+                                      </div>
+                                    )}
+
+                                    {/* Format C: Choose from Word List (A-Z) */}
+                                    {q.completionFormat === 'word_list' && (
+                                      <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Word Bank (A-Z)</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const currentList = q.wordList || q.options || [];
+                                              updateQ({ wordList: [...currentList, ''], options: [...currentList, ''] });
+                                            }}
+                                            className="text-[10px] px-1.5 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded font-bold"
+                                          >
+                                            + Add Word
+                                          </button>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                          {((q.wordList && q.wordList.length > 0) ? q.wordList : (q.options || [])).map((w, wIdx) => {
+                                            const letter = String.fromCharCode(65 + wIdx);
+                                            return (
+                                              <div key={wIdx} className="flex items-center space-x-1">
+                                                <span className="w-5 h-5 rounded bg-indigo-100 text-indigo-800 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                                  {letter}
+                                                </span>
+                                                <input
+                                                  type="text"
+                                                  value={w}
+                                                  onChange={(e) => {
+                                                    const currentList = [...((q.wordList && q.wordList.length > 0) ? q.wordList : (q.options || []))];
+                                                    currentList[wIdx] = e.target.value;
+                                                    updateQ({ wordList: currentList, options: currentList });
+                                                  }}
+                                                  className="flex-1 p-1 border border-slate-200 rounded text-xs bg-white"
+                                                  placeholder={`Word / phrase for letter ${letter}…`}
+                                                />
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const currentList = ((q.wordList && q.wordList.length > 0) ? q.wordList : (q.options || [])).filter((_, i) => i !== wIdx);
+                                                    updateQ({ wordList: currentList, options: currentList });
+                                                  }}
+                                                  className="text-slate-300 hover:text-red-500 p-0.5"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            );
+                                          })}
+                                          {(!q.wordList || q.wordList.length === 0) && (!q.options || q.options.length === 0) && (
+                                            <p className="text-[10px] text-slate-400 italic pl-1">No words in Word Bank — click &ldquo;+ Add Word&rdquo; above.</p>
+                                          )}
+                                        </div>
+
+                                        <p className="text-[10px] text-slate-500 italic">
+                                          Tip: Set Answer Key above to the letter corresponding to this blank (e.g. A, B, C...).
+                                        </p>
+                                      </div>
+                                    )}
+
+                                    {/* Shared Resources Across Questions */}
+                                    <div className="pt-2 border-t border-indigo-100 space-y-1.5">
+                                      <div className="flex items-center justify-between">
+                                        <label className="flex items-center space-x-1.5 text-[11px] font-bold text-indigo-900 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(q.sharedResourceId)}
+                                            onChange={(e) => {
+                                              if (e.target.checked) {
+                                                const sId = `res_shared_${Date.now()}`;
+                                                updateQ({ sharedResourceId: sId });
+                                              } else {
+                                                updateQ({ sharedResourceId: undefined });
+                                              }
+                                            }}
+                                            className="text-indigo-600 rounded text-xs"
+                                          />
+                                          <span>Chia sẻ tài nguyên này với các câu hỏi khác (Share across questions)</span>
+                                        </label>
+                                      </div>
+
+                                      {q.sharedResourceId && (
+                                        <div className="p-2 bg-indigo-100/60 rounded text-[10px] space-y-1 text-indigo-950">
+                                          <p className="font-semibold">Chọn các câu hỏi dùng chung Word Bank / Options này:</p>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {editableQuestions.map((otherQ, otherIdx) => {
+                                              if (otherIdx === idx) return null;
+                                              const isLinked = otherQ.sharedResourceId === q.sharedResourceId;
+                                              return (
+                                                <button
+                                                  key={otherQ.id || otherIdx}
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const updated = [...editableQuestions];
+                                                    if (isLinked) {
+                                                      updated[otherIdx] = { ...updated[otherIdx], sharedResourceId: undefined, isTeacherEdited: true };
+                                                    } else {
+                                                      updated[otherIdx] = {
+                                                        ...updated[otherIdx],
+                                                        sharedResourceId: q.sharedResourceId,
+                                                        completionFormat: q.completionFormat,
+                                                        wordList: q.wordList ? [...q.wordList] : undefined,
+                                                        options: q.options ? [...q.options] : undefined,
+                                                        isTeacherEdited: true,
+                                                      };
+                                                    }
+                                                    setEditableQuestions(updated);
+                                                  }}
+                                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                                    isLinked
+                                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                                      : 'bg-white text-indigo-800 border-indigo-200 hover:bg-indigo-50'
+                                                  }`}
+                                                >
+                                                  #{otherIdx + 1} {isLinked ? '✓' : '+'}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
 

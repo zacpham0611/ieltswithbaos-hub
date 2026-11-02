@@ -71,6 +71,24 @@ export function normalizeRomanNumeral(text: string): string {
 }
 
 /**
+ * Builds formatted standard IELTS instruction string for word limit.
+ */
+export function formatWordLimitInstruction(count?: number, allowNumbers: boolean = false): string {
+  if (!count || count <= 0) return '';
+  const wordMap: Record<number, string> = {
+    1: 'ONE WORD',
+    2: 'TWO WORDS',
+    3: 'THREE WORDS',
+    4: 'FOUR WORDS',
+    5: 'FIVE WORDS',
+  };
+  const countStr = wordMap[count] || `${count} WORDS`;
+  return allowNumbers
+    ? `NO MORE THAN ${countStr} AND/OR A NUMBER`
+    : `NO MORE THAN ${countStr}`;
+}
+
+/**
  * Parses word limit string into numeric word count (e.g. "NO MORE THAN TWO WORDS" -> 2)
  */
 export function parseMaxWordsFromLimit(wordLimit?: string): number | null {
@@ -136,7 +154,7 @@ export function gradeSingleQuestion(
   }
 
   // 3. Word Limit Validation (for text completion/short-answer types)
-  const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
+  const maxWords = q.wordLimitCount || q.maxWords || parseMaxWordsFromLimit(q.wordLimit || q.wordLimitInstruction);
   if (maxWords && maxWords > 0) {
     const userWordCount = countWords(userAns);
     if (userWordCount > maxWords) {
@@ -150,6 +168,20 @@ export function gradeSingleQuestion(
         maxPoints,
         explanation: `${explanation ? explanation + ' ' : ''}Exceeded word limit: answered ${userWordCount} words (maximum allowed: ${maxWords}).`,
         violationReason: 'word_limit_exceeded',
+      };
+    }
+
+    if (q.allowNumbers === false && /\d+/.test(userAns) && !/\d+/.test(key)) {
+      return {
+        questionId: qId,
+        userAnswer: userAns,
+        correctAnswer: key,
+        isCorrect: false,
+        isPendingReview: false,
+        earnedPoints: 0,
+        maxPoints,
+        explanation: `${explanation ? explanation + ' ' : ''}Numbers are not allowed for this question: only words are accepted.`,
+        violationReason: 'numbers_not_allowed',
       };
     }
   }
@@ -449,9 +481,82 @@ export function gradeSingleQuestion(
   // - Support accepted alternatives separated by '/' or 'or'
   // - Case & whitespace normalized
   // - Optional leading articles (the, a, an)
+  // - Support Word List / Options letter mapping (e.g. 'A' <-> 'furniture')
   // - DO NOT award points if the answer is merely a substring of the key!
+  const candidateList = (q.wordList && q.wordList.length > 0)
+    ? q.wordList
+    : (q.options && q.options.length > 0)
+    ? q.options
+    : [];
+
+  const userLetter = extractChoiceLetter(userAns);
+  const keyLetter = extractChoiceLetter(key);
+
+  // If both student and key are letters (e.g. 'A' vs 'A')
+  if (userLetter && keyLetter && userLetter === keyLetter) {
+    return {
+      questionId: qId,
+      userAnswer: userAns,
+      correctAnswer: key,
+      isCorrect: true,
+      isPendingReview: false,
+      earnedPoints: maxPoints,
+      maxPoints,
+      explanation,
+    };
+  }
+
+  // If candidate options list is available, cross-check letter with option text
+  if (candidateList.length > 0) {
+    if (userLetter) {
+      const idx = userLetter.charCodeAt(0) - 65;
+      if (idx >= 0 && idx < candidateList.length) {
+        const optionItem = candidateList[idx].replace(/^[A-Za-z][\.\:\s]\s*/, '');
+        if (
+          normalizeAnswerText(optionItem) === normalizeAnswerText(key) ||
+          stripLeadingArticles(normalizeAnswerText(optionItem)) === stripLeadingArticles(normalizeAnswerText(key))
+        ) {
+          return {
+            questionId: qId,
+            userAnswer: userAns,
+            correctAnswer: key,
+            isCorrect: true,
+            isPendingReview: false,
+            earnedPoints: maxPoints,
+            maxPoints,
+            explanation,
+          };
+        }
+      }
+    }
+
+    if (keyLetter) {
+      const idx = keyLetter.charCodeAt(0) - 65;
+      if (idx >= 0 && idx < candidateList.length) {
+        const optionItem = candidateList[idx].replace(/^[A-Za-z][\.\:\s]\s*/, '');
+        if (
+          normalizeAnswerText(optionItem) === normalizeAnswerText(userAns) ||
+          stripLeadingArticles(normalizeAnswerText(optionItem)) === stripLeadingArticles(normalizeAnswerText(userAns))
+        ) {
+          return {
+            questionId: qId,
+            userAnswer: userAns,
+            correctAnswer: key,
+            isCorrect: true,
+            isPendingReview: false,
+            earnedPoints: maxPoints,
+            maxPoints,
+            explanation,
+          };
+        }
+      }
+    }
+  }
+
   const normUser = normalizeAnswerText(userAns);
   const strippedUser = stripLeadingArticles(normUser);
+  const normUserWithoutHyphens = normUser.replace(/-/g, ' ');
+  const strippedUserWithoutHyphens = strippedUser.replace(/-/g, ' ');
 
   const rawAlternatives = key.split(/\s*(?:\/|\bor\b)\s*/i);
   const alternatives = rawAlternatives
@@ -461,7 +566,15 @@ export function gradeSingleQuestion(
   let isCorrect = false;
   for (const alt of alternatives) {
     const strippedAlt = stripLeadingArticles(alt);
-    if (normUser === alt || strippedUser === strippedAlt) {
+    const altWithoutHyphens = alt.replace(/-/g, ' ');
+    const strippedAltWithoutHyphens = strippedAlt.replace(/-/g, ' ');
+
+    if (
+      normUser === alt ||
+      strippedUser === strippedAlt ||
+      normUserWithoutHyphens === altWithoutHyphens ||
+      strippedUserWithoutHyphens === strippedAltWithoutHyphens
+    ) {
       isCorrect = true;
       break;
     }

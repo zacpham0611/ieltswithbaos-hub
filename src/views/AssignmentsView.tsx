@@ -20,7 +20,7 @@ import {
   SpeakingQuestionResponse,
 } from '../types';
 import { parseDocumentStructure } from '../lib/documentExtractor';
-import { gradeAssignmentSubmission, parseMaxWordsFromLimit } from '../lib/assignmentGrader';
+import { gradeAssignmentSubmission, parseMaxWordsFromLimit, formatWordLimitInstruction } from '../lib/assignmentGrader';
 import {
   extractAllNormalizedQuestions,
   resolveQuestionPrompt,
@@ -666,11 +666,88 @@ export const AssignmentsView: React.FC = () => {
     }
   };
 
-  // Safe highlighted passage text renderer with 6 pastel colors and rich paragraph formatting
+  // Safe highlighted passage text renderer with paragraph separation & label preservation
   const renderHighlightedPassage = (rawText: string, passageIndex: number = 0) => {
     if (!rawText) return 'No reading passage text provided.';
 
-    const paragraphs = rawText.split(/\n\s*\n/);
+    // 1. Normalize line breaks
+    let text = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+
+    // 2. Ensure standalone labels (e.g. \nA\n or \nParagraph A\n) are treated as paragraph boundaries
+    text = text.replace(/([^\n])\n([A-Z]|Paragraph\s+[A-Z]|\[[A-Z]\])([\.:])?\n/g, '$1\n\n$2$3\n');
+
+    // 3. Split by double newlines or more
+    const rawChunks = text.split(/\n\s*\n+/);
+
+    interface ParsedParaBlock {
+      key: string;
+      isHeading?: boolean;
+      headingText?: string;
+      label?: string;
+      body: string;
+    }
+
+    const blocks: ParsedParaBlock[] = [];
+    for (let i = 0; i < rawChunks.length; i++) {
+      const chunk = rawChunks[i].trim();
+      if (!chunk) continue;
+
+      // Standalone Subsection Heading (e.g. ### The Drive to Acquire)
+      if (chunk.startsWith('### ') || chunk.startsWith('## ')) {
+        blocks.push({
+          key: `h_${i}`,
+          isHeading: true,
+          headingText: chunk.replace(/^#{2,3}\s+/, ''),
+          body: '',
+        });
+        continue;
+      }
+
+      // Check if chunk is purely a standalone label (e.g. "A" or "Paragraph A" or "[A]" or "A.")
+      const standaloneLabelMatch = chunk.match(/^([A-Z]|Paragraph\s+[A-Z]|\[[A-Z]\])[\.:]?$/i);
+      if (standaloneLabelMatch && i + 1 < rawChunks.length) {
+        const nextChunk = rawChunks[i + 1].trim();
+        // If next chunk is not a heading and not another standalone label, combine them!
+        if (!nextChunk.startsWith('### ') && !nextChunk.startsWith('## ') && !nextChunk.match(/^([A-Z]|Paragraph\s+[A-Z]|\[[A-Z]\])[\.:]?$/i)) {
+          blocks.push({
+            key: `p_${i}`,
+            label: standaloneLabelMatch[1].toUpperCase(),
+            body: nextChunk,
+          });
+          i++; // consumed next chunk
+          continue;
+        }
+      }
+
+      // Check if chunk starts with label on its own line: e.g. "A\nBody text..." or "Paragraph A\nBody text..."
+      const multilineLabelMatch = chunk.match(/^(([A-Z]|Paragraph\s+[A-Z]|\[[A-Z]\])[\.:]?)\s*\n([\s\S]+)$/i);
+      if (multilineLabelMatch) {
+        blocks.push({
+          key: `p_${i}`,
+          label: multilineLabelMatch[1].trim(),
+          body: multilineLabelMatch[3].trim(),
+        });
+        continue;
+      }
+
+      // Check if chunk starts with inline label followed by colon/period/space: e.g. "A. Body..." or "A: Body..." or "[A] Body..." or "Paragraph A: Body..."
+      const inlineLabelMatch = chunk.match(/^(([A-Z]|Paragraph\s+[A-Z]|\[[A-Z]\])[\.:])\s+([\s\S]+)$/i);
+      if (inlineLabelMatch) {
+        blocks.push({
+          key: `p_${i}`,
+          label: inlineLabelMatch[1].trim(),
+          body: inlineLabelMatch[3].trim(),
+        });
+        continue;
+      }
+
+      // Regular paragraph
+      blocks.push({
+        key: `p_${i}`,
+        body: chunk,
+      });
+    }
+
     const activeMarkers = readingMarkers.filter((m) => m.passageIndex === passageIndex);
 
     const renderTextWithMarkers = (pText: string, pKey: string | number) => {
@@ -720,27 +797,29 @@ export const AssignmentsView: React.FC = () => {
       return parts;
     };
 
-    return paragraphs.map((para, pIdx) => {
-      const trimmed = para.trim();
-      if (!trimmed) return null;
-
-      // Standalone Subsection Heading (e.g. ### The Drive to Acquire)
-      if (trimmed.startsWith('### ') || trimmed.startsWith('## ')) {
-        const headingText = trimmed.replace(/^#{2,3}\s+/, '');
+    return blocks.map((b) => {
+      if (b.isHeading) {
         return (
           <h3
-            key={`h_${pIdx}`}
-            className="font-bold font-sans text-slate-900 text-lg md:text-xl mt-5 mb-2 pb-1 border-b border-slate-200 tracking-tight"
+            key={b.key}
+            className="font-bold font-sans text-slate-900 text-lg md:text-xl mt-6 mb-3 pb-1 border-b border-slate-200 tracking-tight"
           >
-            {renderTextWithMarkers(headingText, `h_${pIdx}`)}
+            {renderTextWithMarkers(b.headingText || '', `${b.key}_h`)}
           </h3>
         );
       }
 
       return (
-        <p key={`p_${pIdx}`} className="mb-4 leading-[1.75] text-justify">
-          {renderTextWithMarkers(para, `p_${pIdx}`)}
-        </p>
+        <div key={b.key} className="mb-6 leading-[1.75] text-justify font-serif text-slate-800">
+          {b.label && (
+            <span className="font-bold text-slate-900 font-sans text-base block mb-1.5 select-text">
+              {b.label}
+            </span>
+          )}
+          <p className="whitespace-pre-line leading-[1.75]">
+            {renderTextWithMarkers(b.body, `${b.key}_b`)}
+          </p>
+        </div>
       );
     });
   };
@@ -3187,6 +3266,25 @@ export const AssignmentsView: React.FC = () => {
                                     const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
                                     const isFlag = Boolean(flaggedQuestions[q.id]);
 
+                                    const maxWords = q.wordLimitCount || q.maxWords || parseMaxWordsFromLimit(q.wordLimit || q.wordLimitInstruction || group.wordLimit);
+                                    const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
+                                    const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
+                                    const instructionText = q.wordLimitInstruction || (q.wordLimitCount ? formatWordLimitInstruction(q.wordLimitCount, q.allowNumbers) : q.wordLimit || group.wordLimit);
+
+                                    const qFormat = q.completionFormat || (effectiveWordList && effectiveWordList.length > 0 ? 'word_list' : (q.options && q.options.length > 0 ? 'options' : 'text'));
+
+                                    const usedByOther = new Map<string, number>();
+                                    if (qFormat === 'options' && q.preventDuplicateOptions) {
+                                      group.questions.forEach(({ q: otherQ, idx: otherIdx }) => {
+                                        if (otherQ.id !== q.id) {
+                                          const otherAns = readingAnswers[otherQ.id] || (mySub?.readingAnswers && mySub.readingAnswers[otherQ.id]);
+                                          if (otherAns && otherAns.trim()) {
+                                            usedByOther.set(otherAns.trim().toLowerCase(), otherIdx + 1);
+                                          }
+                                        }
+                                      });
+                                    }
+
                                     return (
                                       <div
                                         key={q.id}
@@ -3204,7 +3302,7 @@ export const AssignmentsView: React.FC = () => {
                                             <span className="font-mono text-xs font-extrabold text-blue-900 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg shrink-0">
                                               Question {idx + 1}
                                             </span>
-                                            {effectiveWordList && effectiveWordList.length > 0 ? (
+                                            {qFormat === 'word_list' && effectiveWordList && effectiveWordList.length > 0 ? (
                                               <select
                                                 disabled={isReadOnly}
                                                 value={answer}
@@ -3212,25 +3310,63 @@ export const AssignmentsView: React.FC = () => {
                                                 className="w-full sm:max-w-md px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
                                               >
                                                 <option value="">-- Choose (A–{String.fromCharCode(64 + effectiveWordList.length)}) --</option>
-                                                {effectiveWordList.map((opt) => {
+                                                {effectiveWordList.map((opt, oIdx) => {
                                                   const letterMatch = opt.match(/^([A-Za-z])[\.\:\s]/);
-                                                  const letter = letterMatch ? letterMatch[1].toUpperCase() : opt;
+                                                  const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + oIdx);
                                                   return (
                                                     <option key={opt} value={letter}>
-                                                      {opt}
+                                                      {opt.startsWith(letter) ? opt : `${letter}. ${opt}`}
+                                                    </option>
+                                                  );
+                                                })}
+                                              </select>
+                                            ) : qFormat === 'options' && q.options && q.options.length > 0 ? (
+                                              <select
+                                                disabled={isReadOnly}
+                                                value={answer}
+                                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                className="w-full sm:max-w-md px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                              >
+                                                <option value="">-- Choose Option --</option>
+                                                {q.options.map((opt) => {
+                                                  const otherQNum = usedByOther.get(opt.trim().toLowerCase());
+                                                  const isTaken = Boolean(otherQNum && answer.trim().toLowerCase() !== opt.trim().toLowerCase());
+                                                  return (
+                                                    <option key={opt} value={opt} disabled={isTaken}>
+                                                      {opt} {isTaken ? `(Selected in Q${otherQNum})` : ''}
                                                     </option>
                                                   );
                                                 })}
                                               </select>
                                             ) : (
-                                              <input
-                                                type="text"
-                                                disabled={isReadOnly}
-                                                value={answer}
-                                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                                placeholder="Type answer..."
-                                                className="w-full sm:max-w-md px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                                              />
+                                              <div className="w-full sm:max-w-md space-y-1">
+                                                <input
+                                                  type="text"
+                                                  disabled={isReadOnly}
+                                                  value={answer}
+                                                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                                  placeholder={
+                                                    maxWords
+                                                      ? `Type answer (max ${maxWords} word${maxWords > 1 ? 's' : ''})...`
+                                                      : 'Type answer...'
+                                                  }
+                                                  className={`w-full px-3 py-2 border rounded-lg text-xs font-semibold bg-white text-slate-900 shadow-2xs focus:ring-2 focus:outline-hidden ${
+                                                    isOverWordLimit
+                                                      ? 'border-red-400 focus:ring-red-400 text-red-900 bg-red-50/20'
+                                                      : 'border-slate-300 focus:ring-blue-500'
+                                                  }`}
+                                                />
+                                                <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                                                  {instructionText ? (
+                                                    <span className="font-semibold text-amber-800">{instructionText}</span>
+                                                  ) : <span />}
+                                                  {maxWords ? (
+                                                    <span className={isOverWordLimit ? 'text-red-600 font-bold animate-pulse' : 'text-slate-400'}>
+                                                      {currentWordsCount} / {maxWords} words
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+                                              </div>
                                             )}
                                           </div>
 
@@ -3378,7 +3514,8 @@ export const AssignmentsView: React.FC = () => {
                               const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
                               const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
                               const isFlag = Boolean(flaggedQuestions[q.id]);
-                              const maxWords = q.maxWords || parseMaxWordsFromLimit(q.wordLimit);
+                              const maxWords = q.wordLimitCount || q.maxWords || parseMaxWordsFromLimit(q.wordLimit || q.wordLimitInstruction || group.wordLimit);
+                              const instructionText = q.wordLimitInstruction || (q.wordLimitCount ? formatWordLimitInstruction(q.wordLimitCount, q.allowNumbers) : q.wordLimit || group.wordLimit);
                               const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
                               const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
                               const displayPrompt = resolveQuestionPrompt(q, idx + 1);
@@ -3433,12 +3570,12 @@ export const AssignmentsView: React.FC = () => {
                                   <p className="font-semibold text-slate-800 text-sm leading-relaxed">{displayPrompt}</p>
 
                                   {/* Word limit note if applicable */}
-                                  {maxWords && !group.wordLimit && (
+                                  {(instructionText || (maxWords && !group.wordLimit)) && (
                                     <div className="flex items-center space-x-2">
                                       <span className="text-xs text-amber-800 font-semibold bg-amber-50 px-2.5 py-1 rounded border border-amber-200 inline-block">
-                                        Limit: NO MORE THAN {maxWords} WORD{maxWords > 1 ? 'S' : ''}
+                                        Limit: {instructionText || (maxWords ? `NO MORE THAN ${maxWords} WORD${maxWords > 1 ? 'S' : ''}` : '')}
                                       </span>
-                                      {isOverWordLimit && (
+                                      {isOverWordLimit && maxWords && (
                                         <span className="text-xs text-red-600 font-bold animate-pulse">
                                           Exceeds limit ({currentWordsCount}/{maxWords} words)
                                         </span>

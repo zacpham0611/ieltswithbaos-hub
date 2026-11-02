@@ -148,6 +148,20 @@ export interface ReadingQuestion {
   maxWords?: number;
   /** For multiple_select: how many options the student must choose (e.g. 2, 3). */
   multipleSelectCount?: number;
+  /** Answer format for completion questions */
+  completionFormat?: 'text' | 'options' | 'word_list';
+  /** Configured word limit count (e.g. 1, 2, 3) */
+  wordLimitCount?: number;
+  /** Whether numbers are allowed in addition to words (AND/OR A NUMBER) */
+  allowNumbers?: boolean;
+  /** Formatted instruction string like "NO MORE THAN TWO WORDS AND/OR A NUMBER" */
+  wordLimitInstruction?: string;
+  /** In options mode, whether an option can only be used once */
+  preventDuplicateOptions?: boolean;
+  /** Optional word list specific to this question if not shared */
+  wordList?: string[];
+  /** Reference to shared resources if belonging to a shared resource set */
+  sharedResourceId?: string;
   correctAnswer: string;
   explanation: string;
   points?: number;
@@ -168,6 +182,16 @@ export interface QuestionGroup {
   headingsList?: string[];
   featuresList?: string[];
   optionsBox?: string[];
+  /** Shared resources across questions in the group */
+  hasSharedResources?: boolean;
+  /** Shared Word Bank (list of words/phrases) */
+  sharedWordBank?: string[];
+  /** Shared Options (predefined answer options) */
+  sharedOptions?: string[];
+  /** Common instructions for questions sharing resources */
+  sharedInstructions?: string;
+  /** Question IDs that participate in the shared resource */
+  sharedQuestionIds?: string[];
   questions: ReadingQuestion[];
 }
 
