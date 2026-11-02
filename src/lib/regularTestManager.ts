@@ -6,7 +6,7 @@ import type {
   StrictExamSettings,
   StrictExamPreset,
 } from '../types/index.ts';
-import { gradeAssignmentSubmission } from './assignmentGrader.ts';
+import { gradeAssignmentSubmission, gradeListeningSubmission } from './assignmentGrader.ts';
 import { calculateIeltsOverallBand } from './ieltsScoring.ts';
 import { extractAllNormalizedQuestions } from './questionNormalizer.ts';
 
@@ -75,7 +75,7 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
   id: string;
   title: string;
   instructions: string;
-  skills: ('reading' | 'writing' | 'speaking')[];
+  skills: ('reading' | 'writing' | 'speaking' | 'listening')[];
   durationMinutes: number;
   timingMode: RegularTest['timingMode'];
   sectionTimers?: Record<string, number>;
@@ -84,7 +84,30 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
   sections: RegularTestSection[];
 } {
   const sanitizedSections: RegularTestSection[] = (test.sections || []).map((sec, idx) => {
-    if (sec.skill === 'reading') {
+    if (sec.skill === 'listening') {
+      const sanitizedListeningQuestions = (sec.listeningQuestions || []).map((q) => {
+        const { correctAnswer, explanation, ...cleanQ } = q as any;
+        return cleanQ;
+      });
+      const sanitizedParts = (sec.listeningParts || []).map((p) => ({
+        ...p,
+        questions: (p.questions || []).map((q) => {
+          const { correctAnswer, explanation, ...cleanQ } = q as any;
+          return cleanQ;
+        }),
+      }));
+      return {
+        id: sec.id || `sec_listening_${idx}`,
+        title: sec.title || `Listening Section ${idx + 1}`,
+        skill: 'listening',
+        durationMinutes: sec.durationMinutes || 30,
+        audioUrl: sec.audioUrl,
+        listeningAudioUrl: sec.listeningAudioUrl || sec.audioUrl,
+        listeningParts: sanitizedParts,
+        listeningQuestions: sanitizedListeningQuestions,
+        questionGroups: sec.questionGroups || [],
+      };
+    } else if (sec.skill === 'reading') {
       const extracted = extractAllNormalizedQuestions(sec);
       const allRawQuestions =
         extracted.questions.length >= (sec.readingQuestions?.length || 0)
@@ -222,8 +245,32 @@ export function evaluateRegularTestAttempt(
   gradingStatus: RegularTestAttempt['gradingStatus'];
 } {
   const currentScores: RegularTestAttempt['scores'] = { ...(attempt.scores || {}) };
+  const listeningSections = (test.sections || []).filter((s) => s.skill === 'listening');
   const readingSections = (test.sections || []).filter((s) => s.skill === 'reading');
   const hasWriting = (test.sections || []).some((s) => s.skill === 'writing');
+  const hasSpeaking = (test.sections || []).some((s) => s.skill === 'speaking');
+
+  // Grade Listening if listening sections exist
+  if (listeningSections.length > 0) {
+    const allListeningQuestions = listeningSections.flatMap((s) => s.listeningQuestions || (s.readingQuestions as any) || []);
+    const studentListeningAnswers = attempt.answers?.listening || {};
+
+    if (allListeningQuestions.length > 0) {
+      const summary = gradeListeningSubmission(allListeningQuestions, studentListeningAnswers);
+      currentScores.listening = {
+        raw: summary.earnedScore,
+        max: summary.gradableMaxScore || summary.maxScore || allListeningQuestions.length,
+        band: summary.bandEstimate,
+        errorAnalysis: summary.errorAnalysis.map((err) => ({
+          questionId: err.questionId,
+          userAnswer: err.userAnswer,
+          correctAnswer: err.correctAnswer,
+          isCorrect: err.isCorrect,
+          explanation: err.explanation,
+        })),
+      };
+    }
+  }
 
   // Grade Reading if reading sections exist
   if (readingSections.length > 0) {
@@ -247,24 +294,28 @@ export function evaluateRegularTestAttempt(
     }
   }
 
-  // Calculate overall if Writing is also graded or if Reading-only
+  // Calculate overall band across all evaluated skills
+  const bandsToAverage: number[] = [];
+  if (currentScores.listening?.band) bandsToAverage.push(currentScores.listening.band);
+  if (currentScores.reading?.band) bandsToAverage.push(currentScores.reading.band);
+  if (currentScores.writing?.band) bandsToAverage.push(currentScores.writing.band);
+  if (currentScores.speaking?.band) bandsToAverage.push(currentScores.speaking.band);
+
+  if (bandsToAverage.length > 0) {
+    currentScores.overall = calculateIeltsOverallBand(bandsToAverage);
+  }
+
+  // Determine grading status
   let gradingStatus: RegularTestAttempt['gradingStatus'] = 'pending';
-  if (!hasWriting && currentScores.reading) {
-    currentScores.overall = currentScores.reading.band;
+  const needsManualWriting = hasWriting && !currentScores.writing?.band;
+  const needsManualSpeaking = hasSpeaking && !currentScores.speaking?.band;
+
+  if (!needsManualWriting && !needsManualSpeaking) {
     gradingStatus = 'fully_graded';
-  } else if (hasWriting) {
-    if (currentScores.writing?.band && currentScores.reading?.band) {
-      currentScores.overall = calculateIeltsOverallBand([
-        currentScores.reading.band,
-        currentScores.writing.band,
-      ]);
-      gradingStatus = 'fully_graded';
-    } else if (currentScores.writing?.band && !currentScores.reading) {
-      currentScores.overall = currentScores.writing.band;
-      gradingStatus = 'fully_graded';
-    } else {
-      gradingStatus = currentScores.reading ? 'pending_manual' : 'pending';
-    }
+  } else if (currentScores.listening || currentScores.reading) {
+    gradingStatus = 'pending_manual';
+  } else {
+    gradingStatus = 'pending';
   }
 
   return {

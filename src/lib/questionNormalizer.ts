@@ -646,6 +646,8 @@ export interface QuestionRenderGroup {
   featuresList?: string[];
   wordList?: string[];
   wordLimit?: string;
+  imageUrl?: string;
+  imageCaption?: string;
   questions: Array<{ q: ReadingQuestion; idx: number }>;
 }
 
@@ -712,6 +714,10 @@ export function buildQuestionRenderGroups(
 
     if (shouldContinueGroup && currentGroup) {
       currentGroup.questions.push({ q, idx });
+      if (!currentGroup.imageUrl && (q.imageUrl || q.diagramUrl)) {
+        currentGroup.imageUrl = q.imageUrl || q.diagramUrl;
+        currentGroup.imageCaption = q.imageCaption || currentGroup.imageCaption;
+      }
     } else {
       if (currentGroup) {
         const firstIdx = currentGroup.questions[0].idx + 1;
@@ -733,6 +739,8 @@ export function buildQuestionRenderGroups(
         featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
         wordList: qWordList,
         wordLimit,
+        imageUrl: q.imageUrl || q.diagramUrl || undefined,
+        imageCaption: q.imageCaption || undefined,
         questions: [{ q, idx }],
       };
     }

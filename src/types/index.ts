@@ -81,6 +81,7 @@ export interface Resource {
   title: string;
   type: ResourceType;
   url?: string;
+  audioUrl?: string;
   content?: string;
   tags: string[];
   skill?: CourseSkill;
@@ -91,6 +92,7 @@ export interface Resource {
   speakingPart1?: SpeakingPart1LibraryContent;
   speakingPart2?: SpeakingPart2LibraryContent;
   speakingPart3?: SpeakingPart3LibraryContent;
+  listeningContent?: ListeningTestContent;
   description?: string;
   category?: string;
 }
@@ -113,7 +115,7 @@ export interface Lesson {
   isBillable?: boolean; // eligible for tuition calculation
 }
 
-export type AssignmentSkill = 'reading' | 'writing' | 'speaking';
+export type AssignmentSkill = 'reading' | 'writing' | 'speaking' | 'listening';
 
 export type QuestionType =
   | 'multiple_choice'
@@ -144,6 +146,8 @@ export interface ReadingQuestion {
   headingsList?: string[];
   featuresList?: string[];
   diagramUrl?: string;
+  imageUrl?: string;
+  imageCaption?: string;
   wordLimit?: string;
   maxWords?: number;
   /** For multiple_select: how many options the student must choose (e.g. 2, 3). */
@@ -179,9 +183,14 @@ export interface QuestionGroup {
   questionType: QuestionType;
   wordLimit?: string;
   maxWords?: number;
+  allowNumbers?: boolean;
   headingsList?: string[];
   featuresList?: string[];
   optionsBox?: string[];
+  /** Visual image or diagram reference (e.g. flowchart, diagram labelling) */
+  imageUrl?: string;
+  imageCaption?: string;
+  groupText?: string;
   /** Shared resources across questions in the group */
   hasSharedResources?: boolean;
   /** Shared Word Bank (list of words/phrases) */
@@ -193,6 +202,87 @@ export interface QuestionGroup {
   /** Question IDs that participate in the shared resource */
   sharedQuestionIds?: string[];
   questions: ReadingQuestion[];
+}
+
+// =============================================================================
+// IELTS LISTENING DATA MODELS (OFFICIAL SPECIFICATIONS)
+// =============================================================================
+
+export type ListeningQuestionType =
+  | 'multiple_choice'
+  | 'multiple_select'
+  | 'matching'
+  | 'plan_map_diagram_labelling'
+  | 'form_completion'
+  | 'note_completion'
+  | 'table_completion'
+  | 'flowchart_completion'
+  | 'summary_completion'
+  | 'sentence_completion'
+  | 'short_answer';
+
+export interface ListeningQuestion {
+  id: string;
+  number?: number;
+  questionNumber?: number;
+  part?: 1 | 2 | 3 | 4 | number;
+  groupId?: string;
+  type: ListeningQuestionType;
+  prompt: string;
+  instruction?: string;
+  options?: string[];
+  correctAnswer?: string;
+  acceptedAlternatives?: string[];
+  wordLimit?: string;
+  maxWords?: number;
+  allowNumbers?: boolean;
+  explanation?: string;
+  points?: number;
+  imageUrl?: string;
+  imageCaption?: string;
+  labelCoordinate?: { x: number; y: number };
+}
+
+export interface ListeningQuestionGroup {
+  id: string;
+  part?: 1 | 2 | 3 | 4 | number;
+  groupTitle?: string;
+  title?: string;
+  instructions?: string;
+  type?: ListeningQuestionType;
+  questionType?: QuestionType;
+  sharedContent?: string;
+  groupText?: string;
+  imageUrl?: string;
+  imageCaption?: string;
+  wordLimit?: string;
+  maxWords?: number;
+  allowNumbers?: boolean;
+  optionsBox?: string[];
+  options?: string[];
+  questions: ListeningQuestion[];
+}
+
+export interface ListeningPart {
+  partNumber: 1 | 2 | 3 | 4 | number;
+  title: string;
+  audioUrl?: string;
+  audioDurationSeconds?: number;
+  instructions?: string;
+  questionGroups: ListeningQuestionGroup[];
+  questions: ListeningQuestion[];
+}
+
+export interface ListeningTestContent {
+  title?: string;
+  audioUrl?: string;
+  audioMode?: 'continuous' | 'segmented';
+  continuousAudioUrl?: string;
+  continuousAudioDurationSeconds?: number;
+  parts: ListeningPart[];
+  totalQuestions: number;
+  allowReplay?: boolean;
+  allowSpeedAdjustment?: boolean;
 }
 
 export interface ParsedPassage {
@@ -334,6 +424,17 @@ export interface Assignment {
   speakingQuestions?: string[];
   speakingPart3Groups?: SpeakingPart3Group[];
   selectedSpeakingExerciseIds?: string[];
+  // Listening Specific
+  listeningAudioUrl?: string;
+  listeningAudioDurationSeconds?: number;
+  listeningAudioMode?: 'continuous' | 'segmented';
+  listeningParts?: ListeningPart[];
+  listeningQuestions?: ListeningQuestion[];
+  listeningQuestionGroups?: ListeningQuestionGroup[];
+  listeningAllowReplay?: boolean;
+  listeningAllowSpeed?: boolean;
+  audioUrl?: string;
+  questions?: any[];
   answerReleasePolicy?: 'immediate' | 'after_submission' | 'never';
   scoreVisibility?: 'private' | 'public';
   sourceDocumentName?: string;
@@ -380,6 +481,20 @@ export interface Submission {
   speakingTranslation?: string;
   speakingDuration?: number;
   speakingResponses?: Record<string, SpeakingQuestionResponse>;
+  // Listening
+  answers?: Record<string, string>;
+  listeningAnswers?: Record<string, string>;
+  listeningScore?: {
+    correct?: number;
+    raw?: number;
+    total: number;
+    percentage?: number;
+    estimatedBand?: number;
+    band?: number;
+    bandNotes?: string;
+    errorAnalysis?: any[];
+  };
+  listeningErrorAnalysis?: { questionId: string; userAnswer: string; correctAnswer: string; isCorrect: boolean; explanation?: string }[];
   // Rubrics & Feedback
   rubricScores?: {
     criterion: string;
@@ -609,8 +724,9 @@ export interface RegularTestReleaseSettings {
 
 export interface RegularTestSection {
   id: string;
-  skill: 'reading' | 'writing' | 'speaking';
+  skill: 'reading' | 'writing' | 'speaking' | 'listening';
   title: string;
+  audioUrl?: string;
   durationMinutes?: number;
   instructions?: string;
   resourceId?: string; // Materials Library reference
@@ -618,7 +734,7 @@ export interface RegularTestSection {
   readingPassage?: string;
   passages?: ParsedPassage[];
   readingQuestions?: ReadingQuestion[];
-  questionGroups?: QuestionGroup[];
+  questionGroups?: any[];
   readingTestType?: ReadingTestType;
   // Writing Payload
   writingTaskType?: 'task1' | 'task2';
@@ -637,6 +753,14 @@ export interface RegularTestSection {
   speakingPoints?: string[];
   speakingQuestions?: string[];
   speakingPart3Groups?: SpeakingPart3Group[];
+  // Listening Payload
+  listeningAudioUrl?: string;
+  listeningAudioDurationSeconds?: number;
+  listeningAudioMode?: 'continuous' | 'segmented';
+  listeningParts?: ListeningPart[];
+  listeningQuestions?: ListeningQuestion[];
+  listeningQuestionGroups?: ListeningQuestionGroup[];
+  listeningDurationMinutes?: number;
 }
 
 export interface RegularTest {
@@ -647,7 +771,7 @@ export interface RegularTest {
   teacherName?: string;
   title: string;
   instructions: string;
-  skills: ('reading' | 'writing' | 'speaking')[];
+  skills: ('reading' | 'writing' | 'speaking' | 'listening')[];
   availabilityStart?: string;
   availabilityEnd?: string;
   hardDeadline?: string;
@@ -705,6 +829,13 @@ export interface RegularTestAttempt {
       isLocked?: boolean;
       part?: string;
     }>;
+    listening?: Record<string, string>;
+    _listeningPlaybackState?: {
+      currentPart: number;
+      status: 'not_started' | 'playing' | 'completed' | 'interrupted';
+      completedParts: number[];
+      playCount: Record<string, number>;
+    };
     [key: string]: any;
   };
   flaggedQuestions: Record<string, boolean>;
@@ -749,6 +880,18 @@ export interface RegularTestAttempt {
       strengths?: string;
       areasToImprove?: string;
       nextSteps?: string;
+    };
+    listening?: {
+      raw: number;
+      max: number;
+      band: number;
+      errorAnalysis?: Array<{
+        questionId: string;
+        userAnswer: string;
+        correctAnswer: string;
+        isCorrect: boolean;
+        explanation?: string;
+      }>;
     };
     overall?: number;
   };

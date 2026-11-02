@@ -53,6 +53,7 @@ import {
   Mic,
   Volume2,
   FolderPlus,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface SmartDocumentImportModalProps {
@@ -2200,8 +2201,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                               const targetQ = { ...updated[idx], ...patch, isTeacherEdited: true };
                               updated[idx] = targetQ;
 
-                              // If this question shares resources, sync wordList, options, completionFormat to sibling questions
-                              if (targetQ.sharedResourceId && (patch.wordList || patch.options || patch.completionFormat)) {
+                              // If this question shares resources, sync wordList, options, completionFormat, and images to sibling questions
+                              if (targetQ.sharedResourceId && (patch.wordList || patch.options || patch.completionFormat || patch.imageUrl || patch.diagramUrl || patch.imageCaption)) {
                                 for (let i = 0; i < updated.length; i++) {
                                   if (i !== idx && updated[i].sharedResourceId === targetQ.sharedResourceId) {
                                     updated[i] = {
@@ -2209,6 +2210,9 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                       ...(patch.wordList ? { wordList: [...patch.wordList] } : {}),
                                       ...(patch.options ? { options: [...patch.options] } : {}),
                                       ...(patch.completionFormat ? { completionFormat: patch.completionFormat } : {}),
+                                      ...(patch.imageUrl !== undefined ? { imageUrl: patch.imageUrl } : {}),
+                                      ...(patch.diagramUrl !== undefined ? { diagramUrl: patch.diagramUrl } : {}),
+                                      ...(patch.imageCaption !== undefined ? { imageCaption: patch.imageCaption } : {}),
                                       isTeacherEdited: true,
                                     };
                                   }
@@ -2260,6 +2264,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                       <option value="summary_completion">Summary Completion</option>
                                       <option value="note_completion">Note Completion</option>
                                       <option value="table_completion">Table Completion</option>
+                                      <option value="flowchart_completion">Flow-chart Completion</option>
+                                      <option value="diagram_completion">Diagram Labelling / Completion</option>
                                       <option value="short_answer">Short Answer</option>
                                     </select>
                                     {q.isTeacherEdited ? (
@@ -2601,6 +2607,83 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                           </div>
                                         </div>
                                       )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Flow-chart & Diagram Labelling Image Handler (Section 12) */}
+                                {(q.type === 'flowchart_completion' || q.type === 'diagram_completion' || q.imageUrl || q.diagramUrl) && (
+                                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-2.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[11px] font-bold text-amber-950 uppercase tracking-wide flex items-center space-x-1">
+                                        <ImageIcon className="w-3.5 h-3.5 text-amber-700" />
+                                        <span>Sơ đồ / Hình ảnh minh họa (Diagram / Flow-chart Image)</span>
+                                      </span>
+                                      {(q.imageUrl || q.diagramUrl) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => updateQ({ imageUrl: undefined, diagramUrl: undefined, imageCaption: undefined })}
+                                          className="text-[10px] text-red-600 hover:text-red-800 font-bold flex items-center space-x-1"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                          <span>Gỡ ảnh</span>
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {/* Preview if image attached */}
+                                    {(q.imageUrl || q.diagramUrl) && (
+                                      <div className="space-y-2">
+                                        <div className="border border-amber-300 rounded-lg overflow-hidden bg-white max-h-48 flex items-center justify-center p-1.5 shadow-2xs">
+                                          <img
+                                            src={q.imageUrl || q.diagramUrl}
+                                            alt={q.imageCaption || 'Diagram'}
+                                            className="max-h-40 max-w-full object-contain rounded"
+                                          />
+                                        </div>
+                                        <input
+                                          type="text"
+                                          value={q.imageCaption || ''}
+                                          onChange={(e) => updateQ({ imageCaption: e.target.value })}
+                                          placeholder="Chú thích ảnh / Tiêu đề sơ đồ (Caption)..."
+                                          className="w-full p-1.5 border border-amber-200 rounded text-xs bg-white text-slate-800"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {/* URL input and local file upload */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                                      <div>
+                                        <label className="block text-[10px] font-semibold text-amber-900 mb-0.5">Dán URL hình ảnh:</label>
+                                        <input
+                                          type="text"
+                                          value={q.imageUrl || q.diagramUrl || ''}
+                                          onChange={(e) => updateQ({ imageUrl: e.target.value.trim(), diagramUrl: e.target.value.trim() })}
+                                          placeholder="https://example.com/diagram.png"
+                                          className="w-full p-1.5 border border-amber-200 rounded text-xs bg-white text-slate-800"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] font-semibold text-amber-900 mb-0.5">Hoặc tải file ảnh lên:</label>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                              const reader = new FileReader();
+                                              reader.onload = (uploadEvent) => {
+                                                const dataUrl = uploadEvent.target?.result as string;
+                                                if (dataUrl) {
+                                                  updateQ({ imageUrl: dataUrl, diagramUrl: dataUrl });
+                                                }
+                                              };
+                                              reader.readAsDataURL(file);
+                                            }
+                                          }}
+                                          className="w-full text-xs text-amber-900 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-bold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer"
+                                        />
+                                      </div>
                                     </div>
                                   </div>
                                 )}

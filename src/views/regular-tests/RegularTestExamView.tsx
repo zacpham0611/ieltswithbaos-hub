@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useI18n } from '../../i18n/context';
-import type { RegularTest, RegularTestAttempt, RegularTestSection, ReadingQuestion } from '../../types';
+import type { RegularTest, RegularTestAttempt, RegularTestSection, ReadingQuestion, ListeningQuestionGroup } from '../../types';
 import { calculateRemainingSeconds, parseFormattedPrompt } from '../../lib/regularTestManager';
 import {
   Clock,
@@ -20,12 +20,15 @@ import {
   PenTool,
   BookOpen,
   Mic,
+  Headphones,
   Lock,
   Volume2,
   Highlighter,
   Eraser,
 } from 'lucide-react';
 import { SpeakingSectionWorkspace } from './SpeakingSectionWorkspace';
+import { ExamListeningAudioPlayer } from '../../components/listening/ExamListeningAudioPlayer';
+import { ListeningQuestionRenderer } from '../../components/listening/ListeningQuestionRenderer';
 
 interface RegularTestExamViewProps {
   test: RegularTest;
@@ -465,6 +468,10 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
   const isSectionCompleted = (secIdx: number): boolean => {
     if (secIdx < 0 || secIdx >= sections.length) return false;
     const sec = sections[secIdx];
+    if (sec.skill === 'listening') {
+      const answered = Object.values(answers.listening || {}).filter((v: any) => v && String(v).trim()).length;
+      return answered > 0;
+    }
     if (sec.skill === 'reading') {
       const answered = (sec.readingQuestions || []).filter((q) => answers.reading?.[q.id]?.trim()).length;
       return answered > 0;
@@ -493,6 +500,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
   };
 
   const getSectionLabel = (sec: RegularTestSection, idx: number) => {
+    if (sec.skill === 'listening') return 'Listening';
     if (sec.skill === 'reading') return 'Reading';
     if (sec.skill === 'writing') {
       return sec.writingTaskType === 'task1' ? 'Task 1' : sec.writingTaskType === 'task2' ? 'Task 2' : 'Writing';
@@ -530,6 +538,23 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Listening state and handlers
+  const [activeListeningPartTab, setActiveListeningPartTab] = useState<number>(0);
+  const allListeningQuestions =
+    currentSection?.skill === 'listening'
+      ? currentSection.listeningQuestions && currentSection.listeningQuestions.length > 0
+        ? currentSection.listeningQuestions
+        : (currentSection.listeningParts || []).flatMap((p) => p.questions || [])
+      : [];
+  const answeredListeningCount = allListeningQuestions.filter((q) => answers.listening?.[q.id]?.trim()).length;
+
+  const handleListeningAnswerChange = (qId: string, val: string) => {
+    const nextListening = { ...(answers.listening || {}), [qId]: val };
+    const nextAnswers = { ...answers, listening: nextListening };
+    setAnswers(nextAnswers);
+    triggerAutosave(nextAnswers, flaggedQuestions);
   };
 
   // Question counts for summary
@@ -746,6 +771,161 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
       {/* Main Exam Canvas */}
       <div className="flex-1 flex overflow-hidden">
+        {/* LISTENING SECTION CANVAS */}
+        {currentSection?.skill === 'listening' && (
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-100">
+            {/* Dedicated Exam Listening Audio Player */}
+            <div className="p-4 bg-slate-900 border-b border-slate-800 shrink-0">
+              <div className="max-w-5xl mx-auto">
+                <ExamListeningAudioPlayer
+                  attemptId={attempt.id}
+                  sectionId={currentSection.id}
+                  audioUrl={currentSection.audioUrl || currentSection.listeningAudioUrl}
+                  parts={currentSection.listeningParts || []}
+                  activePartIndex={activeListeningPartTab}
+                  onPartChange={(idx) => setActiveListeningPartTab(idx)}
+                />
+              </div>
+            </div>
+
+            {/* Split: Question Navigator + Questions Content */}
+            <div className="flex-1 flex overflow-hidden">
+              {/* Left / Main Question Area */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50">
+                <div className="max-w-4xl mx-auto space-y-6">
+                  {(() => {
+                    const isSectionLocked = (isPerSection && lockedSkills[currentSection?.skill || '']) || submitting;
+                    const parts = currentSection.listeningParts || [];
+                    const activePart = parts[activeListeningPartTab];
+                    const groupsToRender: ListeningQuestionGroup[] = (activePart?.questionGroups?.length
+                      ? activePart.questionGroups
+                      : currentSection.questionGroups?.length
+                      ? currentSection.questionGroups
+                      : [
+                          {
+                            id: `listen_group_${activeListeningPartTab}`,
+                            type: 'note_completion' as any,
+                            title: `Part ${activeListeningPartTab + 1} Questions`,
+                            instructions: 'Answer the questions as you listen. Write NO MORE THAN TWO WORDS AND/OR A NUMBER.',
+                            wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
+                            questions: (activePart?.questions || currentSection.listeningQuestions || []).slice(
+                              activeListeningPartTab * 10,
+                              (activeListeningPartTab + 1) * 10
+                            ),
+                          },
+                        ]) as ListeningQuestionGroup[];
+
+                    return groupsToRender.map((group) => (
+                      <ListeningQuestionRenderer
+                        key={group.id}
+                        questionGroup={group}
+                        answers={answers.listening || {}}
+                        onAnswerChange={handleListeningAnswerChange}
+                        flaggedQuestionIds={
+                          new Set(
+                            Object.entries(flaggedQuestions)
+                              .filter(([_, isFlagged]) => isFlagged)
+                              .map(([qId]) => qId)
+                          )
+                        }
+                        onToggleFlag={toggleFlagQuestion}
+                        isReadOnly={isSectionLocked}
+                      />
+                    ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Right Side: Question Navigator for Listening */}
+              <div className="w-80 border-l border-slate-200 bg-white flex flex-col shrink-0 overflow-hidden">
+                <div className="p-3.5 border-b border-slate-200 bg-slate-50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Question Navigator
+                    </span>
+                    <span className="text-xs font-mono font-bold text-blue-700">
+                      {answeredListeningCount}/{allListeningQuestions.length || 40}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Click number to jump • Flag to review
+                  </p>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                  {(currentSection.listeningParts && currentSection.listeningParts.length > 0
+                    ? currentSection.listeningParts
+                    : [1, 2, 3, 4].map((pNum) => ({
+                        partNumber: pNum,
+                        title: `Part ${pNum}`,
+                        questions: allListeningQuestions.slice((pNum - 1) * 10, pNum * 10),
+                      }))
+                  ).map((part, pIdx) => {
+                    const pQuestions = part.questions || [];
+                    const pAnsCount = pQuestions.filter((q) => answers.listening?.[q.id]?.trim()).length;
+                    const isActive = activeListeningPartTab === pIdx;
+
+                    return (
+                      <div key={pIdx} className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => setActiveListeningPartTab(pIdx)}
+                            className={`text-xs font-bold text-left transition ${
+                              isActive ? 'text-blue-600' : 'text-slate-700 hover:text-blue-600'
+                            }`}
+                          >
+                            Part {pIdx + 1} ({pAnsCount}/{pQuestions.length})
+                          </button>
+                          {isActive && (
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                              Active
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {pQuestions.map((q, qIndexInPart) => {
+                            const globalNum = (part as any).partNumber
+                              ? ((part as any).partNumber - 1) * 10 + qIndexInPart + 1
+                              : pIdx * 10 + qIndexInPart + 1;
+                            const isAns = Boolean(answers.listening?.[q.id]?.trim());
+                            const isFlag = Boolean(flaggedQuestions[q.id]);
+
+                            return (
+                              <button
+                                key={q.id}
+                                type="button"
+                                onClick={() => {
+                                  if (activeListeningPartTab !== pIdx) {
+                                    setActiveListeningPartTab(pIdx);
+                                  }
+                                }}
+                                className={`h-8 rounded-lg text-xs font-bold transition flex flex-col items-center justify-center relative ${
+                                  isFlag
+                                    ? 'bg-amber-100 text-amber-900 border border-amber-400'
+                                    : isAns
+                                    ? 'bg-emerald-600 text-white shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                                }`}
+                              >
+                                <span>{q.questionNumber || globalNum}</span>
+                                {isFlag && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 absolute top-1 right-1" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* READING SECTION CANVAS */}
         {currentSection?.skill === 'reading' && (
           <div className="flex-1 flex overflow-hidden">
@@ -1357,6 +1537,18 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
             {/* Answer Summary */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+              {currentSection?.skill === 'listening' && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Listening Questions Answered</span>
+                    <span className="font-bold text-emerald-700">{answeredListeningCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">{t('regularTests.unansweredCount')}</span>
+                    <span className="font-bold text-rose-700">{(allListeningQuestions.length || 40) - answeredListeningCount}</span>
+                  </div>
+                </>
+              )}
               {currentSection?.skill === 'reading' && (
                 <>
                   <div className="flex justify-between">

@@ -33,6 +33,7 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
   const { gradeRegularTestAttempt } = useApp();
   const { t } = useI18n();
 
+  const hasListening = (test.sections || []).some((s) => s.skill === 'listening');
   const hasWriting = (test.sections || []).some((s) => s.skill === 'writing');
   const hasReading = (test.sections || []).some((s) => s.skill === 'reading');
   const hasSpeaking = (test.sections || []).some((s) => s.skill === 'speaking');
@@ -90,8 +91,10 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
   ]);
 
   const readingBand = attempt.scores?.reading?.band;
+  const listeningBand = attempt.scores?.listening?.band;
   
   const evaluatedBands: number[] = [];
+  if (hasListening && listeningBand) evaluatedBands.push(listeningBand);
   if (hasReading && readingBand) evaluatedBands.push(readingBand);
   if (hasWriting) evaluatedBands.push(calculatedWritingBand);
   if (hasSpeaking) evaluatedBands.push(calculatedSpeakingBand);
@@ -182,6 +185,18 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Top Score Summary Banner */}
           <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex items-center justify-around text-center">
+            {hasListening && (
+              <div>
+                <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Listening Band</div>
+                <div className="text-2xl font-black text-emerald-700 mt-1">
+                  {attempt.scores?.listening?.band ?? '—'}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {attempt.scores?.listening?.raw ?? 0} / {attempt.scores?.listening?.max ?? 0} correct
+                </div>
+              </div>
+            )}
+
             {hasReading && (
               <div>
                 <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Reading Band</div>

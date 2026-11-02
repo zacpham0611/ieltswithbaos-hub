@@ -18,9 +18,19 @@ import {
   SpeakingCueCard,
   SpeakingPart3Group,
   SpeakingQuestionResponse,
+  ListeningPart,
+  ListeningQuestion,
+  ListeningQuestionGroup,
 } from '../types';
 import { parseDocumentStructure } from '../lib/documentExtractor';
-import { gradeAssignmentSubmission, parseMaxWordsFromLimit, formatWordLimitInstruction } from '../lib/assignmentGrader';
+import {
+  gradeAssignmentSubmission,
+  gradeListeningSubmission,
+  parseMaxWordsFromLimit,
+  formatWordLimitInstruction,
+} from '../lib/assignmentGrader';
+import { PracticeListeningAudioPlayer } from '../components/listening/PracticeListeningAudioPlayer';
+import { ListeningQuestionRenderer } from '../components/listening/ListeningQuestionRenderer';
 import {
   extractAllNormalizedQuestions,
   resolveQuestionPrompt,
@@ -1564,6 +1574,47 @@ export const AssignmentsView: React.FC = () => {
     }
   };
 
+  // Submit listening assignment with automated official IELTS grading
+  const handleSubmitListening = async () => {
+    if (!activeAssignment) return;
+    setIsSubmittingStudentWork(true);
+    try {
+      const parts = activeAssignment.listeningParts || [];
+      const allQs =
+        parts.length > 0
+          ? parts.flatMap((p) => p.questions || [])
+          : (activeAssignment.questions as any) || [];
+
+      const gradeSummary = gradeListeningSubmission(allQs, readingAnswers);
+
+      await submitAssignment(activeAssignment.id, {
+        answers: readingAnswers,
+        listeningAnswers: readingAnswers,
+        listeningScore: {
+          raw: gradeSummary.correctCount,
+          total: gradeSummary.maxScore,
+          band: gradeSummary.bandEstimate,
+          errorAnalysis: gradeSummary.errorAnalysis,
+        },
+        score: gradeSummary.bandEstimate,
+        status: 'graded',
+      });
+
+      localStorage.removeItem(`ielts_listening_draft_${activeAssignment.id}_${currentUser.id}`);
+
+      setSubmissionSuccessModal({
+        title: 'Nộp bài thi Listening thành công!',
+        message: `Bạn đã đạt ${gradeSummary.correctCount}/${gradeSummary.maxScore} câu đúng (Band ước tính: ${gradeSummary.bandEstimate.toFixed(1)}).`,
+        actionText: 'Xem chi tiết bài làm',
+        onAction: () => setSubmissionSuccessModal(null),
+      });
+    } catch (err: any) {
+      alert(err?.message || 'Có lỗi khi nộp bài thi Listening.');
+    } finally {
+      setIsSubmittingStudentWork(false);
+    }
+  };
+
   // Submit writing
   const handleWritingSubmit = async () => {
     if (!activeAssignment || !writingDraft.trim() || isSubmittingStudentWork) return;
@@ -2667,6 +2718,7 @@ export const AssignmentsView: React.FC = () => {
     const isReading = activeAssignment.skill === 'reading';
     const isWriting = activeAssignment.skill === 'writing';
     const isSpeaking = activeAssignment.skill === 'speaking';
+    const isListening = activeAssignment.skill === 'listening';
     const extractedData = extractAllNormalizedQuestions(activeAssignment);
     const questions = extractedData.questions;
     const passageMap = extractedData.passageMap;
@@ -3432,6 +3484,26 @@ export const AssignmentsView: React.FC = () => {
                               <p className="text-xs text-slate-700 italic leading-relaxed">
                                 {group.instructions}
                               </p>
+                            )}
+
+                            {/* Diagram / Flowchart Image for Reading (Section 12) */}
+                            {(group.imageUrl || group.questions.some((item) => item.q.imageUrl || item.q.diagramUrl)) && (
+                              <div className="p-3 bg-white border border-slate-200 rounded-lg text-center space-y-2 my-2">
+                                <img
+                                  src={
+                                    group.imageUrl ||
+                                    group.questions.find((item) => item.q.imageUrl || item.q.diagramUrl)?.q.imageUrl ||
+                                    group.questions.find((item) => item.q.imageUrl || item.q.diagramUrl)?.q.diagramUrl
+                                  }
+                                  alt={group.imageCaption || 'Flow-chart or Diagram'}
+                                  className="max-h-72 w-auto mx-auto object-contain rounded shadow-xs"
+                                />
+                                {(group.imageCaption || group.questions.find((item) => item.q.imageCaption)?.q.imageCaption) && (
+                                  <p className="text-xs text-slate-500 italic">
+                                    {group.imageCaption || group.questions.find((item) => item.q.imageCaption)?.q.imageCaption}
+                                  </p>
+                                )}
+                              </div>
                             )}
 
                             {/* Reference Box: List of Headings (Rendered ONCE per group) */}
@@ -5154,9 +5226,113 @@ export const AssignmentsView: React.FC = () => {
         )}
 
                 {/* =========================================================================
+            3.5. LISTENING ASSIGNMENT WORKFLOW (PRACTICE PLAYER & 10 QUESTION TYPES)
+        ========================================================================= */}
+        {isListening && (
+          <div className="space-y-6">
+            {/* Top Practice Audio Player */}
+            <div className="sticky top-4 z-20">
+              <PracticeListeningAudioPlayer
+                audioUrl={activeAssignment.audioUrl || activeAssignment.listeningAudioUrl}
+                title={activeAssignment.title}
+                parts={activeAssignment.listeningParts || []}
+                activePartIndex={activePassageTab}
+                onPartChange={(idx) => setActivePassageTab(idx)}
+                className="shadow-md"
+              />
+            </div>
+
+            {/* Submissions & Results Banner if Graded */}
+            {mySub?.status === 'graded' && (
+              <div className="p-5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg">
+                    {mySub.score || (mySub as any).listeningScore?.band || '—'}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      IELTS Listening Band: {mySub.score || (mySub as any).listeningScore?.band || '—'}
+                    </h4>
+                    <p className="text-xs text-slate-600">
+                      Số câu đúng: {(mySub as any).listeningScore?.raw ?? mySub.readingScore?.correct ?? 0} / {(mySub as any).listeningScore?.total ?? mySub.readingScore?.total ?? 40} ({Math.round((((mySub as any).listeningScore?.raw || 0) / ((mySub as any).listeningScore?.total || 40)) * 100)}%)
+                    </p>
+                  </div>
+                </div>
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
+                  Đã chấm điểm (Graded)
+                </span>
+              </div>
+            )}
+
+            {/* Questions Canvas */}
+            <div className="space-y-6">
+              {(() => {
+                const parts = activeAssignment.listeningParts || [];
+                const activePart = parts[activePassageTab];
+                const activeGroups: ListeningQuestionGroup[] =
+                  activePart?.questionGroups?.length
+                    ? activePart.questionGroups
+                    : [
+                        {
+                          id: `listen_group_${activePassageTab}`,
+                          type: 'note_completion' as any,
+                          title: `Part ${activePassageTab + 1} Questions`,
+                          instructions: 'Answer the questions as you listen. Write NO MORE THAN TWO WORDS AND/OR A NUMBER.',
+                          wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
+                          questions: (activePart?.questions || []).slice(activePassageTab * 10, (activePassageTab + 1) * 10),
+                        },
+                      ];
+
+                return (
+                  <div className="space-y-4">
+                    {activeGroups.map((group) => (
+                      <ListeningQuestionRenderer
+                        key={group.id}
+                        questionGroup={group}
+                        answers={readingAnswers}
+                        onAnswerChange={handleAnswerChange}
+                        flaggedQuestionIds={
+                          new Set(
+                            Object.entries(flaggedQuestions)
+                              .filter(([_, isFlagged]) => isFlagged)
+                              .map(([qId]) => qId)
+                          )
+                        }
+                        onToggleFlag={(qId) =>
+                          setFlaggedQuestions((prev) => ({ ...prev, [qId]: !prev[qId] }))
+                        }
+                        isReadOnly={mySub?.status === 'graded'}
+                        showCorrectAnswers={mySub?.status === 'graded'}
+                      />
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Submit Action Bar */}
+            {(!mySub || mySub.status !== 'graded') && !isTeacher && (
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                <span className="text-xs text-slate-500 font-medium">
+                  {Object.keys(readingAnswers).filter((k) => readingAnswers[k]?.trim()).length} câu đã trả lời
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSubmitListening}
+                  disabled={isSubmittingStudentWork}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50"
+                >
+                  {isSubmittingStudentWork ? 'Đang chấm điểm...' : 'Nộp bài & Xem điểm Listening'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* =========================================================================
             4. GENERAL ASSIGNMENT FALLBACK WORKFLOW
         ========================================================================= */}
-        {!isReading && !isWriting && !isSpeaking && (
+        {!isReading && !isWriting && !isSpeaking && !isListening && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -5319,7 +5495,7 @@ export const AssignmentsView: React.FC = () => {
 
       {/* Filter Tabs */}
       <div className="flex space-x-2 bg-slate-100 p-1 rounded-lg border border-slate-200 text-sm w-fit">
-        {(['all', 'reading', 'writing', 'speaking'] as const).map((skill) => (
+        {(['all', 'listening', 'reading', 'writing', 'speaking'] as const).map((skill) => (
           <button
             key={skill}
             onClick={() => setSelectedSkillFilter(skill)}
@@ -5329,7 +5505,7 @@ export const AssignmentsView: React.FC = () => {
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            {skill === 'all' ? t('skills.all') : t(`skills.${skill}` as any)}
+            {skill === 'all' ? t('skills.all') : t(`skills.${skill}` as any) || skill.toUpperCase()}
           </button>
         ))}
       </div>
@@ -5915,8 +6091,9 @@ export const AssignmentsView: React.FC = () => {
                     onChange={(e) => setFormSkill(e.target.value as AssignmentSkill)}
                     className="w-full p-2.5 border border-slate-300 rounded-lg outline-hidden bg-white text-sm"
                   >
-                    <option value="writing">{t('skills.writing')}</option>
+                    <option value="listening">{t('skills.listening') || 'Listening'}</option>
                     <option value="reading">{t('skills.reading')}</option>
+                    <option value="writing">{t('skills.writing')}</option>
                     <option value="speaking">{t('skills.speaking')}</option>
                   </select>
                 </div>

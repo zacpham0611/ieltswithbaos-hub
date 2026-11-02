@@ -18,6 +18,7 @@ import { TeacherGradingModal } from './TeacherGradingModal';
 import { Portal } from '../../components/Portal';
 import { extractAllNormalizedQuestions } from '../../lib/questionNormalizer';
 import { parseDocumentStructure } from '../../lib/documentExtractor';
+import { parseListeningDocument } from '../../lib/listeningExtractor';
 import {
   ShieldCheck,
   Plus,
@@ -40,6 +41,7 @@ import {
   X,
   Library,
   Mic,
+  Headphones,
   ArrowUp,
   ArrowDown,
   FileText,
@@ -86,8 +88,9 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [formTitle, setFormTitle] = useState<string>('');
   const [formInstructions, setFormInstructions] = useState<string>('');
   const [formCourseId, setFormCourseId] = useState<string>(courses[0]?.id || '');
-  const [formSkills, setFormSkills] = useState<('reading' | 'writing' | 'speaking')[]>(['reading', 'writing']);
-  const [formSkillDurations, setFormSkillDurations] = useState<{ reading: number; writing: number; speaking: number }>({
+  const [formSkills, setFormSkills] = useState<('listening' | 'reading' | 'writing' | 'speaking')[]>(['reading', 'writing']);
+  const [formSkillDurations, setFormSkillDurations] = useState<{ listening: number; reading: number; writing: number; speaking: number }>({
+    listening: 30,
     reading: 60,
     writing: 60,
     speaking: 15,
@@ -106,6 +109,13 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
 
   // Sub-Modals for Section Creation & Preview
+  const [showListeningPicker, setShowListeningPicker] = useState<boolean>(false);
+  const [listeningPickerSearch, setListeningPickerSearch] = useState<string>('');
+  const [showListeningModal, setShowListeningModal] = useState<boolean>(false);
+  const [listeningAudioUrl, setListeningAudioUrl] = useState<string>('');
+  const [listeningTitle, setListeningTitle] = useState<string>('');
+  const [listeningRawText, setListeningRawText] = useState<string>('');
+
   const [showReadingPicker, setShowReadingPicker] = useState<boolean>(false);
   const [readingPickerSearch, setReadingPickerSearch] = useState<string>('');
   const [previewReadingSection, setPreviewReadingSection] = useState<RegularTestSection | null>(null);
@@ -220,7 +230,7 @@ export const TeacherRegularTestsView: React.FC = () => {
       setFormError(null);
 
       // Auto derive skills from added sections
-      const activeSkills: ('reading' | 'writing' | 'speaking')[] = Array.from(
+      const activeSkills: ('listening' | 'reading' | 'writing' | 'speaking')[] = Array.from(
         new Set(formSections.map((s) => s.skill))
       );
 
@@ -694,9 +704,21 @@ export const TeacherRegularTestsView: React.FC = () => {
 
   // FULL-SCREEN DEDICATED WORKSPACE FOR CREATE / EDIT REGULAR TEST
   if (showCreatorModal) {
+    const listeningSections = formSections.filter((s) => s.skill === 'listening');
     const readingSections = formSections.filter((s) => s.skill === 'reading');
     const writingSections = formSections.filter((s) => s.skill === 'writing');
     const speakingSections = formSections.filter((s) => s.skill === 'speaking');
+    const filteredListeningResources = resources.filter((r) => {
+      const isListening = r.skill === 'listening' || (r as any).type === 'listening' || Boolean(r.listeningContent);
+      if (!isListening) return false;
+      if (!listeningPickerSearch.trim()) return true;
+      const q = listeningPickerSearch.toLowerCase();
+      return (
+        (r.title || '').toLowerCase().includes(q) ||
+        (r.category || '').toLowerCase().includes(q) ||
+        ((r.tags || []) as string[]).some((tag) => tag.toLowerCase().includes(q))
+      );
+    });
     const filteredReadingResources = resources.filter((r) => {
       const isReading = r.skill === 'reading' || (r as any).type === 'reading';
       if (!isReading) return false;
@@ -816,10 +838,42 @@ export const TeacherRegularTestsView: React.FC = () => {
                   <Sparkles className="w-3.5 h-3.5 text-blue-600" />
                   Kỹ năng kiểm tra (Skills to be tested) *
                 </span>
-                <span className="text-[10px] font-normal text-slate-500">Tùy chọn bất kỳ 1, 2 hoặc cả 3</span>
+                <span className="text-[10px] font-normal text-slate-500">Tùy chọn bất kỳ kỹ năng (Listening, Reading, Writing, Speaking)</span>
               </label>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {/* Listening Card */}
+                <div
+                  onClick={() => {
+                    setFormSkills((prev) =>
+                      prev.includes('listening') ? prev.filter((s) => s !== 'listening') : [...prev, 'listening']
+                    );
+                  }}
+                  className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                    formSkills.includes('listening')
+                      ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-100 shadow-2xs'
+                      : 'bg-white border-slate-200 hover:border-slate-300 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${formSkills.includes('listening') ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                      <Headphones className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formSkills.includes('listening')}
+                      readOnly
+                      className="w-4 h-4 text-emerald-600 rounded-sm pointer-events-none"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">Listening</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      {listeningSections.length > 0 ? `${listeningSections.length} bài thi` : 'Chưa cấu hình'}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Reading Card */}
                 <div
                   onClick={() => {
@@ -981,6 +1035,28 @@ export const TeacherRegularTestsView: React.FC = () => {
                     <div className="text-xs text-slate-400 italic">Vui lòng chọn kỹ năng ở trên để cài đặt thời gian.</div>
                   ) : (
                     <div className="space-y-2">
+                      {formSkills.includes('listening') && (
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                            <Headphones className="w-3.5 h-3.5 text-emerald-600" />
+                            Listening:
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min={1}
+                              max={180}
+                              value={formSkillDurations.listening}
+                              onChange={(e) =>
+                                setFormSkillDurations((prev) => ({ ...prev, listening: Number(e.target.value) }))
+                              }
+                              className="w-20 px-2.5 py-1 text-xs rounded-lg border border-slate-300 text-center font-bold"
+                            />
+                            <span className="text-slate-500 text-[11px]">phút</span>
+                          </div>
+                        </div>
+                      )}
+
                       {formSkills.includes('reading') && (
                         <div className="flex items-center justify-between gap-3 text-xs">
                           <span className="font-semibold text-slate-700 flex items-center gap-1.5">
@@ -1114,6 +1190,108 @@ export const TeacherRegularTestsView: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-6">
+                {/* 0. LISTENING PANEL */}
+                {formSkills.includes('listening') && (
+                  <div className="bg-white rounded-2xl border border-emerald-200 shadow-2xs overflow-hidden">
+                    <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50/30 border-b border-emerald-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold">
+                          <Headphones className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                            Phần thi IELTS Listening
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              {listeningSections.length > 0 ? `${listeningSections.length} bài thi đã thêm` : 'Chưa có đề'}
+                            </span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500">
+                            Tiêu chuẩn 4 Parts (40 câu hỏi) • Audio phát 1 lần duy nhất trong kỳ thi
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowListeningPicker(true)}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+                        >
+                          <Library className="w-3.5 h-3.5" />
+                          + Thêm Listening từ Library
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setListeningTitle('IELTS Listening Practice Test');
+                            setListeningAudioUrl('');
+                            setListeningRawText('');
+                            setShowListeningModal(true);
+                          }}
+                          className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          + Cấu hình Listening
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-4">
+                      {listeningSections.length === 0 ? (
+                        <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-xl space-y-2">
+                          <Headphones className="w-8 h-8 text-slate-300 mx-auto" />
+                          <div className="text-xs font-semibold text-slate-600">Chưa có phần thi Listening nào trong đề thi</div>
+                          <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                            Nhấn nút &quot;+ Thêm Listening từ Library&quot; hoặc &quot;+ Cấu hình Listening&quot; ở trên để thiết lập audio và bộ câu hỏi.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {listeningSections.map((sec, idx) => (
+                            <div
+                              key={sec.id}
+                              className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-5 h-5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-bold flex items-center justify-center shrink-0">
+                                    {idx + 1}
+                                  </span>
+                                  <h5 className="font-bold text-xs text-slate-900 truncate">{sec.title}</h5>
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-1 pl-7 flex items-center gap-3 flex-wrap">
+                                  <span>{sec.listeningParts?.length || 4} Parts</span>
+                                  <span>•</span>
+                                  <span>{sec.listeningQuestions?.length || 40} Questions</span>
+                                  {sec.audioUrl && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-emerald-700 font-mono font-medium truncate max-w-xs">
+                                        Audio: {sec.audioUrl}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 pl-7 md:pl-0 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setFormSections(formSections.filter((s) => s.id !== sec.id))}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition"
+                                  title="Xóa phần thi này"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* 1. READING PANEL */}
                 {formSkills.includes('reading') && (
                   <div className="bg-white rounded-2xl border border-blue-200 shadow-2xs overflow-hidden">
@@ -1402,6 +1580,195 @@ export const TeacherRegularTestsView: React.FC = () => {
         {/* =========================================================================
             SUB-MODALS (PORTAL MOUNTED - ESCAPING CONTAINING BLOCKS)
         ========================================================================= */}
+
+        {/* SUB-MODAL 0: LISTENING LIBRARY PICKER */}
+        {showListeningPicker && (
+          <Portal containerId="modal-root">
+            <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Headphones className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h3 className="font-bold text-sm">Chọn bài Listening từ Thư viện tài liệu</h3>
+                      <p className="text-[11px] text-slate-400">Chọn đề thi Listening có sẵn từ Thư viện</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowListeningPicker(false)}
+                    className="text-slate-400 hover:text-white p-1"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-4 border-b border-slate-100 bg-slate-50 shrink-0">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm tài liệu Listening theo tiêu đề, danh mục..."
+                      value={listeningPickerSearch}
+                      onChange={(e) => setListeningPickerSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-5 space-y-2.5">
+                  {filteredListeningResources.length === 0 ? (
+                    <div className="p-12 text-center text-slate-400 text-xs space-y-1">
+                      <Headphones className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <div>Không tìm thấy tài liệu Listening trong Thư viện.</div>
+                      <p className="text-[11px] text-slate-500">
+                        Bạn có thể sử dụng nút &quot;+ Cấu hình Listening&quot; để tạo đề nhanh với file audio và bộ câu hỏi.
+                      </p>
+                    </div>
+                  ) : (
+                    filteredListeningResources.map((res) => (
+                      <div
+                        key={res.id}
+                        className="p-3.5 bg-white rounded-xl border border-slate-200 hover:border-emerald-400 hover:shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <h5 className="font-bold text-slate-900 truncate">{res.title}</h5>
+                          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold uppercase text-[9px]">
+                              {res.category || 'Listening'}
+                            </span>
+                            {res.audioUrl && <span>• Audio available</span>}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const parsed = res.listeningContent || parseListeningDocument(res.description || res.title || '', res.title);
+                            const newSec: RegularTestSection = {
+                              id: `sec_listening_${Date.now()}`,
+                              title: res.title,
+                              skill: 'listening',
+                              durationMinutes: 30,
+                              audioUrl: res.audioUrl || res.url || parsed.audioUrl || '',
+                              listeningAudioUrl: res.audioUrl || res.url || parsed.audioUrl || '',
+                              listeningParts: parsed.parts || [],
+                              listeningQuestions: parsed.parts?.flatMap((p) => p.questions || []) || [],
+                              listeningQuestionGroups: parsed.parts?.flatMap((p) => p.questionGroups || []) || [],
+                            };
+                            setFormSections((prev) => [newSec, ...prev.filter((s) => s.skill !== 'listening')]);
+                            setShowListeningPicker(false);
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition whitespace-nowrap"
+                        >
+                          Chọn vào đề thi
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </Portal>
+        )}
+
+        {/* SUB-MODAL 0.5: LISTENING CREATOR & AUDIO CONFIG */}
+        {showListeningModal && (
+          <Portal containerId="modal-root">
+            <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Headphones className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h3 className="font-bold text-sm">Cấu hình đề thi Listening</h3>
+                      <p className="text-[11px] text-slate-400">Thiết lập Audio track và bộ câu hỏi 4 Parts</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowListeningModal(false)}
+                    className="text-slate-400 hover:text-white p-1"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Tiêu đề bài thi Listening *</label>
+                    <input
+                      type="text"
+                      value={listeningTitle}
+                      onChange={(e) => setListeningTitle(e.target.value)}
+                      placeholder="VD: IELTS Academic Listening Test 1"
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Audio URL (Đường dẫn âm thanh trực tuyến) *</label>
+                    <input
+                      type="text"
+                      value={listeningAudioUrl}
+                      onChange={(e) => setListeningAudioUrl(e.target.value.trim())}
+                      placeholder="https://example.com/ielts_listening_audio.mp3"
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-mono font-medium"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Hoặc dán link Google Drive (public link), Cloudinary, S3, hoặc CDN audio.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Nội dung câu hỏi / Transcript (Tự động nhận diện Parts & Questions)
+                    </label>
+                    <textarea
+                      rows={8}
+                      value={listeningRawText}
+                      onChange={(e) => setListeningRawText(e.target.value)}
+                      placeholder="Dán nội dung đề Listening (PART 1, Questions 1-5, Questions 6-10...) hoặc để trống để tạo 40 câu hỏi mặc định."
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-xs font-mono leading-relaxed"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowListeningModal(false)}
+                    className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg text-xs font-semibold"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const parsed = parseListeningDocument(listeningRawText || 'PART 1\nPART 2\nPART 3\nPART 4', listeningTitle);
+                      const newSec: RegularTestSection = {
+                        id: `sec_listening_${Date.now()}`,
+                        title: listeningTitle || 'IELTS Listening Practice Test',
+                        skill: 'listening',
+                        durationMinutes: 30,
+                        audioUrl: listeningAudioUrl,
+                        listeningAudioUrl: listeningAudioUrl,
+                        listeningParts: parsed.parts || [],
+                        listeningQuestions: parsed.parts?.flatMap((p) => p.questions || []) || [],
+                        listeningQuestionGroups: parsed.parts?.flatMap((p) => p.questionGroups || []) || [],
+                      };
+                      setFormSections((prev) => [newSec, ...prev.filter((s) => s.skill !== 'listening')]);
+                      setShowListeningModal(false);
+                    }}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs"
+                  >
+                    Lưu vào đề thi
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Portal>
+        )}
 
         {/* SUB-MODAL 1: READING LIBRARY PICKER */}
         {showReadingPicker && (

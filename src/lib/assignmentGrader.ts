@@ -1,5 +1,5 @@
-import type { ReadingQuestion, SubmissionStatus } from '../types/index.ts';
-import { calculateReadingBand, type IeltsTestType } from './ieltsScoring.ts';
+import type { ReadingQuestion, SubmissionStatus, ListeningQuestion } from '../types/index.ts';
+import { calculateReadingBand, calculateListeningBand, type IeltsTestType } from './ieltsScoring.ts';
 
 export interface QuestionGradeResult {
   questionId: string;
@@ -660,6 +660,77 @@ export function gradeAssignmentSubmission(
     hasOpenEnded,
     finalStatus: hasOpenEnded ? 'submitted' : 'graded',
     testType,
+    isOfficialScale: bandResult.isOfficialScale,
+    bandNotes: bandResult.notes,
+  };
+}
+
+/**
+ * Computes listening assignment score, point weighting, error analysis, and official IELTS Listening Band.
+ * Uses official 40-item scale for full tests and proportionally scaled estimates for practice.
+ */
+export function gradeListeningSubmission(
+  questions: Array<ListeningQuestion | ReadingQuestion | any>,
+  studentAnswers: Record<string, string>
+): AssignmentGradeSummary {
+  let earnedScore = 0;
+  let maxScore = 0;
+  let gradableMaxScore = 0;
+  let gradableCount = 0;
+  let pendingCount = 0;
+  let correctCount = 0;
+  let incorrectCount = 0;
+  let unansweredCount = 0;
+  let hasOpenEnded = false;
+
+  const errorAnalysis: QuestionGradeResult[] = questions.map((q) => {
+    const userAns = studentAnswers[q.id];
+    const result = gradeSingleQuestion(q, userAns);
+
+    maxScore += result.maxPoints;
+    earnedScore += result.earnedPoints;
+
+    if (result.isPendingReview) {
+      hasOpenEnded = true;
+      pendingCount++;
+    } else {
+      gradableMaxScore += result.maxPoints;
+      gradableCount++;
+    }
+
+    if (!userAns || !userAns.trim()) {
+      unansweredCount++;
+    } else if (result.isCorrect) {
+      correctCount++;
+    } else if (!result.isPendingReview) {
+      incorrectCount++;
+    }
+
+    return result;
+  });
+
+  const effectiveMaxScore = gradableMaxScore > 0 ? gradableMaxScore : maxScore;
+  const percentage = effectiveMaxScore > 0 ? Math.round((earnedScore / effectiveMaxScore) * 100) : 0;
+
+  // Use the official IELTS Listening conversion scale (Cambridge / British Council)
+  const totalForBand = gradableCount > 0 ? gradableCount : questions.length;
+  const bandResult = calculateListeningBand(correctCount, totalForBand);
+
+  return {
+    errorAnalysis,
+    earnedScore,
+    maxScore,
+    gradableMaxScore,
+    gradableCount,
+    pendingCount,
+    percentage,
+    correctCount,
+    incorrectCount,
+    unansweredCount,
+    bandEstimate: bandResult.band,
+    hasOpenEnded,
+    finalStatus: hasOpenEnded ? 'submitted' : 'graded',
+    testType: 'academic',
     isOfficialScale: bandResult.isOfficialScale,
     bandNotes: bandResult.notes,
   };

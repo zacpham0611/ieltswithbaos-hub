@@ -177,3 +177,67 @@ export function calculateReadingBand(
     notes,
   };
 }
+
+// Official IELTS Listening Scale (40 questions, identical for Academic and General Training)
+export const OFFICIAL_LISTENING_THRESHOLDS: Array<{ minScore: number; band: number }> = [
+  { minScore: 39, band: 9.0 },
+  { minScore: 37, band: 8.5 },
+  { minScore: 35, band: 8.0 },
+  { minScore: 32, band: 7.5 },
+  { minScore: 30, band: 7.0 },
+  { minScore: 26, band: 6.5 },
+  { minScore: 23, band: 6.0 },
+  { minScore: 18, band: 5.5 },
+  { minScore: 16, band: 5.0 },
+  { minScore: 13, band: 4.5 },
+  { minScore: 10, band: 4.0 },
+  { minScore: 8, band: 3.5 },
+  { minScore: 6, band: 3.0 },
+  { minScore: 4, band: 2.5 },
+  { minScore: 0, band: 2.0 },
+];
+
+export interface ListeningBandResult {
+  rawScore: number;
+  totalQuestions: number;
+  band: number;
+  isOfficialScale: boolean;
+  notes: string;
+}
+
+/**
+ * Converts a raw Listening score to an official IELTS Listening Band.
+ * Uses the official 40-item Cambridge / British Council benchmark.
+ * Scales proportionally when shorter practice tests (e.g. 10 questions) are graded.
+ */
+export function calculateListeningBand(
+  rawScore: number,
+  totalQuestions: number = 40
+): ListeningBandResult {
+  const safeRaw = Math.max(0, Math.round(rawScore));
+  const isStandardLength = totalQuestions === 40;
+
+  const normalizedRaw = isStandardLength
+    ? safeRaw
+    : Math.min(40, Math.round((safeRaw / Math.max(1, totalQuestions)) * 40));
+
+  let band = 2.0;
+  for (const entry of OFFICIAL_LISTENING_THRESHOLDS) {
+    if (normalizedRaw >= entry.minScore) {
+      band = entry.band;
+      break;
+    }
+  }
+
+  const notes = isStandardLength
+    ? `Estimated practice band based on official IELTS Listening 40-item scale.`
+    : `Estimated practice band scaled proportionally from ${safeRaw}/${totalQuestions} to standard 40-question scale. Official IELTS bands require a complete 40-item test.`;
+
+  return {
+    rawScore: safeRaw,
+    totalQuestions,
+    band,
+    isOfficialScale: isStandardLength,
+    notes,
+  };
+}
