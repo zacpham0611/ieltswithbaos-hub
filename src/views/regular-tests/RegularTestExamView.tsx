@@ -1027,20 +1027,32 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                   {/* Multi-Passage Sticky Tab Bar */}
                   {readingPassagesList && readingPassagesList.length > 1 && (
                     <div className="sticky top-0 z-20 bg-slate-100 border-b border-slate-200 px-4 py-1.5 flex items-center gap-1.5 overflow-x-auto shrink-0 shadow-2xs">
-                      {readingPassagesList.map((p, pIdx) => (
-                        <button
-                          key={p.id || pIdx}
-                          type="button"
-                          onClick={() => setActiveReadingPassageTab(pIdx)}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 shrink-0 ${
-                            activeReadingPassageTab === pIdx
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
-                          }`}
-                        >
-                          <span>{p.title || `Passage ${pIdx + 1}`}</span>
-                        </button>
-                      ))}
+                      {readingPassagesList.map((p, pIdx) => {
+                        const pCount = allReadingQuestions.filter(
+                          (q) => (questionPassageIndexMap[q.id] ?? 0) === pIdx
+                        ).length;
+                        return (
+                          <button
+                            key={p.id || pIdx}
+                            type="button"
+                            onClick={() => setActiveReadingPassageTab(pIdx)}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 shrink-0 ${
+                              activeReadingPassageTab === pIdx
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                            }`}
+                          >
+                            <span>{p.title || `Passage ${pIdx + 1}`}</span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                                activeReadingPassageTab === pIdx ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {pCount} Qs
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -1197,7 +1209,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                           <span className="w-7 h-7 rounded-lg bg-blue-100 text-blue-800 font-bold text-sm flex items-center justify-center shrink-0">
                             {qNum}
                           </span>
-                          <span className="text-sm md:text-base font-semibold text-slate-900 leading-snug">
+                          <span className="text-sm md:text-base font-semibold text-slate-900 leading-snug whitespace-pre-line">
                             {q.prompt || (q as any).question || (q as any).questionText}
                           </span>
                         </div>

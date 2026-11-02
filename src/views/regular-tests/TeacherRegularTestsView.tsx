@@ -761,7 +761,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                 {editingTest ? 'Chỉnh sửa bài kiểm tra định kỳ' : 'Tạo mới bài kiểm tra định kỳ (Create Regular Test)'}
               </h2>
               <p className="text-[11px] text-slate-400">
-                Cấu hình kỹ năng Reading, Writing & Speaking chuẩn IELTS
+                Cấu hình kỹ năng Listening, Reading, Writing & Speaking chuẩn IELTS
               </p>
             </div>
           </div>
@@ -1202,7 +1202,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                 <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
                 <h4 className="text-sm font-bold text-slate-800">Chưa chọn kỹ năng kiểm tra</h4>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Vui lòng tích chọn ít nhất một kỹ năng (Reading, Writing hoặc Speaking) ở cột thông tin bên trái để cấu hình nội dung bài thi.
+                  Vui lòng tích chọn ít nhất một kỹ năng (Listening, Reading, Writing hoặc Speaking) ở cột thông tin bên trái để cấu hình nội dung bài thi.
                 </p>
               </div>
             ) : (

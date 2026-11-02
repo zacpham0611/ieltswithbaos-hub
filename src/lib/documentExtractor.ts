@@ -157,33 +157,42 @@ export function extractLinesFromPdfItems(items: any[]): string {
     lineMap.get(matchedKey)!.push(it);
   });
 
-  let crossingLines = 0;
-  for (const lItems of lineMap.values()) {
-    const lMin = Math.min(...lItems.map((i) => i.x));
-    const lMax = Math.max(...lItems.map((i) => i.x + i.w));
-    if (lMin < midX - 25 && lMax > midX + 25) {
-      crossingLines++;
-    }
-  }
+  const physicalLines = Array.from(lineMap.entries())
+    .map(([y, lItems]) => {
+      lItems.sort((a, b) => a.x - b.x);
+      const lMin = Math.min(...lItems.map((i) => i.x));
+      const lMax = Math.max(...lItems.map((i) => i.x + i.w));
+      const hasLeft = lItems.some((i) => i.x < midX - 15);
+      const hasRight = lItems.some((i) => i.x + i.w > midX + 15);
+      const isSplitCols =
+        hasLeft &&
+        hasRight &&
+        !lItems.some((i) => i.x < midX + 10 && i.x + i.w > midX - 10);
 
-  const crossingRatio = lineMap.size > 0 ? crossingLines / lineMap.size : 1;
-  const leftItems = validItems.filter((i) => i.x + i.w <= midX + 15);
-  const rightItems = validItems.filter((i) => i.x >= midX - 15);
+      return { y, items: lItems, lMin, lMax, hasLeft, hasRight, isSplitCols };
+    })
+    .sort((a, b) => b.y - a.y);
 
-  // A genuine two-column layout requires very few lines crossing midX and substantial text in both columns
-  const isTwoColumn =
-    crossingRatio < 0.25 && leftItems.length > 20 && rightItems.length > 20;
+  const splitColLines = physicalLines.filter((l) => l.isSplitCols);
+  const isTwoColumn = splitColLines.length >= 5;
 
   if (isTwoColumn) {
-    const colTopY = Math.max(...leftItems.map((i) => i.y), ...rightItems.map((i) => i.y));
-    const headerItems = validItems.filter((i) => i.y > colTopY + 15);
-    const regularLeft = leftItems.filter((i) => !headerItems.includes(i));
-    const regularRight = rightItems.filter((i) => !headerItems.includes(i));
+    const topColY = Math.max(...splitColLines.map((l) => l.y));
+    const botColY = Math.min(...splitColLines.map((l) => l.y));
 
-    const headerText = headerItems.length > 0 ? groupLines(headerItems) + '\n\n' : '';
-    const leftText = groupLines(regularLeft);
-    const rightText = groupLines(regularRight);
-    return (headerText + leftText + '\n\n' + rightText).trim();
+    const headerLines = physicalLines.filter((l) => l.y > topColY);
+    const bodyLines = physicalLines.filter((l) => l.y <= topColY && l.y >= botColY);
+    const footerLines = physicalLines.filter((l) => l.y < botColY);
+
+    const leftBodyItems = bodyLines.flatMap((l) => l.items.filter((i) => i.x < midX + 10));
+    const rightBodyItems = bodyLines.flatMap((l) => l.items.filter((i) => i.x >= midX - 10));
+
+    const headerText = headerLines.map((l) => l.items.map((i) => i.str).join(' ')).join('\n');
+    const leftText = groupLines(leftBodyItems);
+    const rightText = groupLines(rightBodyItems);
+    const footerText = footerLines.map((l) => l.items.map((i) => i.str).join(' ')).join('\n');
+
+    return [headerText, leftText, rightText, footerText].filter(Boolean).join('\n\n');
   }
 
   return groupLines(validItems);
@@ -1177,8 +1186,10 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
   }
 
   // 2. Identify Test Boundaries if multi-test document (e.g. TEST 1, TEST 2, etc.)
-  const testSplitterRegex = /(?:^|\n)(?=(?:TEST\s+\d+|PRACTICE\s+TEST\s+\d+)\b)/i;
-  const rawTestChunks = contentText.split(testSplitterRegex).filter((s) => s.trim().length > 50);
+  // Disambiguate true test boundaries from running page headers (e.g. "Test 1" repeated at top of every page)
+  const trueTestSplitterRegex =
+    /(?:^|\n)(?=(?:TEST\s+\d+|PRACTICE\s+TEST\s+\d+)\b[\s\S]{0,450}?(?:READING\s+PASSAGE\s+1\b|PASSAGE\s+1\b|SECTION\s+1\b|Questions?\s+1\s*[\-\–to]))/i;
+  const rawTestChunks = contentText.split(trueTestSplitterRegex).filter((s) => s.trim().length > 50);
 
   const hasExplicitTests = rawTestChunks.length > 1;
   const testChunks = hasExplicitTests ? rawTestChunks : [contentText];
@@ -1198,12 +1209,23 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
 
     // Split on Passages within this Test (ignoring in-sentence references like "Reading Passage 2 has seven paragraphs")
     const passageSplitterRegex =
-      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|has|contains|is|refers|below|do\b|statements\b|given\b)))/i;
+      /(?:^|\n)(?=(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|has|contains|is|refers|below|above|on\s+pages?|in\s+pages?|from\s+pages?|pages?\s+\d+|do\b|statements\b|given\b)))/i;
     const rawPassageChunks = tChunk.split(passageSplitterRegex).filter((p) => p.trim().length > 50);
-    // Filter out leading preamble / introductory metadata chunks (e.g. "IELTS Test 1 - Reading\nNov 2, 2026 · @Zac 3 passages, 40 questions...")
+    // Filter out leading preamble / introductory metadata chunks and fragmented page references
     const filteredChunks = rawPassageChunks.filter((p) => {
       const trimmed = p.trim();
-      const isPassageHead = /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án))/i.test(trimmed);
+      // Reject chunks that are clearly fragmented page references or in-sentence tails
+      if (/^(?:which\s+are\s+based\s+on|based\s+on|refer\s+to|in)\s+(?:reading\s+)?passage/i.test(trimmed)) {
+        return false;
+      }
+      if (/^(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?[\.\:\s]*$/i.test(trimmed)) {
+        return false;
+      }
+      if (/^(?:(?:reading\s+)?passage\s+\d+\s+)?(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?[\.\:\s]*$/i.test(trimmed)) {
+        return false;
+      }
+
+      const isPassageHead = /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b(?!\s*(?:answer\s*keys?|answers?|keys?|đáp\s*án|on\s+pages?|in\s+pages?))/i.test(trimmed);
       if (isPassageHead) return true;
       // If chunk does not start with a passage header, keep it ONLY if it contains questions or substantial reading body (> 200 words)
       const hasQuestions = /(?:^|\n)(?:Questions?\s+\d+|\d{1,2}[\.\:\)])/i.test(trimmed);
@@ -1212,7 +1234,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
     });
     const passageChunks = filteredChunks.length > 0 ? filteredChunks : rawPassageChunks.length > 0 ? rawPassageChunks : [tChunk];
 
-    const testPassages: ParsedPassage[] = [];
+    const rawPassages: ParsedPassage[] = [];
     const testAllQuestions: ReadingQuestion[] = [];
 
     passageChunks.forEach((pChunk, pIdx) => {
@@ -1246,7 +1268,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
 
       const passageHtml = htmlContent ? extractPassageHtml(htmlContent, passageIndex, passageTitle) : undefined;
 
-      testPassages.push({
+      rawPassages.push({
         id: `test_${testIndex}_passage_${passageIndex}`,
         passageIndex,
         title: passageTitle,
@@ -1256,12 +1278,46 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
         questions,
         labeledParagraphs,
       });
+    });
 
-      testAllQuestions.push(...questions);
+    // Stitch split passages where body text and questions were separated across pages
+    const testPassages: ParsedPassage[] = [];
+    for (let pi = 0; pi < rawPassages.length; pi++) {
+      const curP = rawPassages[pi];
+      const nextP = rawPassages[pi + 1];
+      const curQs = curP.questions || [];
+      const nextQs = nextP?.questions || [];
+      if (
+        curP.content.length > 200 &&
+        curQs.length === 0 &&
+        nextP &&
+        nextQs.length > 0 &&
+        (nextP.content.length < 200 || /^(?:test\s+\d+|passage\s+\d+|practice\s+test)/i.test(nextP.title))
+      ) {
+        curP.questions = nextQs;
+        curP.questionGroups = nextP.questionGroups || [];
+        if (nextP.content.length > 30) {
+          curP.content = `${curP.content}\n\n${nextP.content}`;
+        }
+        testPassages.push(curP);
+        pi++;
+      } else {
+        curP.questions = curQs;
+        curP.questionGroups = curP.questionGroups || [];
+        testPassages.push(curP);
+      }
+    }
+
+    testPassages.forEach((p, idx) => {
+      p.passageIndex = idx + 1;
+      p.id = `test_${testIndex}_passage_${idx + 1}`;
+      const pQs = p.questions || [];
+      const pGroups = p.questionGroups || [];
+      testAllQuestions.push(...pQs);
 
       // Add to candidateTests list (per passage)
       const warnings: string[] = [];
-      const missingKeys = questions
+      const missingKeys = pQs
         .filter((q) => !q.correctAnswer)
         .map((q) => q.id.replace('q_', ''));
       if (missingKeys.length > 0) {
@@ -1271,27 +1327,27 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
           }`
         );
       }
-      const uncertainTypes = questions.filter((q) => q.needsReview).length;
+      const uncertainTypes = pQs.filter((q) => q.needsReview).length;
       if (uncertainTypes > 0) {
         warnings.push(`${uncertainTypes} questions flagged for teacher review.`);
       }
 
       candidateTests.push({
-        id: `candidate_${testIndex}_${passageIndex}`,
+        id: `candidate_${testIndex}_${p.passageIndex}`,
         testIndex: candidateTests.length + 1,
-        title: passageTitle,
-        passageText: passageContent,
-        htmlContent: passageHtml,
-        instructions: questionGroups[0]?.instructions || 'Read the text and answer the questions below.',
-        questions,
-        questionGroups,
-        detectedAnswerKey: { ...detectedAnswerKey, ...(passageAnswerKeys || {}) },
-        detectedAnswerDetails: { ...detectedAnswerDetails, ...(passageAnswerDetails || {}) },
-        hasAnswerKeys: questions.some((q) => Boolean(q.correctAnswer)),
-        questionCount: questions.length,
-        recognizedTypes: Array.from(new Set(questions.map((q) => q.type))),
+        title: p.title,
+        passageText: p.content,
+        htmlContent: p.htmlContent,
+        instructions: pGroups[0]?.instructions || 'Read the text and answer the questions below.',
+        questions: pQs,
+        questionGroups: pGroups,
+        detectedAnswerKey: { ...detectedAnswerKey },
+        detectedAnswerDetails: { ...detectedAnswerDetails },
+        hasAnswerKeys: pQs.some((q) => Boolean(q.correctAnswer)),
+        questionCount: pQs.length,
+        recognizedTypes: Array.from(new Set(pQs.map((q) => q.type))),
         warnings,
-        labeledParagraphs,
+        labeledParagraphs: p.labeledParagraphs,
       });
     });
 
@@ -1596,35 +1652,62 @@ function parseSinglePassage(
   let passageTitle = `Passage ${passageIndex}`;
   let contentStartIndex = 0;
 
-  const headerMatch = pLines[0].match(
-    /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)(?:\s*[\:\-\–]\s*(.*))?$/i
-  );
-  if (headerMatch) {
+  const startsWithPassageHead = /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)\b/i.test(pLines[0]);
+  if (startsWithPassageHead) {
+    let explicitTitle = '';
     let nextIdx = 1;
+
+    // Check if instructions were concatenated onto the same line as the passage header
+    // e.g. "READING PASSAGE 3 You should spend about 20 minutes on Questions 27-40, which are based on on pages 10 and 11."
+    const contamMatch = pLines[0].match(/^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)[\:\-\–\s]+(You\s+should\s+spend.*)$/i);
+    if (!contamMatch) {
+      const explicitHeaderMatch = pLines[0].match(
+        /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)(?:\s*[\:\-\–]\s*(.+))?$/i
+      );
+      if (explicitHeaderMatch && explicitHeaderMatch[1]) {
+        const candidate = explicitHeaderMatch[1].trim();
+        if (!/^(?:you\s+should\s+spend|questions?\s+\d+|based\s+on|on\s+pages?)/i.test(candidate)) {
+          explicitTitle = candidate;
+        }
+      }
+    }
+
     // Skip timing or meta notes like "Questions 1–13 – You should spend about 20 minutes on questions 1–13..."
     while (
       nextIdx < pLines.length &&
-      (/^(?:questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend|you\s+should\s+spend\s+about\s+\d+\s+minutes)/i.test(pLines[nextIdx]))
+      (/^(?:questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend|you\s+should\s+spend\s+about\s+\d+\s+minutes|which\s+are\s+based\s+on|(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?\.?$)/i.test(pLines[nextIdx]))
     ) {
       nextIdx++;
     }
 
-    if (headerMatch[1] && headerMatch[1].trim()) {
-      passageTitle = headerMatch[1].trim();
+    if (explicitTitle) {
+      passageTitle = explicitTitle;
       contentStartIndex = nextIdx;
     } else if (
       nextIdx < pLines.length &&
       pLines[nextIdx].length < 120 &&
-      !/^(?:questions?|\d+[\.\:\)]|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi)/i.test(pLines[nextIdx])
+      !/^(?:questions?|\d+[\.\:\)]|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi|read\s+the|you\s+should|in\s+boxes)/i.test(pLines[nextIdx])
     ) {
       passageTitle = pLines[nextIdx];
       contentStartIndex = nextIdx + 1;
     } else {
       contentStartIndex = nextIdx;
     }
-  } else if (pLines[0].length < 120) {
+  } else if (pLines[0].length < 120 && !/^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+)/i.test(pLines[0])) {
     passageTitle = pLines[0];
     contentStartIndex = 1;
+  }
+
+  // Clean passageTitle if contaminated by trailing punctuation, page numbers, or instructions
+  passageTitle = passageTitle
+    .replace(/^[\:\-\–\.\s]+/, '')
+    .replace(/[\:\-\–\.\s]+$/, '')
+    .trim();
+  if (
+    /^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+|reading\s+passage\s+\d+\s+on\s+pages?)/i.test(passageTitle) ||
+    passageTitle.length < 3
+  ) {
+    passageTitle = `Passage ${passageIndex}`;
   }
 
   // 1.5. Detect if passage has its own localized answer key block at end of passage
@@ -2029,7 +2112,11 @@ function parseSinglePassage(
           continue;
         }
 
-        currentQ.prompt += ' ' + line;
+        if (/^[•\-\*\d+\.]\s+/.test(line)) {
+          currentQ.prompt += '\n' + line;
+        } else {
+          currentQ.prompt += ' ' + line;
+        }
       } else {
         // Collect instruction lines before questions begin
         groupInstructions.push(line);
@@ -2048,7 +2135,7 @@ function parseSinglePassage(
     }
 
     const fullInstruction =
-      groupInstructions.join(' ').trim() || 'Read the text and answer the questions below.';
+      groupInstructions.join('\n').trim() || 'Read the text and answer the questions below.';
     const instructionType = detectQuestionType('', fullInstruction);
 
     // Special handling for Multiple Selection groups (e.g. Questions 14 and 15: Choose TWO letters)

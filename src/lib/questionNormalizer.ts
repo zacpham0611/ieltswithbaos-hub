@@ -817,6 +817,9 @@ export function buildCompletionGroupText(
     return formatted;
   });
 
-  return prompts.join(' ');
+  const isBulletOrList =
+    questions.some(({ q }) => /^[•\-\*\d+\.]\s+/m.test((q.prompt || '').trim())) ||
+    questions[0]?.q.type === 'note_completion';
+  return prompts.join(isBulletOrList ? '\n' : ' ');
 }
 

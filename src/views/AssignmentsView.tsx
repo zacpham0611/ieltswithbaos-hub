@@ -3348,7 +3348,7 @@ export const AssignmentsView: React.FC = () => {
                               </div>
 
                               {group.instructions && (
-                                <p className="text-xs text-slate-700 font-medium italic leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                <p className="text-xs text-slate-700 font-medium italic leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 whitespace-pre-line">
                                   {group.instructions}
                                 </p>
                               )}
@@ -3593,7 +3593,7 @@ export const AssignmentsView: React.FC = () => {
                             </div>
 
                             {group.instructions && !group.questions.every((item) => item.q.type === 'matching_information') && (
-                              <p className="text-xs text-slate-700 italic leading-relaxed">
+                              <p className="text-xs text-slate-700 italic leading-relaxed whitespace-pre-line">
                                 {group.instructions}
                               </p>
                             )}
@@ -3747,7 +3747,7 @@ export const AssignmentsView: React.FC = () => {
                                     </div>
                                   </div>
 
-                                  <p className="font-semibold text-slate-800 text-sm leading-relaxed">{displayPrompt}</p>
+                                  <p className="font-semibold text-slate-800 text-sm leading-relaxed whitespace-pre-line">{displayPrompt}</p>
 
                                   {/* Word limit note if applicable */}
                                   {(instructionText || (maxWords && !group.wordLimit)) && (
