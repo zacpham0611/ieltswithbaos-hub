@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useI18n } from '../../i18n/context';
 import type { RegularTest, RegularTestAttempt, RegularTestSection, ReadingQuestion } from '../../types';
-import { calculateRemainingSeconds } from '../../lib/regularTestManager';
+import { calculateRemainingSeconds, parseFormattedPrompt } from '../../lib/regularTestManager';
 import {
   Clock,
   ShieldAlert,
@@ -381,13 +381,26 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
     lastActivityRef.current = Date.now();
   };
 
-  // Writing Text Change Handler
+  // Writing Text Change Handler (scoped per Task 1 / Task 2)
+  const currentWritingTaskKey = currentSection?.writingTaskType === 'task1' ? 'task1' : 'task2';
+
   const handleWritingTextChange = (text: string) => {
     if (isPerSection && lockedSkills[currentSection?.skill || '']) return;
     const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    const prevWriting = answers.writing || { text: '', wordCount: 0 };
+    const otherTaskKey = currentWritingTaskKey === 'task1' ? 'task2' : 'task1';
+    const otherTask = prevWriting[otherTaskKey];
+    const otherWords = otherTask?.wordCount || 0;
+
     const newAnswers = {
       ...answers,
-      writing: { text, wordCount: words },
+      writing: {
+        ...prevWriting,
+        [currentWritingTaskKey]: { text, wordCount: words },
+        // Root text backwards compatibility: if task2, use task2, else task1
+        text: currentWritingTaskKey === 'task2' || !prevWriting.task2 ? text : (prevWriting.task2?.text || text),
+        wordCount: words + otherWords,
+      },
     };
     setAnswers(newAnswers);
     triggerAutosave(newAnswers);
@@ -467,6 +480,38 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
   const allReadingQuestions = currentSection?.skill === 'reading' ? currentSection.readingQuestions || [] : [];
   const answeredReadingCount = allReadingQuestions.filter((q) => answers.reading?.[q.id]?.trim()).length;
   const flaggedCount = Object.values(flaggedQuestions).filter(Boolean).length;
+
+  const readingPassagesList =
+    currentSection?.passages && currentSection.passages.length > 0
+      ? currentSection.passages
+      : null;
+
+  // Map each question to its passage index (0-based)
+  const questionPassageIndexMap = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    if (!readingPassagesList || readingPassagesList.length <= 1) {
+      allReadingQuestions.forEach((q) => {
+        map[q.id] = 0;
+      });
+      return map;
+    }
+    readingPassagesList.forEach((p, pIdx) => {
+      (p.questions || []).forEach((q: any) => {
+        if (q?.id) map[q.id] = pIdx;
+      });
+    });
+    const unmapped = allReadingQuestions.filter((q) => map[q.id] === undefined);
+    if (unmapped.length > 0) {
+      const perPassage = Math.ceil(allReadingQuestions.length / readingPassagesList.length);
+      allReadingQuestions.forEach((q, idx) => {
+        if (map[q.id] === undefined) {
+          const pIdx = Math.min(Math.floor(idx / perPassage), readingPassagesList.length - 1);
+          map[q.id] = pIdx;
+        }
+      });
+    }
+    return map;
+  }, [readingPassagesList, allReadingQuestions]);
 
   // BLOCK NON-DESKTOP DEVICES (< 1280px)
   if (windowWidth < 1280) {
@@ -743,8 +788,8 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                   {/* Passage Content */}
                   <div
                     onMouseUp={handlePassageMouseUp}
-                    className={`flex-1 p-6 overflow-y-auto leading-relaxed select-text font-serif text-slate-800 ${
-                      passageFontSize === 'xl' ? 'text-base' : passageFontSize === 'large' ? 'text-sm' : 'text-xs'
+                    className={`flex-1 p-6 md:p-8 overflow-y-auto leading-[1.85] select-text font-serif text-slate-900 ${
+                      passageFontSize === 'xl' ? 'text-xl md:text-[21px]' : passageFontSize === 'large' ? 'text-lg md:text-[19px]' : 'text-base md:text-[17px]'
                     }`}
                   >
                     <div className="max-w-prose mx-auto whitespace-pre-wrap">
@@ -757,36 +802,143 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
             {/* Right: Questions Pane */}
             <div className="w-1/2 bg-slate-50 flex flex-col overflow-hidden">
-              <div className="h-10 bg-slate-100 border-b border-slate-200 px-4 flex items-center justify-between text-xs text-slate-600 shrink-0">
-                <span className="font-bold uppercase tracking-wider text-[11px]">
-                  Questions ({answeredReadingCount}/{allReadingQuestions.length} answered)
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  {flaggedCount > 0 && <span className="text-amber-600 font-semibold">{flaggedCount} flagged</span>}
-                </span>
+              {/* Question Navigator Header */}
+              <div className="bg-white border-b border-slate-200 px-5 py-3 shrink-0 shadow-2xs space-y-2.5 z-10">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs md:text-sm font-bold text-slate-900 uppercase tracking-wider">
+                    Question Navigator ({answeredReadingCount} / {allReadingQuestions.length} Answered)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-mono font-semibold">
+                      {Math.round((answeredReadingCount / (allReadingQuestions.length || 1)) * 100)}% Complete
+                    </span>
+                    {flaggedCount > 0 && (
+                      <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                        {flaggedCount} flagged
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Navigator Rows */}
+                {readingPassagesList && readingPassagesList.length > 1 ? (
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {readingPassagesList.map((p, pIdx) => {
+                      const pQuestions = allReadingQuestions.filter(
+                        (q) => (questionPassageIndexMap[q.id] ?? 0) === pIdx
+                      );
+                      const pAnsCount = pQuestions.filter((q) => answers.reading?.[q.id]?.trim()).length;
+                      return (
+                        <div key={p.id || pIdx} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-blue-900 truncate max-w-[280px]">
+                              {p.title || `Passage ${pIdx + 1}`} ({pAnsCount}/{pQuestions.length})
+                            </span>
+                            {activeReadingPassageTab !== pIdx && (
+                              <button
+                                type="button"
+                                onClick={() => setActiveReadingPassageTab(pIdx)}
+                                className="text-blue-600 hover:text-blue-800 font-semibold text-[11px] underline"
+                              >
+                                Go to passage
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {pQuestions.map((q) => {
+                              const globalIdx = allReadingQuestions.findIndex((item) => item.id === q.id);
+                              const qNum = globalIdx >= 0 ? globalIdx + 1 : 1;
+                              const isAns = Boolean(answers.reading?.[q.id]?.trim());
+                              const isFlag = Boolean(flaggedQuestions[q.id]);
+                              return (
+                                <button
+                                  key={q.id}
+                                  type="button"
+                                  onClick={() => {
+                                    if (activeReadingPassageTab !== pIdx) {
+                                      setActiveReadingPassageTab(pIdx);
+                                    }
+                                    setTimeout(() => {
+                                      const el = document.getElementById(`q_${q.id}`);
+                                      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }, 60);
+                                  }}
+                                  className={`w-7 h-7 md:w-8 md:h-8 rounded-lg text-xs md:text-sm font-bold flex items-center justify-center transition-all ${
+                                    isFlag
+                                      ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
+                                      : isAns
+                                      ? 'bg-blue-600 text-white shadow-xs'
+                                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                  }`}
+                                  title={`Question ${qNum}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
+                                >
+                                  {qNum}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1.5 max-h-28 overflow-y-auto py-1">
+                    {allReadingQuestions.map((q, idx) => {
+                      const qNum = idx + 1;
+                      const isAns = Boolean(answers.reading?.[q.id]?.trim());
+                      const isFlag = Boolean(flaggedQuestions[q.id]);
+                      return (
+                        <button
+                          key={q.id}
+                          type="button"
+                          onClick={() => {
+                            const el = document.getElementById(`q_${q.id}`);
+                            el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
+                          className={`w-7 h-7 md:w-8 md:h-8 rounded-lg text-xs md:text-sm font-bold flex items-center justify-center transition-all ${
+                            isFlag
+                              ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
+                              : isAns
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                          title={`Question ${qNum}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
+                        >
+                          {qNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
+              {/* Scrollable Questions Body */}
               <div className="flex-1 p-6 overflow-y-auto space-y-6">
-                {allReadingQuestions.map((q, idx) => {
-                  const qNum = idx + 1;
+                {(readingPassagesList && readingPassagesList.length > 1
+                  ? allReadingQuestions.filter((q) => (questionPassageIndexMap[q.id] ?? 0) === activeReadingPassageTab)
+                  : allReadingQuestions
+                ).map((q) => {
+                  const globalIdx = allReadingQuestions.findIndex((item) => item.id === q.id);
+                  const qNum = globalIdx >= 0 ? globalIdx + 1 : 1;
                   const isFlagged = Boolean(flaggedQuestions[q.id]);
                   const studentAns = answers.reading?.[q.id] || '';
 
                   return (
                     <div
                       key={q.id}
-                      className={`p-4 bg-white rounded-xl border transition-all ${
+                      id={`q_${q.id}`}
+                      className={`p-5 bg-white rounded-2xl border transition-all ${
                         isFlagged
                           ? 'border-amber-400 ring-2 ring-amber-100 shadow-2xs'
                           : 'border-slate-200 hover:border-slate-300'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3 mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-md bg-blue-100 text-blue-800 font-bold text-xs flex items-center justify-center shrink-0">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-7 h-7 rounded-lg bg-blue-100 text-blue-800 font-bold text-sm flex items-center justify-center shrink-0">
                             {qNum}
                           </span>
-                          <span className="text-xs font-semibold text-slate-900 leading-snug">
+                          <span className="text-sm md:text-base font-semibold text-slate-900 leading-snug">
                             {q.prompt || (q as any).question || (q as any).questionText}
                           </span>
                         </div>
@@ -794,7 +946,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         <button
                           type="button"
                           onClick={() => toggleFlagQuestion(q.id)}
-                          className={`p-1 rounded-md transition-colors ${
+                          className={`p-1.5 rounded-lg transition-colors ${
                             isFlagged ? 'text-amber-600 bg-amber-50' : 'text-slate-300 hover:text-slate-500'
                           }`}
                           title="Flag for review"
@@ -803,13 +955,48 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         </button>
                       </div>
 
-                      {/* Question Answer Inputs */}
+                      {/* Matching Information Question Layout */}
+                      {(q.type === 'matching_information' ||
+                        q.type === 'matching_features' ||
+                        q.type === 'matching_sentence_endings') && (
+                        <div className="mt-3 pl-2 sm:pl-8 space-y-3">
+                          {q.type === 'matching_information' && (
+                            <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 text-xs md:text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                              <span className="font-semibold">Which paragraph contains this information?</span>
+                              <span className="font-mono text-[11px] text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-md font-bold">
+                                NB: Letters may be used more than once
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            {(q.options && q.options.length > 0
+                              ? q.options.map((opt) => opt.replace(/^Paragraph\s+/i, '').trim())
+                              : ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+                            ).map((letter) => (
+                              <button
+                                key={letter}
+                                type="button"
+                                onClick={() => handleReadingAnswerChange(q.id, letter)}
+                                className={`px-3.5 py-2 rounded-xl text-xs md:text-sm font-semibold border transition-all ${
+                                  studentAns === letter
+                                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                }`}
+                              >
+                                Paragraph {letter}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Multiple Choice Question Layout */}
                       {q.type === 'multiple_choice' && q.options && (
-                        <div className="space-y-1.5 mt-3 pl-8">
+                        <div className="space-y-2 mt-3 pl-2 sm:pl-8">
                           {q.options.map((opt, oIdx) => (
                             <label
                               key={oIdx}
-                              className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-all ${
+                              className={`flex items-center gap-3 p-3 rounded-xl border text-xs md:text-sm cursor-pointer transition-all ${
                                 studentAns === opt
                                   ? 'bg-blue-50 border-blue-400 text-blue-900 font-medium'
                                   : 'border-slate-200 hover:bg-slate-50 text-slate-700'
@@ -829,8 +1016,44 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         </div>
                       )}
 
+                      {/* Multiple Select Question Layout */}
+                      {q.type === 'multiple_select' && q.options && (
+                        <div className="space-y-2 mt-3 pl-2 sm:pl-8">
+                          {q.options.map((opt, oIdx) => {
+                            const selectedArr: string[] = studentAns
+                              ? studentAns.split(',').map((s: string) => s.trim())
+                              : [];
+                            const isChecked = selectedArr.includes(opt);
+                            return (
+                              <label
+                                key={oIdx}
+                                className={`flex items-center gap-3 p-3 rounded-xl border text-xs md:text-sm cursor-pointer transition-all ${
+                                  isChecked
+                                    ? 'bg-blue-50 border-blue-400 text-blue-900 font-medium'
+                                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    const next = isChecked
+                                      ? selectedArr.filter((s: string) => s !== opt)
+                                      : [...selectedArr, opt];
+                                    handleReadingAnswerChange(q.id, next.sort().join(', '));
+                                  }}
+                                  className="w-4 h-4 text-blue-600 rounded"
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* True/False/Not Given & Yes/No/Not Given */}
                       {(q.type === 'true_false_not_given' || q.type === 'yes_no_not_given') && (
-                        <div className="flex items-center gap-2 mt-3 pl-8">
+                        <div className="flex items-center gap-2.5 mt-3 pl-2 sm:pl-8">
                           {(q.type === 'true_false_not_given'
                             ? ['TRUE', 'FALSE', 'NOT GIVEN']
                             : ['YES', 'NO', 'NOT GIVEN']
@@ -839,7 +1062,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                               key={val}
                               type="button"
                               onClick={() => handleReadingAnswerChange(q.id, val)}
-                              className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+                              className={`px-3.5 py-2 rounded-xl border text-xs md:text-sm font-bold transition-all ${
                                 studentAns === val
                                   ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
                                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -851,7 +1074,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         </div>
                       )}
 
-                      {/* Single-row Completion Answer Fields */}
+                      {/* Completion Answer Fields */}
                       {(q.type === 'sentence_completion' ||
                         q.type === 'summary_completion' ||
                         q.type === 'note_completion' ||
@@ -859,24 +1082,25 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         q.type === 'flowchart_completion' ||
                         q.type === 'fill_in_the_blank' ||
                         q.type === 'short_answer') && (
-                        <div className="mt-3 pl-8 flex items-center gap-3">
-                          <span className="text-xs font-semibold text-slate-500">Answer:</span>
+                        <div className="mt-3 pl-2 sm:pl-8 flex flex-wrap items-center gap-3">
+                          <span className="text-xs md:text-sm font-bold text-slate-700">Answer:</span>
                           <input
                             type="text"
                             value={studentAns}
                             onChange={(e) => handleReadingAnswerChange(q.id, e.target.value)}
                             placeholder="Type answer here..."
-                            className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 w-64 focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-medium"
+                            className="px-3.5 py-2 text-xs md:text-sm rounded-xl border border-slate-300 w-full sm:w-72 focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-medium bg-white text-slate-900 shadow-2xs"
                           />
                         </div>
                       )}
 
+                      {/* Matching Headings */}
                       {q.type === 'matching_headings' && q.options && (
-                        <div className="mt-3 pl-8">
+                        <div className="mt-3 pl-2 sm:pl-8">
                           <select
                             value={studentAns}
                             onChange={(e) => handleReadingAnswerChange(q.id, e.target.value)}
-                            className="w-full max-w-sm px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                            className="w-full max-w-sm px-3.5 py-2 text-xs md:text-sm rounded-xl border border-slate-300 bg-white font-medium"
                           >
                             <option value="">-- Select Heading --</option>
                             {q.options.map((opt, oIdx) => (
@@ -917,45 +1141,67 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                 </div>
               )}
 
-              <div className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">
-                {currentSection.writingPrompt || 'No writing prompt specified.'}
+              <div className="text-sm md:text-base text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">
+                {currentSection.writingPrompt ? (
+                  parseFormattedPrompt(currentSection.writingPrompt).map((s, idx) => {
+                    if (s.bold) return <strong key={idx} className="font-bold text-slate-900">{s.text}</strong>;
+                    if (s.italic) return <em key={idx} className="italic text-slate-800">{s.text}</em>;
+                    return <span key={idx}>{s.text}</span>;
+                  })
+                ) : (
+                  'No writing prompt specified.'
+                )}
               </div>
             </div>
 
             {/* Right: Writing Area with Word Count & Spellcheck Off */}
-            <div className="w-1/2 bg-slate-50 flex flex-col overflow-hidden">
-              <div className="h-10 bg-slate-100 border-b border-slate-200 px-4 flex items-center justify-between text-xs text-slate-600 shrink-0">
-                <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <PenTool className="w-3.5 h-3.5 text-indigo-600" />
-                  Your Response
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-800">
-                    Word count: <span className="text-indigo-600">{answers.writing?.wordCount || 0}</span>
-                  </span>
-                  {answers.writing?.wordCount >= (currentSection.writingMinWords || 250) ? (
-                    <span className="text-[10px] text-emerald-600 font-bold">✓ Target reached</span>
-                  ) : (
-                    <span className="text-[10px] text-amber-600 font-bold">
-                      {(currentSection.writingMinWords || 250) - (answers.writing?.wordCount || 0)} words left
-                    </span>
-                  )}
-                </div>
-              </div>
+            {(() => {
+              const currentTaskText =
+                answers.writing?.[currentWritingTaskKey]?.text ??
+                (currentWritingTaskKey === 'task1' && !answers.writing?.task2
+                  ? answers.writing?.text || ''
+                  : currentWritingTaskKey === 'task2' && !answers.writing?.task1
+                  ? answers.writing?.text || ''
+                  : '');
+              const currentTaskWordCount = currentTaskText.trim() ? currentTaskText.trim().split(/\s+/).length : 0;
+              const minWords = currentSection.writingMinWords || (currentWritingTaskKey === 'task1' ? 150 : 250);
 
-              <div className="flex-1 p-5 flex flex-col">
-                <textarea
-                  value={answers.writing?.text || ''}
-                  onChange={(e) => handleWritingTextChange(e.target.value)}
-                  onPaste={handleWritingPaste}
-                  spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  placeholder="Type your response here..."
-                  className="flex-1 w-full p-4 text-xs font-sans text-slate-900 bg-white rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 resize-none leading-relaxed shadow-2xs"
-                />
-              </div>
-            </div>
+              return (
+                <div className="w-1/2 bg-slate-50 flex flex-col overflow-hidden">
+                  <div className="h-10 bg-slate-100 border-b border-slate-200 px-4 flex items-center justify-between text-xs text-slate-600 shrink-0">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <PenTool className="w-3.5 h-3.5 text-indigo-600" />
+                      Your Response ({currentWritingTaskKey.toUpperCase()})
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-800">
+                        Word count: <span className="text-indigo-600 font-bold">{currentTaskWordCount}</span>
+                      </span>
+                      {currentTaskWordCount >= minWords ? (
+                        <span className="text-[10px] text-emerald-600 font-bold">✓ Target reached</span>
+                      ) : (
+                        <span className="text-[10px] text-amber-600 font-bold">
+                          {minWords - currentTaskWordCount} words left
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 p-5 flex flex-col">
+                    <textarea
+                      value={currentTaskText}
+                      onChange={(e) => handleWritingTextChange(e.target.value)}
+                      onPaste={handleWritingPaste}
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      placeholder="Type your response here..."
+                      className="flex-1 w-full p-4 text-sm md:text-base font-sans text-slate-900 bg-white rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 resize-none leading-relaxed shadow-2xs"
+                    />
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -988,7 +1234,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
               {/* Part 1 Content */}
               {currentSection.speakingPart === 'part1' && (
                 <div className="space-y-4">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-purple-900">
                     Part 1: Topic-based Interview
                   </h4>
                   {currentSection.speakingTopics && currentSection.speakingTopics.length > 0 ? (
@@ -996,11 +1242,11 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       {currentSection.speakingTopics
                         .slice(0, currentSection.speakingTopicCount || currentSection.speakingTopics.length)
                         .map((tp, tIdx) => (
-                          <div key={tp.id || tIdx} className="p-3 bg-purple-50/50 rounded-xl border border-purple-200 space-y-2">
-                            <span className="font-bold text-purple-950 text-xs">
+                          <div key={tp.id || tIdx} className="p-4 bg-purple-50/50 rounded-xl border border-purple-200 space-y-2">
+                            <span className="font-bold text-purple-950 text-sm">
                               Chủ đề {tIdx + 1}: {tp.topic || (tp as any).title}
                             </span>
-                            <ul className="space-y-1.5 list-disc list-inside text-xs text-slate-700 pl-1">
+                            <ul className="space-y-2 list-disc list-inside text-sm text-slate-800 pl-1 leading-relaxed">
                               {tp.questions?.map((q, qIdx) => (
                                 <li key={qIdx} className="leading-snug">
                                   {q}
@@ -1011,7 +1257,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         ))}
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
                       {currentSection.instructions || 'Answer the examiner questions clearly and fluently.'}
                     </div>
                   )}
@@ -1021,18 +1267,18 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
               {/* Part 2 Content */}
               {currentSection.speakingPart === 'part2' && (
                 <div className="space-y-4">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-purple-900">
                     Part 2: Individual Long Turn (Cue Card)
                   </h4>
-                  <div className="p-4 bg-purple-50/60 rounded-xl border-2 border-purple-200 space-y-3">
+                  <div className="p-5 bg-purple-50/60 rounded-xl border-2 border-purple-200 space-y-3">
                     <div className="text-xs font-bold text-purple-950 uppercase tracking-wide">
                       Candidate Task Card
                     </div>
-                    <div className="text-sm font-black text-slate-900">
+                    <div className="text-base font-black text-slate-900">
                       {currentSection.speakingCueCard?.topic || currentSection.speakingTopic || currentSection.title}
                     </div>
-                    <div className="text-xs text-slate-700 font-medium">You should say:</div>
-                    <ul className="space-y-1.5 text-xs text-slate-800 list-disc list-inside pl-2">
+                    <div className="text-sm text-slate-700 font-semibold">You should say:</div>
+                    <ul className="space-y-2 text-sm text-slate-800 list-disc list-inside pl-2 leading-relaxed">
                       {(
                         currentSection.speakingCueCard?.points ||
                         currentSection.speakingPoints || [
@@ -1045,7 +1291,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         <li key={pIdx}>{point}</li>
                       ))}
                     </ul>
-                    <div className="pt-2 border-t border-purple-200/80 flex items-center justify-between text-[11px] text-purple-800 font-semibold">
+                    <div className="pt-2 border-t border-purple-200/80 flex items-center justify-between text-xs text-purple-800 font-semibold">
                       <span>⏱ Chuẩn bị: 1 phút</span>
                       <span>⏱ Thời gian nói: 1 - 2 phút</span>
                     </div>
@@ -1056,14 +1302,14 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
               {/* Part 3 Content */}
               {currentSection.speakingPart === 'part3' && (
                 <div className="space-y-4">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-purple-900">
                     Part 3: Two-way Discussion
                   </h4>
                   {currentSection.speakingQuestions && currentSection.speakingQuestions.length > 0 ? (
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       {currentSection.speakingQuestions.map((q, qIdx) => (
-                        <div key={qIdx} className="p-3 bg-white rounded-xl border border-slate-200 flex items-start gap-2.5 text-xs">
-                          <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-800 font-bold text-[11px] flex items-center justify-center shrink-0">
+                        <div key={qIdx} className="p-3.5 bg-white rounded-xl border border-slate-200 flex items-start gap-3 text-sm">
+                          <span className="w-6 h-6 rounded-full bg-purple-100 text-purple-800 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                             {qIdx + 1}
                           </span>
                           <span className="text-slate-800 leading-snug font-medium">{q}</span>
@@ -1071,7 +1317,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       ))}
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
                       {currentSection.instructions || 'Discuss the topic questions in depth with full justification.'}
                     </div>
                   )}

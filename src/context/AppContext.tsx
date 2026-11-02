@@ -3120,16 +3120,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteRegularTest = async (id: string): Promise<{ success: boolean; message?: string }> => {
-    const hasAttempts = regularTestAttempts.some((a) => a.testId === id);
-    if (hasAttempts) {
-      return {
-        success: false,
-        message: 'Cannot delete test with existing student attempts. You may archive it instead.',
-      };
-    }
-
+    // Unrestricted deletion regardless of status: cascade delete associated attempts and records cleanly
     setRegularTests((prev) => prev.filter((t) => t.id !== id));
+    setRegularTestAttempts((prev) => prev.filter((a) => a.testId !== id));
     try {
+      await supabase.from('regular_test_events').delete().eq('testId', id);
+      await supabase.from('regular_test_attempts').delete().eq('testId', id);
       await supabase.from('regular_tests').delete().eq('id', id);
     } catch (err) {
       console.warn('Delete test DB notice:', err);
@@ -3368,6 +3364,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? {
               ...a,
               eventCount: (a.eventCount || 0) + fullEvents.length,
+              events: [...(a.events || []), ...fullEvents],
               riskLevel: currentRisk,
             }
           : a

@@ -50,7 +50,10 @@ import {
   Maximize2,
   FolderPlus,
   Sparkles,
+  Bold,
+  Italic,
 } from 'lucide-react';
+import { parseFormattedPrompt } from '../../lib/regularTestManager';
 
 export const TeacherRegularTestsView: React.FC = () => {
   const {
@@ -116,6 +119,23 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [writingImageUrl, setWritingImageUrl] = useState<string>('');
   const [writingModelAnswer, setWritingModelAnswer] = useState<string>('');
   const [writingSectionDuration, setWritingSectionDuration] = useState<number>(40);
+  const writingPromptRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const applyWritingFormatting = (fmt: 'bold' | 'italic') => {
+    const el = writingPromptRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const sel = writingPrompt.slice(start, end);
+    const wrap = fmt === 'bold' ? '**' : '*';
+    const rep = sel ? `${wrap}${sel}${wrap}` : `${wrap}nội dung${wrap}`;
+    const nextVal = writingPrompt.slice(0, start) + rep + writingPrompt.slice(end);
+    setWritingPrompt(nextVal);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + wrap.length, start + rep.length - wrap.length);
+    }, 40);
+  };
 
   // Speaking Part Pickers
   const [speakingPickerPart, setSpeakingPickerPart] = useState<'part1' | 'part2' | 'part3' | null>(null);
@@ -1623,14 +1643,47 @@ export const TeacherRegularTestsView: React.FC = () => {
                   )}
 
                   <div>
-                    <label className="block font-bold text-slate-800 mb-1">Đề bài Writing (Prompt & Instructions) *</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block font-bold text-slate-800 text-xs">Đề bài Writing (Prompt & Instructions) *</label>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => applyWritingFormatting('bold')}
+                          className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[11px] font-bold text-slate-700 flex items-center gap-1 transition-colors"
+                          title="Bold (**text**)"
+                        >
+                          <Bold className="w-3 h-3 text-slate-700" /> In đậm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyWritingFormatting('italic')}
+                          className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[11px] italic text-slate-700 flex items-center gap-1 transition-colors"
+                          title="Italic (*text*)"
+                        >
+                          <Italic className="w-3 h-3 text-slate-700" /> Nghiêng
+                        </button>
+                      </div>
+                    </div>
                     <textarea
+                      ref={writingPromptRef}
                       rows={4}
-                      placeholder="Nhập nội dung đề bài IELTS Writing chi tiết tại đây..."
+                      placeholder="Nhập nội dung đề bài IELTS Writing chi tiết tại đây (hỗ trợ **in đậm** và *in nghiêng*)..."
                       value={writingPrompt}
                       onChange={(e) => setWritingPrompt(e.target.value)}
-                      className="w-full p-3 border border-slate-300 rounded-xl text-xs bg-white outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      className="w-full p-3 border border-slate-300 rounded-xl text-xs bg-white outline-hidden focus:ring-2 focus:ring-indigo-500 font-sans"
                     />
+                    {writingPrompt.includes('*') && (
+                      <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Xem trước định dạng:</span>
+                        <div className="whitespace-pre-wrap">
+                          {parseFormattedPrompt(writingPrompt).map((s, idx) => {
+                            if (s.bold) return <strong key={idx} className="font-bold text-slate-900">{s.text}</strong>;
+                            if (s.italic) return <em key={idx} className="italic text-slate-800">{s.text}</em>;
+                            return <span key={idx}>{s.text}</span>;
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">

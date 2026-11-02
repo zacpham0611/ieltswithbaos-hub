@@ -8,6 +8,7 @@ import type {
 } from '../types/index.ts';
 import { gradeAssignmentSubmission } from './assignmentGrader.ts';
 import { calculateIeltsOverallBand } from './ieltsScoring.ts';
+import { extractAllNormalizedQuestions } from './questionNormalizer.ts';
 
 /**
  * Computes a salted SHA-256 hash for access codes.
@@ -84,7 +85,13 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
 } {
   const sanitizedSections: RegularTestSection[] = (test.sections || []).map((sec, idx) => {
     if (sec.skill === 'reading') {
-      const sanitizedQuestions = (sec.readingQuestions || []).map((q) => {
+      const extracted = extractAllNormalizedQuestions(sec);
+      const allRawQuestions =
+        extracted.questions.length >= (sec.readingQuestions?.length || 0)
+          ? extracted.questions
+          : sec.readingQuestions || [];
+
+      const sanitizedQuestions = allRawQuestions.map((q) => {
         const {
           correctAnswer,
           correctAnswers,
@@ -96,13 +103,24 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
         return cleanQ;
       });
 
+      const sanitizedPassages = (sec.passages || []).map((p) => {
+        const pQuestions = (p.questions || []).map((pq: any) => {
+          const { correctAnswer, correctAnswers, explanation, citation, modelAnswer, ...cleanPq } = pq;
+          return cleanPq;
+        });
+        return {
+          ...p,
+          questions: pQuestions,
+        };
+      });
+
       return {
         id: sec.id || `sec_reading_${idx}`,
         title: sec.title || `Reading Section ${idx + 1}`,
         skill: 'reading',
         durationMinutes: sec.durationMinutes || 60,
         readingPassage: sec.readingPassage || '',
-        passages: sec.passages || [],
+        passages: sanitizedPassages,
         readingQuestions: sanitizedQuestions,
         questionGroups: sec.questionGroups || [],
       };
@@ -369,4 +387,37 @@ export function categorizeStudentTests(
     submitted,
     resultsReleased,
   };
+}
+
+export interface FormattedSpan {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+}
+
+/**
+ * Parses markdown-like bold (**text**) and italic (*text*) spans for Writing test prompts.
+ */
+export function parseFormattedPrompt(text: string): FormattedSpan[] {
+  if (!text) return [];
+  const spans: FormattedSpan[] = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      spans.push({ text: text.slice(lastIndex, match.index) });
+    }
+    const token = match[0];
+    if (token.startsWith('**') && token.endsWith('**')) {
+      spans.push({ text: token.slice(2, -2), bold: true });
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      spans.push({ text: token.slice(1, -1), italic: true });
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    spans.push({ text: text.slice(lastIndex) });
+  }
+  return spans;
 }

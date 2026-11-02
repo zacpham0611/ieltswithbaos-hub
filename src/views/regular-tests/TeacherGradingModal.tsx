@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { useI18n } from '../../i18n/context';
 import type { RegularTest, RegularTestAttempt } from '../../types';
 import { calculateIeltsOverallBand } from '../../lib/ieltsScoring';
+import { parseFormattedPrompt } from '../../lib/regularTestManager';
 import {
   X,
   CheckCircle,
@@ -16,6 +17,10 @@ import {
   Mic,
   Download,
   Volume2,
+  ShieldAlert,
+  Activity,
+  FileText,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface TeacherGradingModalProps {
@@ -148,8 +153,8 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden animate-scale-in">
+    <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col w-screen h-screen overflow-hidden font-sans">
+      <div className="bg-white flex flex-col w-full h-full overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -275,15 +280,80 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
                 <h3 className="text-sm font-bold text-slate-900">Writing Assessment (Official 4 Criteria)</h3>
               </div>
 
-              {/* Student Essay Submission */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Student Submission ({attempt.answers?.writing?.wordCount || 0} words)
-                </label>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-800 max-h-48 overflow-y-auto whitespace-pre-wrap font-sans leading-relaxed">
-                  {attempt.answers?.writing?.text || '(No text submitted)'}
-                </div>
-              </div>
+              {/* Student Essay Submission(s) */}
+              {(() => {
+                const writingSections = (test.sections || []).filter((s) => s.skill === 'writing');
+                const task1Sec = writingSections.find((s) => s.writingTaskType === 'task1');
+                const task2Sec = writingSections.find((s) => s.writingTaskType === 'task2');
+                const hasTask1 = Boolean(task1Sec);
+                const hasTask2 = Boolean(task2Sec);
+
+                const task1Ans = attempt.answers?.writing?.task1?.text || (hasTask1 && !hasTask2 ? attempt.answers?.writing?.text : '');
+                const task1Words = attempt.answers?.writing?.task1?.wordCount ?? (task1Ans ? task1Ans.trim().split(/\s+/).length : 0);
+
+                const task2Ans = attempt.answers?.writing?.task2?.text || (hasTask2 && !hasTask1 ? attempt.answers?.writing?.text : (hasTask1 && hasTask2 ? attempt.answers?.writing?.task2?.text || '' : attempt.answers?.writing?.text || ''));
+                const task2Words = attempt.answers?.writing?.task2?.wordCount ?? (task2Ans ? task2Ans.trim().split(/\s+/).length : 0);
+
+                return (
+                  <div className="space-y-4">
+                    {hasTask1 && (
+                      <div className="p-4 bg-slate-50/70 rounded-xl border border-slate-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-100 text-indigo-800 uppercase tracking-wider">
+                            Task 1 ({task1Words} words)
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-semibold">
+                            Tối thiểu: {task1Sec?.writingMinWords || 150} từ
+                          </span>
+                        </div>
+                        {task1Sec?.writingPrompt && (
+                          <div className="text-xs text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Đề bài Task 1:</span>
+                            <div className="whitespace-pre-wrap">
+                              {parseFormattedPrompt(task1Sec.writingPrompt).map((s, idx) => {
+                                if (s.bold) return <strong key={idx} className="font-bold text-slate-900">{s.text}</strong>;
+                                if (s.italic) return <em key={idx} className="italic text-slate-800">{s.text}</em>;
+                                return <span key={idx}>{s.text}</span>;
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs text-slate-800 max-h-48 overflow-y-auto whitespace-pre-wrap font-sans leading-relaxed">
+                          {task1Ans || '(Chưa có bài nộp cho Task 1)'}
+                        </div>
+                      </div>
+                    )}
+
+                    {(hasTask2 || !hasTask1) && (
+                      <div className="p-4 bg-slate-50/70 rounded-xl border border-slate-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-100 text-indigo-800 uppercase tracking-wider">
+                            Task 2 ({task2Words} words)
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-semibold">
+                            Tối thiểu: {task2Sec?.writingMinWords || 250} từ
+                          </span>
+                        </div>
+                        {task2Sec?.writingPrompt && (
+                          <div className="text-xs text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Đề bài Task 2:</span>
+                            <div className="whitespace-pre-wrap">
+                              {parseFormattedPrompt(task2Sec.writingPrompt).map((s, idx) => {
+                                if (s.bold) return <strong key={idx} className="font-bold text-slate-900">{s.text}</strong>;
+                                if (s.italic) return <em key={idx} className="italic text-slate-800">{s.text}</em>;
+                                return <span key={idx}>{s.text}</span>;
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs text-slate-800 max-h-48 overflow-y-auto whitespace-pre-wrap font-sans leading-relaxed">
+                          {task2Ans || '(Chưa có bài nộp cho Task 2)'}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Rubric Selectors */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -552,6 +622,98 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
               </div>
             </div>
           )}
+
+          {/* Exam Monitoring & Violations Timeline */}
+          <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-rose-600" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Nhật ký giám sát & Vi phạm (Exam Monitoring & Integrity History)
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500">Mức độ rủi ro:</span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider text-[10px] ${
+                    attempt.riskLevel === 'high'
+                      ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                      : attempt.riskLevel === 'medium'
+                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                      : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  }`}
+                >
+                  {attempt.riskLevel || 'low'}
+                </span>
+                <span className="text-slate-400">•</span>
+                <span className="font-semibold text-slate-600">
+                  {attempt.events?.length || attempt.eventCount || 0} sự kiện
+                </span>
+              </div>
+            </div>
+
+            {(!attempt.events || attempt.events.length === 0) ? (
+              <div className="p-4 bg-slate-50 rounded-xl text-center text-xs text-slate-500 border border-dashed border-slate-200">
+                Không phát hiện vi phạm nào trong phiên thi (No security violations or abnormal events recorded).
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden">
+                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3">Thời gian</th>
+                      <th className="py-2 px-3">Loại sự kiện</th>
+                      <th className="py-2 px-3">Mức độ</th>
+                      <th className="py-2 px-3">Chi tiết & Ghi chú</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {attempt.events.map((evt, idx) => {
+                      const timeStr = evt.serverTimestamp || evt.createdAt || '';
+                      const dateObj = timeStr ? new Date(timeStr) : null;
+                      const formattedTime = dateObj ? dateObj.toLocaleTimeString('vi-VN') : '—';
+                      return (
+                        <tr key={evt.id || idx} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                            {formattedTime}
+                          </td>
+                          <td className="py-2 px-3 font-bold text-slate-800">
+                            {evt.eventType.replace(/_/g, ' ')}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                evt.severity === 'high'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : evt.severity === 'medium'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}
+                            >
+                              {evt.severity}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {evt.metadata ? (
+                              <span className="font-mono text-[11px]">
+                                {typeof evt.metadata === 'string'
+                                  ? evt.metadata
+                                  : Object.entries(evt.metadata)
+                                      .map(([k, v]) => `${k}: ${v}`)
+                                      .join(', ') || 'Đã ghi nhận'}
+                              </span>
+                            ) : (
+                              'Đã ghi nhận sự kiện'
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           {/* Release Settings Checkbox */}
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">

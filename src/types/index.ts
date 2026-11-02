@@ -688,7 +688,13 @@ export interface RegularTestAttempt {
   sessionToken: string;
   answers: {
     reading?: Record<string, string>;
-    writing?: { text: string; wordCount: number };
+    writing?: {
+      text: string;
+      wordCount: number;
+      task1?: { text: string; wordCount: number };
+      task2?: { text: string; wordCount: number };
+      [key: string]: any;
+    };
     speaking?: Record<string, {
       audioUrl: string;
       duration?: number;
@@ -754,6 +760,7 @@ export interface RegularTestAttempt {
     newScores: any;
   }>;
   eventCount?: number;
+  events?: RegularTestEvent[];
   riskLevel?: 'low' | 'medium' | 'high';
   createdAt?: string;
   updatedAt?: string;

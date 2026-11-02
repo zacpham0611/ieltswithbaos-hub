@@ -450,7 +450,9 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     if (resolvedPIdx === undefined) {
       const qPassage = (rawQ as any).passageIndex ?? (rawQ as any).passage_index;
       if (typeof qPassage === 'number' && !isNaN(qPassage)) {
-        if (passages.length > 1 && qPassage >= 1 && qPassage <= passages.length) {
+        if (qPassage >= 0 && qPassage < passages.length) {
+          resolvedPIdx = qPassage;
+        } else if (passages.length > 1 && qPassage === passages.length) {
           resolvedPIdx = qPassage - 1;
         } else if (qPassage >= 0) {
           resolvedPIdx = qPassage;
@@ -459,28 +461,29 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     }
 
     const norm = normalizeReadingQuestion(rawQ, resultQuestions.length + 1, resolvedPIdx);
-    const finalId = norm.id;
-    const contentKey = `${norm.type}:${(norm.prompt || '').trim().toLowerCase()}`;
+    let finalId = norm.id;
 
-    // Deduplicate: If ID or prompt is already in resultQuestions, do NOT add duplicate!
-    if (seenIds.has(finalId) || (norm.prompt && norm.prompt.length > 5 && seenContentKeys.has(contentKey))) {
-      // If passage index was previously missing or undefined, update passageMap
-      if (resolvedPIdx !== undefined) {
-        if (passageMap[finalId] === undefined) {
+    if (seenIds.has(finalId)) {
+      const existingQ = resultQuestions.find((q) => q.id === finalId);
+      // If coming from top-level questions or already in the same passage, it is the exact same question
+      if (
+        !existingQ ||
+        resolvedPIdx === undefined ||
+        (existingQ as any).passageIndex === undefined ||
+        (existingQ as any).passageIndex === resolvedPIdx
+      ) {
+        if (resolvedPIdx !== undefined && existingQ && (existingQ as any).passageIndex === undefined) {
+          (existingQ as any).passageIndex = resolvedPIdx;
           passageMap[finalId] = resolvedPIdx;
         }
-        const existingQ = resultQuestions.find((q) => q.id === finalId);
-        if (existingQ && (existingQ as any).passageIndex === undefined) {
-          (existingQ as any).passageIndex = resolvedPIdx;
-        }
+        return;
       }
-      return;
+      // Colliding local ID across different passages (e.g. both passages start numbering at 1)
+      finalId = `${finalId}_p${resolvedPIdx + 1}_${resultQuestions.length + 1}`;
+      norm.id = finalId;
     }
 
     seenIds.add(finalId);
-    if (norm.prompt && norm.prompt.length > 5) {
-      seenContentKeys.add(contentKey);
-    }
 
     if (resolvedPIdx !== undefined) {
       passageMap[finalId] = resolvedPIdx;
@@ -513,7 +516,9 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       const gPassage = (g as any).passageIndex ?? (g as any).passage_index;
       let gPIdx: number | undefined = undefined;
       if (typeof gPassage === 'number' && !isNaN(gPassage)) {
-        if (passages.length > 1 && gPassage >= 1 && gPassage <= passages.length) {
+        if (gPassage >= 0 && gPassage < passages.length) {
+          gPIdx = gPassage;
+        } else if (passages.length > 1 && gPassage === passages.length) {
           gPIdx = gPassage - 1;
         } else if (gPassage >= 0) {
           gPIdx = gPassage;
@@ -525,10 +530,16 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     });
   }
 
-  // 3. Process top-level readingQuestions
-  if (Array.isArray(assignment.readingQuestions)) {
-    assignment.readingQuestions.forEach((q: any) => addQuestion(q, undefined));
-  }
+  // 3. Process top-level readingQuestions / questions / allQuestions
+  const topQuestions =
+    Array.isArray(assignment.readingQuestions) && assignment.readingQuestions.length > 0
+      ? assignment.readingQuestions
+      : Array.isArray(assignment.questions) && assignment.questions.length > 0
+      ? assignment.questions
+      : Array.isArray(assignment.allQuestions) && assignment.allQuestions.length > 0
+      ? assignment.allQuestions
+      : [];
+  topQuestions.forEach((q: any) => addQuestion(q, undefined));
 
   // 4. Multi-passage alignment fallback: ensure every question in resultQuestions has passageMap entry
   if (passages.length > 1 && resultQuestions.length > 0) {

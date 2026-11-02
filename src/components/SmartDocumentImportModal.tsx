@@ -448,6 +448,24 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     }
     setIsPublishingAssignment(true);
     try {
+      const struct = activeDoc?.detectedStructure as any;
+      const isMultiPassage = Boolean(struct?.passages && struct.passages.length > 1);
+      const passagesToSave = isMultiPassage
+        ? struct.passages.map((p: any) =>
+            p.id === selectedPassageId
+              ? {
+                  ...p,
+                  title: editedTitle || p.title,
+                  content: editedPassage || p.content,
+                  questions: editableQuestions.length > 0 ? editableQuestions : p.questions,
+                }
+              : p
+          )
+        : undefined;
+      const allPassageQuestions = passagesToSave
+        ? passagesToSave.flatMap((p: any) => p.questions || [])
+        : editableQuestions;
+
       await createAssignment({
         courseId: assignCourseId,
         title: editedTitle || `${activeDoc?.name} - Reading Practice`,
@@ -457,7 +475,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         dueDate: assignDueDate,
         status: 'published',
         readingPassage: editedPassage,
-        readingQuestions: editableQuestions,
+        passages: passagesToSave,
+        readingQuestions: allPassageQuestions.length > 0 ? allPassageQuestions : editableQuestions,
         readingTestType: 'academic',
         answerReleasePolicy: assignReleasePolicy,
         sourceDocumentName: activeDoc?.name,
@@ -585,6 +604,11 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             },
           ];
 
+      const allQuestionsAcrossPassages: ReadingQuestion[] = passagesToSave.flatMap((p: any) => p.questions || []);
+      const questionsToSaveAll = allQuestionsAcrossPassages.length > 0
+        ? allQuestionsAcrossPassages
+        : questionsToSave;
+
       const structuredPayload = {
         title: titleToSave,
         skill: assignSkill || 'reading',
@@ -592,7 +616,9 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         content: passageToSave,
         passages: passagesToSave,
         questionGroups: questionGroupsToSave,
-        questions: questionsToSave,
+        questions: questionsToSaveAll,
+        readingQuestions: questionsToSaveAll,
+        allQuestions: questionsToSaveAll,
         readingTestType: 'academic',
         metadata: {
           sourceDocumentName: activeDoc.name,
@@ -905,6 +931,16 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
 
     setIsPublishingAssignment(true);
     try {
+      const struct = activeDoc?.detectedStructure as any;
+      const isMultiPassage = Boolean(struct?.passages && struct.passages.length > 1);
+      const allPassageQuestions = isMultiPassage
+        ? struct.passages.flatMap((p: any) => p.questions || [])
+        : [];
+      const finalReadingQuestions =
+        isMultiPassage && allPassageQuestions.length > reviewedQuestions.length
+          ? allPassageQuestions
+          : reviewedQuestions;
+
       await createAssignment({
         courseId: assignCourseId,
         title: reviewedTitle.trim(),
@@ -914,7 +950,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         dueDate: assignDueDate,
         status,
         readingPassage: reviewedPassage,
-        readingQuestions: reviewedQuestions,
+        passages: isMultiPassage ? struct.passages : undefined,
+        readingQuestions: finalReadingQuestions,
         writingPrompt: assignSkill === 'writing' ? reviewedPassage : undefined,
         answerReleasePolicy: assignReleasePolicy,
         sourceDocumentName: activeDoc?.name,
