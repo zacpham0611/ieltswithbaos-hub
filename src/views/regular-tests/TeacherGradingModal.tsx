@@ -507,6 +507,33 @@ export const TeacherGradingModal: React.FC<TeacherGradingModalProps> = ({ test, 
                       ) : (
                         <p className="text-xs text-slate-500 italic">Không tìm thấy file ghi âm</p>
                       )}
+
+                      {/* Question-level Audio Responses if recorded per question */}
+                      {spkData.responses && Object.keys(spkData.responses).length > 0 && (
+                        <div className="pt-2 border-t border-purple-200/80 space-y-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-purple-900 block">
+                            Chi tiết bản ghi âm từng câu hỏi:
+                          </span>
+                          <div className="space-y-1.5">
+                            {Object.entries(spkData.responses).map(([qKey, qResp]: [string, any], qIdx) => (
+                              <div
+                                key={qKey || qIdx}
+                                className="p-2 bg-white rounded-lg border border-purple-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                              >
+                                <div className="flex items-start gap-1.5 flex-1">
+                                  <span className="font-bold text-purple-800 shrink-0">Câu {qIdx + 1}:</span>
+                                  <span className="text-slate-700 font-medium">
+                                    {qResp.questionText || qKey}
+                                  </span>
+                                </div>
+                                {qResp.audioUrl && (
+                                  <audio controls src={qResp.audioUrl} className="h-7 w-48 shrink-0" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (

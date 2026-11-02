@@ -272,7 +272,7 @@ export const AssignmentsView: React.FC = () => {
   const [formReadingPassage, setFormReadingPassage] = useState('');
   const [formSpeakingTopic, setFormSpeakingTopic] = useState('');
   const [formSpeakingPoints, setFormSpeakingPoints] = useState('');
-  const [formSpeakingPart, setFormSpeakingPart] = useState<'part1' | 'part2' | 'part3'>('part2');
+  const [formSpeakingPart, setFormSpeakingPart] = useState<'part1' | 'part2' | 'part3' | 'full'>('part2');
   const [formSpeakingTopics, setFormSpeakingTopics] = useState<SpeakingTopic[]>([]);
   const [formSpeakingQuestions, setFormSpeakingQuestions] = useState<string[]>([]);
   const [formSpeakingPart3Groups, setFormSpeakingPart3Groups] = useState<SpeakingPart3Group[]>([]);
@@ -2957,10 +2957,10 @@ export const AssignmentsView: React.FC = () => {
               {/* Left Column: Reading Passage */}
               <div
                 style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${splitWidth}%` : '100%' }}
-                className="bg-white p-6 h-[calc(100vh-220px)] min-h-[550px] overflow-y-auto space-y-4 shrink-0 transition-[width] duration-75"
+                className="bg-white h-[calc(100vh-220px)] min-h-[550px] flex flex-col shrink-0 transition-[width] duration-75 overflow-hidden"
               >
-                {/* Passage Header & Multi-Passage Tabs Sticky Container */}
-                <div className="sticky top-0 z-20 bg-white -mt-6 -mx-6 px-6 pt-4 pb-3 border-b border-slate-200 shadow-2xs space-y-3">
+                {/* Passage Header & Multi-Passage Tabs Container in normal flow */}
+                <div className="shrink-0 bg-white px-6 pt-4 pb-3 border-b border-slate-200 shadow-2xs space-y-3 z-10">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="flex items-center space-x-2">
                       <BookOpen className="w-5 h-5 text-blue-600" />
@@ -3059,7 +3059,7 @@ export const AssignmentsView: React.FC = () => {
                 {/* Passage Text with Highlighting */}
                 <div
                   onMouseUp={handlePassageMouseUp}
-                  className={`font-serif text-slate-800 select-text leading-[1.75] ${
+                  className={`flex-1 p-6 overflow-y-auto font-serif text-slate-800 select-text leading-[1.75] text-justify ${
                     passageFontSize === 'normal' ? 'text-[17px]' : 'text-[19px]'
                   }`}
                 >
@@ -6571,6 +6571,21 @@ export const AssignmentsView: React.FC = () => {
                                 const card = selected[0] || part2CueCards[0];
                                 setFormSpeakingTopic(card?.topic || res.title);
                                 setFormSpeakingPoints(card?.points?.join('\n') || '');
+
+                                // Automatically attach associated Part 3 groups
+                                const matchedP3Groups = part3Groups.filter((g: any) =>
+                                  selected.some(
+                                    (c: any) =>
+                                      (g.cueCardTopic &&
+                                        (c.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
+                                          g.cueCardTopic.toLowerCase().includes(c.topic.toLowerCase().slice(0, 15)))) ||
+                                      (g.cueCardId && g.cueCardId === c.id)
+                                  )
+                                );
+                                if (matchedP3Groups.length > 0) {
+                                  setFormSpeakingPart3Groups(matchedP3Groups);
+                                  setFormSpeakingQuestions(matchedP3Groups.flatMap((g: any) => g.questions));
+                                }
                               } else if (resPart === 'part3') {
                                 const selected = part3Groups.filter(
                                   (g: any) =>
@@ -6597,16 +6612,17 @@ export const AssignmentsView: React.FC = () => {
                   })()}
 
                   {/* Part Selector Tabs */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     {[
-                      { id: 'part1', label: 'Part 1: Topic-based', desc: 'Chủ đề & câu hỏi ngắn' },
-                      { id: 'part2', label: 'Part 2: Long Turn', desc: 'Cue Card độc lập' },
-                      { id: 'part3', label: 'Part 3: Discussion', desc: 'Câu hỏi thảo luận tự do' },
+                      { id: 'part1', label: 'Part 1', desc: 'Chủ đề & câu hỏi ngắn' },
+                      { id: 'part2', label: 'Part 2', desc: 'Cue Card độc lập' },
+                      { id: 'part3', label: 'Part 3', desc: 'Câu hỏi thảo luận' },
+                      { id: 'full', label: 'Full Speaking', desc: 'Kết hợp Parts 1, 2 & 3' },
                     ].map((tab) => (
                       <button
                         key={tab.id}
                         type="button"
-                        onClick={() => setFormSpeakingPart(tab.id as 'part1' | 'part2' | 'part3')}
+                        onClick={() => setFormSpeakingPart(tab.id as any)}
                         className={`p-2.5 rounded-lg border text-left transition-all ${
                           formSpeakingPart === tab.id
                             ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
@@ -6622,7 +6638,7 @@ export const AssignmentsView: React.FC = () => {
                   </div>
 
                   {/* PART 1 CONFIGURATION */}
-                  {formSpeakingPart === 'part1' && (
+                  {(formSpeakingPart === 'part1' || formSpeakingPart === 'full') && (
                     <div className="space-y-4 pt-1">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-purple-900 uppercase">
@@ -6749,7 +6765,7 @@ export const AssignmentsView: React.FC = () => {
                   )}
 
                   {/* PART 2 CONFIGURATION */}
-                  {formSpeakingPart === 'part2' && (
+                  {(formSpeakingPart === 'part2' || formSpeakingPart === 'full') && (
                     <div className="space-y-3 pt-1">
                       <div>
                         <label className="block text-xs font-bold text-purple-950 mb-1">
@@ -6789,7 +6805,7 @@ export const AssignmentsView: React.FC = () => {
                   )}
 
                   {/* PART 3 CONFIGURATION */}
-                  {formSpeakingPart === 'part3' && (
+                  {(formSpeakingPart === 'part3' || formSpeakingPart === 'full') && (
                     <div className="space-y-3 pt-1">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-purple-900 uppercase">

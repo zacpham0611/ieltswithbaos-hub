@@ -9,6 +9,7 @@ import type {
   WritingTaskCategory,
   SpeakingTopic,
   SpeakingCueCard,
+  SpeakingPart3Group,
   ReadingQuestion,
   QuestionGroup,
 } from '../../types';
@@ -143,6 +144,7 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [selectedPart1TopicIds, setSelectedPart1TopicIds] = useState<Record<string, boolean>>({});
   const [part1TopicCount, setPart1TopicCount] = useState<number>(3);
   const [selectedCueCardIndex, setSelectedCueCardIndex] = useState<number>(0);
+  const [selectedCueCardIndices, setSelectedCueCardIndices] = useState<Record<number, boolean>>({});
   const [selectedPart3QuestionIndices, setSelectedPart3QuestionIndices] = useState<Record<number, boolean>>({});
 
   // Filtered Tests
@@ -510,6 +512,7 @@ export const TeacherRegularTestsView: React.FC = () => {
     setSelectedPart1TopicIds({});
     setPart1TopicCount(3);
     setSelectedCueCardIndex(0);
+    setSelectedCueCardIndices({});
     setSelectedPart3QuestionIndices({});
   };
 
@@ -535,13 +538,13 @@ export const TeacherRegularTestsView: React.FC = () => {
         resourceId: selectedSpeakingResource.id,
         speakingPart: 'part1',
         speakingTopics: finalTopics,
-        speakingTopicCount: Math.min(part1TopicCount, finalTopics.length),
+        speakingTopicCount: finalTopics.length,
         durationMinutes: 5,
       };
 
       setFormSections((prev) => [...prev, newSec]);
     } else if (speakingPickerPart === 'part2') {
-      let cueCards: Array<{ topic: string; points: string[] }> =
+      let cueCards: Array<{ id?: string; topic: string; points: string[] }> =
         selectedSpeakingResource.speakingPart2?.cueCards || [];
       if (cueCards.length === 0 && selectedSpeakingResource.content) {
         try {
@@ -550,32 +553,93 @@ export const TeacherRegularTestsView: React.FC = () => {
         } catch {}
       }
 
-      const chosenCard: SpeakingCueCard = {
-        topic: cueCards[selectedCueCardIndex]?.topic || selectedSpeakingResource.title,
-        points: cueCards[selectedCueCardIndex]?.points || ['What it is', 'Why it matters', 'How you feel about it'],
-        prepTimeSeconds: 60,
-        speakTimeSeconds: 120,
-      };
+      const selectedIndices = Object.keys(selectedCueCardIndices)
+        .filter((k) => selectedCueCardIndices[Number(k)])
+        .map(Number);
+
+      const chosenCards: SpeakingCueCard[] = (
+        selectedIndices.length > 0
+          ? selectedIndices.map((i) => cueCards[i])
+          : [cueCards[selectedCueCardIndex]]
+      )
+        .filter(Boolean)
+        .map((c) => ({
+          topic: c.topic || selectedSpeakingResource.title,
+          points: c.points || ['What it is', 'Why it matters', 'How you feel about it'],
+          prepTimeSeconds: 60,
+          speakTimeSeconds: 120,
+        }));
+
+      // Automatically retrieve question groups associated with selected cue cards
+      let p3Groups: SpeakingPart3Group[] = selectedSpeakingResource.speakingPart3?.groups || [];
+      if (p3Groups.length === 0 && selectedSpeakingResource.content) {
+        try {
+          const parsed = JSON.parse(selectedSpeakingResource.content);
+          p3Groups = parsed.groups || parsed.speakingPart3?.groups || [];
+        } catch {}
+      }
+
+      const matchedGroups: SpeakingPart3Group[] = [];
+      chosenCards.forEach((card, idx) => {
+        const found =
+          p3Groups.find(
+            (g) =>
+              (g.cueCardTopic &&
+                (card.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
+                  g.cueCardTopic.toLowerCase().includes(card.topic.toLowerCase().slice(0, 15)))) ||
+              (g.cueCardId && g.cueCardId === (card as any).id)
+          ) || p3Groups[idx];
+        if (found && found.questions && found.questions.length > 0) {
+          matchedGroups.push({
+            id: found.id || `p3_g_${idx + 1}`,
+            cueCardTopic: card.topic,
+            questions: found.questions,
+          });
+        }
+      });
 
       const newSec: RegularTestSection = {
         id: `sec_${Date.now()}_spk2`,
         skill: 'speaking',
-        title: `Speaking Part 2: ${chosenCard.topic}`,
+        title:
+          chosenCards.length === 1
+            ? `Speaking Part 2: ${chosenCards[0].topic}`
+            : `Speaking Part 2 (${chosenCards.length} Cue Cards)`,
         resourceId: selectedSpeakingResource.id,
         speakingPart: 'part2',
-        speakingCueCard: chosenCard,
-        speakingTopic: chosenCard.topic,
-        speakingPoints: chosenCard.points,
-        durationMinutes: 4,
+        speakingCueCard: chosenCards[0],
+        speakingCueCards: chosenCards,
+        speakingTopic: chosenCards[0]?.topic,
+        speakingPoints: chosenCards[0]?.points,
+        speakingPart3Groups: matchedGroups,
+        durationMinutes: 4 * Math.max(1, chosenCards.length),
       };
 
       setFormSections((prev) => [...prev, newSec]);
+
+      // Automatically add associated Part 3 discussion section if matched groups exist
+      if (matchedGroups.length > 0) {
+        const allP3Questions = matchedGroups.flatMap((g) => g.questions);
+        const p3Sec: RegularTestSection = {
+          id: `sec_${Date.now() + 1}_spk3`,
+          skill: 'speaking',
+          title: `Speaking Part 3 (Associated with Part 2)`,
+          resourceId: selectedSpeakingResource.id,
+          speakingPart: 'part3',
+          speakingQuestions: allP3Questions,
+          speakingPart3Groups: matchedGroups,
+          durationMinutes: 5,
+        };
+        setFormSections((prev) => [...prev, p3Sec]);
+      }
     } else if (speakingPickerPart === 'part3') {
       let questions: string[] = selectedSpeakingResource.speakingPart3?.questions || [];
+      let groups: SpeakingPart3Group[] = selectedSpeakingResource.speakingPart3?.groups || [];
       if (questions.length === 0 && selectedSpeakingResource.content) {
         try {
           const parsed = JSON.parse(selectedSpeakingResource.content);
           questions = parsed.questions || parsed.speakingPart3?.questions || [];
+          groups = parsed.groups || parsed.speakingPart3?.groups || [];
         } catch {}
       }
 
@@ -595,6 +659,7 @@ export const TeacherRegularTestsView: React.FC = () => {
         resourceId: selectedSpeakingResource.id,
         speakingPart: 'part3',
         speakingQuestions: finalQuestions,
+        speakingPart3Groups: groups,
         durationMinutes: 5,
       };
 
@@ -615,6 +680,17 @@ export const TeacherRegularTestsView: React.FC = () => {
       alert(res.message);
     }
   };
+
+  // FULL-PAGE DEDICATED GRADING WORKSPACE (Replaces main page content completely)
+  if (gradingAttemptData) {
+    return (
+      <TeacherGradingModal
+        test={gradingAttemptData.test}
+        attempt={gradingAttemptData.attempt}
+        onClose={() => setGradingAttemptData(null)}
+      />
+    );
+  }
 
   // FULL-SCREEN DEDICATED WORKSPACE FOR CREATE / EDIT REGULAR TEST
   if (showCreatorModal) {
@@ -1875,30 +1951,70 @@ export const TeacherRegularTestsView: React.FC = () => {
                       {/* PART 2 SELECTION */}
                       {speakingPickerPart === 'part2' && (
                         <div className="space-y-3">
-                          <label className="font-bold text-slate-800 block">
-                            Chọn một Cue Card Part 2 cụ thể:
-                          </label>
+                          <div className="flex items-center justify-between">
+                            <label className="font-bold text-slate-800 block">
+                              Chọn Cue Card Part 2 (có thể chọn nhiều Cue Card):
+                            </label>
+                            <span className="text-[11px] text-purple-700 font-bold">
+                              {Object.values(selectedCueCardIndices).filter(Boolean).length} đã chọn
+                            </span>
+                          </div>
                           <div className="space-y-2 max-h-60 overflow-y-auto">
                             {(selectedSpeakingResource.speakingPart2?.cueCards || [
                               { topic: selectedSpeakingResource.title, points: ['What it is', 'Why it matters'] },
-                            ]).map((card: any, cIdx: number) => (
-                              <div
-                                key={cIdx}
-                                onClick={() => setSelectedCueCardIndex(cIdx)}
-                                className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                                  selectedCueCardIndex === cIdx
-                                    ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-100'
-                                    : 'bg-white border-slate-200 hover:bg-slate-50'
-                                }`}
-                              >
-                                <div className="font-bold text-slate-900">{card.topic}</div>
-                                <ul className="mt-1 list-disc list-inside text-[11px] text-slate-600 pl-1">
-                                  {card.points?.map((p: string, pIdx: number) => (
-                                    <li key={pIdx}>{p}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
+                            ]).map((card: any, cIdx: number) => {
+                              const isChecked = Boolean(selectedCueCardIndices[cIdx]);
+                              const p3Groups: any[] = selectedSpeakingResource.speakingPart3?.groups || [];
+                              const hasP3 = p3Groups.some(
+                                (g: any) =>
+                                  (g.cueCardTopic &&
+                                    (card.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
+                                      g.cueCardTopic.toLowerCase().includes(card.topic.toLowerCase().slice(0, 15)))) ||
+                                  (g.cueCardId && g.cueCardId === card.id)
+                              );
+
+                              return (
+                                <label
+                                  key={cIdx}
+                                  className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition-all ${
+                                    isChecked
+                                      ? 'bg-purple-50/70 border-purple-500 ring-1 ring-purple-300'
+                                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) =>
+                                      setSelectedCueCardIndices((prev) => ({
+                                        ...prev,
+                                        [cIdx]: e.target.checked,
+                                      }))
+                                    }
+                                    className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-bold text-slate-900">{card.topic}</span>
+                                      {hasP3 ? (
+                                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded shrink-0">
+                                          ✓ Có Part 3 liên kết
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded shrink-0">
+                                          ⚠️ Chưa có Part 3
+                                        </span>
+                                      )}
+                                    </div>
+                                    <ul className="mt-1 list-disc list-inside text-[11px] text-slate-600 pl-1">
+                                      {card.points?.map((p: string, pIdx: number) => (
+                                        <li key={pIdx}>{p}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                </label>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1907,32 +2023,47 @@ export const TeacherRegularTestsView: React.FC = () => {
                       {speakingPickerPart === 'part3' && (
                         <div className="space-y-3">
                           <label className="font-bold text-slate-800 block">
-                            Chọn câu hỏi thảo luận chuyên sâu Part 3:
+                            Nhóm câu hỏi thảo luận chuyên sâu Part 3:
                           </label>
                           <div className="space-y-2 max-h-60 overflow-y-auto">
-                            {(selectedSpeakingResource.speakingPart3?.questions || []).map((q: string, qIdx: number) => (
-                              <label
-                                key={qIdx}
-                                className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition-all ${
-                                  selectedPart3QuestionIndices[qIdx]
-                                    ? 'bg-purple-50/50 border-purple-400'
-                                    : 'bg-white border-slate-200 hover:bg-slate-50'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(selectedPart3QuestionIndices[qIdx])}
-                                  onChange={(e) =>
-                                    setSelectedPart3QuestionIndices((prev) => ({
-                                      ...prev,
-                                      [qIdx]: e.target.checked,
-                                    }))
-                                  }
-                                  className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
-                                />
-                                <span className="text-slate-800 font-medium">{q}</span>
-                              </label>
-                            ))}
+                            {(selectedSpeakingResource.speakingPart3?.groups && selectedSpeakingResource.speakingPart3.groups.length > 0) ? (
+                              selectedSpeakingResource.speakingPart3.groups.map((grp: any, gIdx: number) => (
+                                <div key={gIdx} className="p-3 bg-purple-50/40 rounded-xl border border-purple-200 space-y-1.5">
+                                  <span className="font-bold text-purple-950 text-xs block">
+                                    {grp.cueCardTopic ? `Chủ đề liên kết: ${grp.cueCardTopic}` : `Nhóm ${gIdx + 1}`}
+                                  </span>
+                                  <ul className="list-disc list-inside text-[11px] text-slate-700 pl-1 space-y-1">
+                                    {(grp.questions || []).map((q: string, qIdx: number) => (
+                                      <li key={qIdx}>{q}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))
+                            ) : (
+                              (selectedSpeakingResource.speakingPart3?.questions || []).map((q: string, qIdx: number) => (
+                                <label
+                                  key={qIdx}
+                                  className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition-all ${
+                                    selectedPart3QuestionIndices[qIdx]
+                                      ? 'bg-purple-50/50 border-purple-400'
+                                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(selectedPart3QuestionIndices[qIdx])}
+                                    onChange={(e) =>
+                                      setSelectedPart3QuestionIndices((prev) => ({
+                                        ...prev,
+                                        [qIdx]: e.target.checked,
+                                      }))
+                                    }
+                                    className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
+                                  />
+                                  <span className="text-slate-800 font-medium">{q}</span>
+                                </label>
+                              ))
+                            )}
                           </div>
                         </div>
                       )}
@@ -2249,15 +2380,6 @@ export const TeacherRegularTestsView: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Teacher Grading Modal */}
-      {gradingAttemptData && (
-        <TeacherGradingModal
-          test={gradingAttemptData.test}
-          attempt={gradingAttemptData.attempt}
-          onClose={() => setGradingAttemptData(null)}
-        />
       )}
     </div>
   );

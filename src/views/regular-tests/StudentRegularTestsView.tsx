@@ -335,8 +335,8 @@ export const StudentRegularTestsView: React.FC = () => {
       {/* Pre-Exam Verification & Rules Modal */}
       {selectedTestForStart && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 animate-scale-in space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
+            <div className="shrink-0 px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
                   <ShieldCheck className="w-5 h-5" />
@@ -351,56 +351,58 @@ export const StudentRegularTestsView: React.FC = () => {
               </button>
             </div>
 
-            {startError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 font-medium">
-                {startError}
-              </div>
-            )}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {startError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 font-medium">
+                  {startError}
+                </div>
+              )}
 
-            {/* Device & Rules Notice */}
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
-              <div className="flex items-center gap-2 text-slate-800 font-bold">
-                <Monitor className="w-4 h-4 text-blue-600" />
-                <span>Desktop Requirements & Anti-Cheating Policy</span>
+              {/* Device & Rules Notice */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
+                <div className="flex items-center gap-2 text-slate-800 font-bold">
+                  <Monitor className="w-4 h-4 text-blue-600" />
+                  <span>Desktop Requirements & Anti-Cheating Policy</span>
+                </div>
+                <ul className="list-disc pl-5 text-slate-600 space-y-1 text-[11px] leading-relaxed">
+                  <li>Exam-taking requires a desktop screen of at least 1280px.</li>
+                  <li>Fullscreen mode is activated upon start. Do not switch tabs or exit fullscreen.</li>
+                  <li>All answers are automatically saved every few seconds.</li>
+                  <li>The exam timer is server-synchronized and cannot be paused.</li>
+                </ul>
               </div>
-              <ul className="list-disc pl-5 text-slate-600 space-y-1 text-[11px] leading-relaxed">
-                <li>Exam-taking requires a desktop screen of at least 1280px.</li>
-                <li>Fullscreen mode is activated upon start. Do not switch tabs or exit fullscreen.</li>
-                <li>All answers are automatically saved every few seconds.</li>
-                <li>The exam timer is server-synchronized and cannot be paused.</li>
-              </ul>
+
+              {/* Access Code Input if enabled */}
+              {selectedTestForStart.accessCodeEnabled && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {t('regularTests.enterAccessCode')} *
+                  </label>
+                  <input
+                    type="text"
+                    value={accessCodeInput}
+                    onChange={(e) => setAccessCodeInput(e.target.value)}
+                    placeholder={t('regularTests.accessCodePlaceholder')}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 uppercase tracking-widest font-mono font-bold focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+              )}
+
+              {/* Consent Checkbox */}
+              <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-700 pt-1">
+                <input
+                  type="checkbox"
+                  checked={consentChecked}
+                  onChange={(e) => setConsentChecked(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded-sm mt-0.5"
+                />
+                <span className="font-medium leading-snug">
+                  {t('regularTests.consentAcknowledge')}
+                </span>
+              </label>
             </div>
 
-            {/* Access Code Input if enabled */}
-            {selectedTestForStart.accessCodeEnabled && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {t('regularTests.enterAccessCode')} *
-                </label>
-                <input
-                  type="text"
-                  value={accessCodeInput}
-                  onChange={(e) => setAccessCodeInput(e.target.value)}
-                  placeholder={t('regularTests.accessCodePlaceholder')}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 uppercase tracking-widest font-mono font-bold focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                />
-              </div>
-            )}
-
-            {/* Consent Checkbox */}
-            <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-700 pt-1">
-              <input
-                type="checkbox"
-                checked={consentChecked}
-                onChange={(e) => setConsentChecked(e.target.checked)}
-                className="w-4 h-4 text-blue-600 rounded-sm mt-0.5"
-              />
-              <span className="font-medium leading-snug">
-                {t('regularTests.consentAcknowledge')}
-              </span>
-            </label>
-
-            <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+            <div className="shrink-0 p-4 px-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
               <button
                 onClick={() => setSelectedTestForStart(null)}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl"

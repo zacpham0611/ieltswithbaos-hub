@@ -330,6 +330,7 @@ export interface Assignment {
   speakingPart?: 'part1' | 'part2' | 'part3' | 'full';
   speakingTopics?: SpeakingTopic[];
   speakingCueCard?: SpeakingCueCard;
+  speakingCueCards?: SpeakingCueCard[];
   speakingQuestions?: string[];
   speakingPart3Groups?: SpeakingPart3Group[];
   selectedSpeakingExerciseIds?: string[];
@@ -631,9 +632,11 @@ export interface RegularTestSection {
   speakingTopicCount?: number;
   speakingTopics?: SpeakingTopic[];
   speakingCueCard?: SpeakingCueCard;
+  speakingCueCards?: SpeakingCueCard[];
   speakingTopic?: string;
   speakingPoints?: string[];
   speakingQuestions?: string[];
+  speakingPart3Groups?: SpeakingPart3Group[];
 }
 
 export interface RegularTest {

@@ -78,12 +78,18 @@ export function sanitizeSpeakingDocumentText(rawText: string): string[] {
     const line = rawLines[i];
     if (!line) continue;
 
-    // Remove page markers (e.g. "--- PAGE 1 ---", "Page 1 of 12", "Trang 3/10")
+    // Remove page markers (e.g. "[page 4]", "--- PAGE 1 ---", "Page 1 of 12", "Trang 3/10", "p. 4")
     if (/^--- PAGE \d+ ---$/i.test(line)) continue;
-    if (/^(?:page|trang)\s*\d+(?:\s*(?:of|\/)\s*\d+)?$/i.test(line)) continue;
+    if (/^\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]$/i.test(line)) continue;
+    if (/^(?:page|trang|p\.?)\s*\d+(?:\s*(?:of|\/|-|–)\s*\d+)?$/i.test(line)) continue;
+    if (/^(?:page|trang|p\.?)\s*#?\d+$/i.test(line)) continue;
 
     // Remove standalone page numbers (e.g. "1", "27")
     if (/^\d{1,3}$/.test(line)) continue;
+
+    // Clean inline bracketed page markers if embedded in text (e.g., "...something [page 4]")
+    const cleanedLine = line.replace(/\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/gi, '').trim();
+    if (!cleanedLine) continue;
 
     // Table of contents start detection
     if (/^(?:contents|mục\s*lục|table\s*of\s*contents)$/i.test(line)) {
@@ -228,7 +234,18 @@ export function extractSpeakingPartsFromDocument(
   };
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const rawLine = lines[i];
+    const line = rawLine.replace(/\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/gi, '').trim();
+
+    // Skip empty lines or pure page markers
+    if (!line) continue;
+    if (
+      /^--- PAGE \d+ ---$/i.test(line) ||
+      /^(?:page|trang|p\.?)\s*\d+(?:\s*(?:of|\/|-|–)\s*\d+)?$/i.test(line) ||
+      /^\d{1,3}$/.test(line)
+    ) {
+      continue;
+    }
 
     // 1. Check Part 1 Section Boundary
     if (
@@ -386,11 +403,19 @@ export function extractSpeakingPartsFromDocument(
       } else {
         const cleanTitle = line
           .replace(/^(?:topic\s*(?:\d+)?[:\.\-\s]+|chủ\s*đề\s*(?:\d+)?[:\.\-\s]+|\d+[\.\)]\s*)/i, '')
+          .replace(/\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/gi, '')
           .trim();
 
+        const isPageNoise =
+          /^\[\s*(?:page|trang|p\.?)\s*\d+[^\]]*\]/i.test(line) ||
+          /^(?:page|trang|p\.?)\s*\d+/i.test(cleanTitle) ||
+          /^(?:forecast|part\s*\d|quý\s*\d)/i.test(cleanTitle) ||
+          /^\d+$/.test(cleanTitle);
+
         const looksLikeTopic =
-          isExplicitTopic ||
-          (line.length <= 60 && !line.includes('?') && !line.endsWith(':') && cleanTitle.length >= 2);
+          !isPageNoise &&
+          (isExplicitTopic ||
+            (line.length <= 60 && !line.includes('?') && !line.endsWith(':') && cleanTitle.length >= 2));
 
         if (looksLikeTopic) {
           currentTopic = {
