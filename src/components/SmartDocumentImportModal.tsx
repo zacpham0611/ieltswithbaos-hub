@@ -92,6 +92,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null);
   const [selectedPassageId, setSelectedPassageId] = useState<string | null>(null);
   const [expandedTestIds, setExpandedTestIds] = useState<Record<string, boolean>>({});
+  const [isPassageBuilderExpanded, setIsPassageBuilderExpanded] = useState(false);
   const [editableQuestions, setEditableQuestions] = useState<ReadingQuestion[]>([]);
 
   // Word Configuration State
@@ -958,21 +959,23 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         {/* ==========================================
             MODAL HEADER & STEP PROGRESS
         ========================================== */}
-        <div className="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-blue-400">
-              <FileUp className="w-5 h-5" />
+        <div className={`bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0 ${currentStep === 'preview' ? 'px-4 py-2' : 'p-5'}`}>
+          <div className="flex items-center space-x-2.5">
+            <div className={`rounded-xl bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-blue-400 ${currentStep === 'preview' ? 'w-7 h-7' : 'w-9 h-9'}`}>
+              <FileUp className={currentStep === 'preview' ? 'w-4 h-4' : 'w-5 h-5'} />
             </div>
             <div>
-              <h2 className="text-base font-bold tracking-tight text-white flex items-center space-x-2">
+              <h2 className="text-sm font-bold tracking-tight text-white flex items-center space-x-2">
                 <span>Smart Document Import & Converter</span>
                 <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded border border-blue-400/30">
                   AI-Powered
                 </span>
               </h2>
-              <p className="text-xs text-slate-400">
-                Import PDF, DOCX, TXT → Editable Word Document or Interactive Student Assignment
-              </p>
+              {currentStep !== 'preview' && (
+                <p className="text-xs text-slate-400">
+                  Import PDF, DOCX, TXT → Editable Word Document or Interactive Student Assignment
+                </p>
+              )}
             </div>
           </div>
 
@@ -985,7 +988,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         </div>
 
         {/* Step Indicator Bar */}
-        <div className="bg-slate-50 border-b border-slate-200 px-6 py-2.5 flex items-center justify-between text-xs font-semibold text-slate-500 overflow-x-auto">
+        <div className={`bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-semibold text-slate-500 overflow-x-auto shrink-0 ${currentStep === 'preview' ? 'px-4 py-1.5' : 'px-6 py-2.5'}`}>
           <div className="flex items-center space-x-2 whitespace-nowrap shrink-0">
             <span
               className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
@@ -1055,7 +1058,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         {/* ==========================================
             MODAL BODY CONTENT BY STEP
         ========================================== */}
-        <div className={`flex-1 overflow-y-auto ${currentStep === 'preview' ? 'p-0' : 'p-6 space-y-6'}`}>
+        <div className={`flex-1 overflow-y-auto min-h-0 ${currentStep === 'preview' && importSkillType !== 'speaking' ? 'p-0 flex flex-col' : 'p-6 space-y-6'}`}>
           {/* --------------------------------------
               STEP 1: UPLOAD
           --------------------------------------- */}
@@ -1650,139 +1653,240 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
               STEP 2: PREVIEW & EDIT EXTRACTED TEXT (READING)
           --------------------------------------- */}
           {currentStep === 'preview' && activeDoc && importSkillType !== 'speaking' && (
-            <div className="h-full flex flex-col p-6 space-y-4">
-              {/* Toolbar row */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3 shrink-0">
-                <div className="flex items-center space-x-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">Previewing: {activeDoc.name}</h3>
-                    <p className="text-xs text-slate-500">Review or correct extracted headings, passages, and questions before proceeding.</p>
-                  </div>
+            <div className="flex-1 min-h-0 flex flex-col p-3 sm:p-4 space-y-2.5">
+              {/* Compact Toolbar row */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2 shrink-0">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <span className="text-xs font-bold text-slate-800 shrink-0">
+                    Previewing:
+                  </span>
+                  <span className="text-xs font-medium text-slate-600 truncate max-w-[200px]" title={activeDoc.name}>
+                    {activeDoc.name}
+                  </span>
                   <input
                     type="text"
                     value={editedTitle}
                     onChange={(e) => setEditedTitle(e.target.value)}
-                    className="hidden sm:block p-1.5 border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden w-56"
-                    placeholder="Assignment title…"
+                    className="p-1 px-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden w-64"
+                    placeholder="Document / Assignment Title…"
                   />
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 shrink-0">
                   <div className="bg-slate-100 p-0.5 rounded-lg flex text-xs font-semibold">
-                    <button onClick={() => setPreviewTab('structured')} className={`px-3 py-1 rounded-md transition-colors ${previewTab === 'structured' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'}`}>Structured View</button>
-                    <button onClick={() => setPreviewTab('raw')} className={`px-3 py-1 rounded-md transition-colors ${previewTab === 'raw' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'}`}>Raw Text Editor</button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTab('structured')}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${previewTab === 'structured' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'}`}
+                    >
+                      Structured View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTab('raw')}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${previewTab === 'raw' ? 'bg-white shadow-xs text-blue-600 font-bold' : 'text-slate-600'}`}
+                    >
+                      Raw Text Editor
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Stats */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs shrink-0">
-                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Total Pages</span><p className="font-mono font-bold text-slate-800 text-sm">{activeDoc.pageCount || 1}</p></div>
-                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Tests Detected</span><p className="font-mono font-bold text-blue-600 text-sm">{activeDoc.detectedStructure?.tests?.length || 1}</p></div>
-                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Total Passages</span><p className="font-mono font-bold text-indigo-600 text-sm">{activeDoc.detectedStructure?.tests?.reduce((s, t) => s + t.passages.length, 0) || activeDoc.detectedStructure?.candidateTests?.length || 1}</p></div>
-                <div className="space-y-0.5"><span className="text-[11px] text-slate-400 font-semibold uppercase">Total Questions</span><p className="font-mono font-bold text-emerald-600 text-sm">{activeDoc.detectedStructure?.questions.length || 0}</p></div>
+              {/* Compact Stats Strip */}
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs shrink-0">
+                <div className="flex items-center space-x-3 text-slate-600 font-medium">
+                  <span>Pages: <strong className="text-slate-800 font-mono">{activeDoc.pageCount || 1}</strong></span>
+                  <span className="text-slate-300">•</span>
+                  <span>Tests: <strong className="text-blue-600 font-mono">{activeDoc.detectedStructure?.tests?.length || 1}</strong></span>
+                  <span className="text-slate-300">•</span>
+                  <span>Passages: <strong className="text-indigo-600 font-mono">{activeDoc.detectedStructure?.tests?.reduce((s, t) => s + t.passages.length, 0) || activeDoc.detectedStructure?.candidateTests?.length || 1}</strong></span>
+                  <span className="text-slate-300">•</span>
+                  <span>Questions: <strong className="text-emerald-600 font-mono">{activeDoc.detectedStructure?.questions.length || 0}</strong></span>
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono hidden sm:block">
+                  IELTS Academic / General Training
+                </div>
               </div>
 
               {previewTab === 'structured' ? (
-                <div className="flex-1 flex flex-col overflow-hidden space-y-4 min-h-0">
+                <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+                  {/* Multi-passage quick switcher & builder */}
+                  {(() => {
+                    const firstTest = activeDoc.detectedStructure?.tests?.[0];
+                    if (!firstTest) return null;
+                    const totalPassages = firstTest.passages.length;
 
-                  {/* Multi-passage tree */}
-                  {activeDoc.detectedStructure?.tests && activeDoc.detectedStructure.tests.length > 0 ? (
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shrink-0">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-100 gap-2">
-                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
-                          <Layers className="w-4 h-4 text-blue-600" />
-                          <span>Multi-Passage Test Builder ({activeDoc.detectedStructure.tests.length} Test, {activeDoc.detectedStructure.tests[0]?.passages.length || 0} Passages)</span>
-                        </span>
-                        <div className="flex items-center space-x-2 flex-wrap">
-                          {activeDoc.detectedStructure?.tests?.[0] && (
-                            <button type="button" onClick={() => activeDoc.detectedStructure?.tests?.[0] && handleRenumberTestContinuous(activeDoc.detectedStructure.tests[0].id)} className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-xs font-bold border border-amber-200 transition-colors">Đánh số liên tục 1–40</button>
-                          )}
-                          <button type="button" onClick={handleBatchSaveAllTestsToLibrary} disabled={isPublishingAssignment} className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors">Save Full Test to Library</button>
-                        </div>
-                      </div>
-                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                        {activeDoc.detectedStructure.tests.map((test) => {
-                          const isExpanded = Boolean(expandedTestIds[test.id]);
-                          return (
-                            <div key={test.id} className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
-                              <div onClick={() => handleToggleExpandTest(test.id)} className="p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors">
-                                <div className="flex items-center space-x-2">
-                                  {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
-                                  <span className="text-xs font-bold text-slate-900">{test.title}</span>
-                                </div>
-                                <span className="text-[11px] font-mono font-semibold text-slate-500">{test.passages.length} Passages • {test.questionCount} Questions</span>
-                              </div>
-                              {isExpanded && (
-                                <div className="p-2 pt-0 space-y-1.5 pl-6 bg-white border-t border-slate-100">
-                                  {test.passages.map((p, pIdx) => {
-                                    const isSelected = selectedPassageId === p.id;
-                                    return (
-                                      <div key={p.id} onClick={() => handleSelectPassageFromTree(test.id, p.id)} className={`p-2 rounded-lg cursor-pointer transition-all flex items-center justify-between text-xs ${isSelected ? 'bg-blue-50 border border-blue-300 text-blue-900 font-bold' : 'hover:bg-slate-50 text-slate-700'}`}>
-                                        <div className="flex items-center space-x-2">
-                                          <BookOpen className="w-3.5 h-3.5 text-blue-500" />
-                                          <span className="truncate">{p.title}</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                          <div className="flex items-center space-x-0.5 bg-slate-100 rounded px-1">
-                                            <button type="button" disabled={pIdx === 0} onClick={(e) => { e.stopPropagation(); handleMovePassage(test.id, pIdx, 'up'); }} className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30">▲</button>
-                                            <button type="button" disabled={pIdx === test.passages.length - 1} onClick={(e) => { e.stopPropagation(); handleMovePassage(test.id, pIdx, 'down'); }} className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30">▼</button>
-                                          </div>
-                                          {p.questionGroups && p.questionGroups.length > 0 && <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono">{p.questionGroups.length} Groups</span>}
-                                          <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-mono font-bold">{p.questions?.length || 0} Qs</span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
+                    return (
+                      <div className="bg-white rounded-xl border border-slate-200 p-2.5 space-y-2 shrink-0 shadow-2xs">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5 shrink-0">
+                              <Layers className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Passages ({totalPassages}):</span>
+                            </span>
+
+                            {/* Quick Passage Navigation Pills */}
+                            <div className="flex items-center space-x-1.5 flex-wrap">
+                              {firstTest.passages.map((p, pIdx) => {
+                                const isSelected = selectedPassageId === p.id;
+                                return (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() => handleSelectPassageFromTree(firstTest.id, p.id)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 ${
+                                      isSelected
+                                        ? 'bg-blue-600 text-white shadow-xs font-bold'
+                                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                    }`}
+                                  >
+                                    <BookOpen className="w-3 h-3" />
+                                    <span className="max-w-[150px] truncate">{p.title || `Passage ${pIdx + 1}`}</span>
+                                    <span className={`text-[10px] px-1 rounded font-mono ${isSelected ? 'bg-blue-700 text-white' : 'bg-white text-slate-600'}`}>
+                                      {p.questions?.length || 0} Qs
+                                    </span>
+                                  </button>
+                                );
+                              })}
                             </div>
-                          );
-                        })}
+                          </div>
+
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleRenumberTestContinuous(firstTest.id)}
+                              className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-md text-[11px] font-bold border border-amber-200 transition-colors"
+                              title="Đánh số lại câu hỏi liên tục 1–40 trên toàn bộ các passage"
+                            >
+                              Đánh số 1–40
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleBatchSaveAllTestsToLibrary}
+                              disabled={isPublishingAssignment}
+                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-md text-[11px] font-bold border border-indigo-200 transition-colors"
+                            >
+                              Save Full Test
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsPassageBuilderExpanded(!isPassageBuilderExpanded)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-semibold transition-colors flex items-center space-x-1"
+                              title="Mở rộng / Thu gọn công cụ đổi thứ tự passage"
+                            >
+                              <span>{isPassageBuilderExpanded ? 'Thu gọn' : 'Reorder'}</span>
+                              {isPassageBuilderExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Expandable Reorder List */}
+                        {isPassageBuilderExpanded && (
+                          <div className="pt-2 border-t border-slate-100 space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                            {firstTest.passages.map((p, pIdx) => {
+                              const isSelected = selectedPassageId === p.id;
+                              return (
+                                <div
+                                  key={p.id}
+                                  onClick={() => handleSelectPassageFromTree(firstTest.id, p.id)}
+                                  className={`p-1.5 px-2.5 rounded-lg cursor-pointer transition-all flex items-center justify-between text-xs ${
+                                    isSelected ? 'bg-blue-50 border border-blue-300 text-blue-900 font-bold' : 'hover:bg-slate-50 text-slate-700'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <BookOpen className="w-3.5 h-3.5 text-blue-500" />
+                                    <span className="truncate">{p.title}</span>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <div className="flex items-center space-x-0.5 bg-slate-100 rounded px-1">
+                                      <button
+                                        type="button"
+                                        disabled={pIdx === 0}
+                                        onClick={(e) => { e.stopPropagation(); handleMovePassage(firstTest.id, pIdx, 'up'); }}
+                                        className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30"
+                                      >▲</button>
+                                      <button
+                                        type="button"
+                                        disabled={pIdx === totalPassages - 1}
+                                        onClick={(e) => { e.stopPropagation(); handleMovePassage(firstTest.id, pIdx, 'down'); }}
+                                        className="p-0.5 text-slate-500 hover:text-slate-900 disabled:opacity-30"
+                                      >▼</button>
+                                    </div>
+                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-mono font-bold">
+                                      {p.questions?.length || 0} Qs
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ) : activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 ? (
-                    <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2 shrink-0">
+                    );
+                  })()}
+                  {activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 && (
+                    <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-2.5 space-y-2 shrink-0">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5"><Layers className="w-4 h-4 text-blue-600" /><span>Detected {activeDoc.detectedStructure.candidateTests.length} Reading Passages</span></span>
-                        <button type="button" onClick={handleGroupCandidateTestsIntoFullTest} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors">Gộp thành 1 đề Full Test (Passages 1–{activeDoc.detectedStructure.candidateTests.length})</button>
+                        <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5">
+                          <Layers className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Detected {activeDoc.detectedStructure.candidateTests.length} Reading Passages</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleGroupCandidateTestsIntoFullTest}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                        >
+                          Gộp thành 1 đề Full Test (Passages 1–{activeDoc.detectedStructure.candidateTests.length})
+                        </button>
                       </div>
-                      <div className="flex flex-wrap gap-2 pt-1">
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
                         {activeDoc.detectedStructure.candidateTests.map((ct) => (
-                          <button key={ct.id} type="button" onClick={() => handleSelectCandidateTest(ct.id)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1.5 ${selectedCandidateTestId === ct.id ? 'bg-blue-600 text-white border-blue-600 shadow-xs' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}>
+                          <button
+                            key={ct.id}
+                            type="button"
+                            onClick={() => handleSelectCandidateTest(ct.id)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1.5 ${
+                              selectedCandidateTestId === ct.id
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            }`}
+                          >
                             <span>{ct.title}</span>
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${selectedCandidateTestId === ct.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>{ct.questionCount} Qs</span>
+                            <span className={`text-[10px] px-1 rounded font-mono ${selectedCandidateTestId === ct.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                              {ct.questionCount} Qs
+                            </span>
                           </button>
                         ))}
                       </div>
                     </div>
-                  ) : null}
+                  )}
 
-                  {/* ── TWO-PANEL EDITOR – fills remaining space ── */}
-                  <div className="flex flex-1 border border-slate-200 rounded-xl overflow-hidden min-h-0" style={{minHeight: '55vh'}}>
-
+                  {/* ── TWO-PANEL WORKSPACE (Passage Text + Question Editor) ── */}
+                  <div className="flex-1 min-h-[420px] flex flex-col md:flex-row border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
                     {/* LEFT PANEL: Passage Text */}
-                    <div className="w-2/5 flex flex-col border-r border-slate-200 bg-slate-50/40">
-                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-white shrink-0">
+                    <div className="w-full md:w-2/5 flex flex-col border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50/40 min-h-[200px] md:min-h-0">
+                      <div className="flex items-center justify-between px-3.5 py-2 border-b border-slate-200 bg-white shrink-0">
                         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
-                          <BookOpen className="w-4 h-4 text-blue-600" />
+                          <BookOpen className="w-3.5 h-3.5 text-blue-600" />
                           <span>Reading Passage Text</span>
                         </span>
-                        <span className="text-[11px] text-slate-500 font-semibold font-mono">{editedPassage.split(/\s+/).filter(Boolean).length} words</span>
+                        <span className="text-[11px] text-slate-500 font-semibold font-mono">
+                          {editedPassage.split(/\s+/).filter(Boolean).length} words
+                        </span>
                       </div>
                       <textarea
                         value={editedPassage}
                         onChange={(e) => setEditedPassage(e.target.value)}
-                        className="flex-1 p-4 bg-transparent border-0 text-xs font-mono text-slate-800 leading-relaxed focus:ring-0 focus:outline-hidden resize-none"
+                        className="flex-1 p-3 bg-transparent border-0 text-xs font-mono text-slate-800 leading-relaxed focus:ring-0 focus:outline-hidden resize-none overflow-y-auto"
                         placeholder="Passage text will appear here…"
                       />
                     </div>
 
                     {/* RIGHT PANEL: Question Editor */}
-                    <div className="flex-1 flex flex-col bg-white min-w-0">
+                    <div className="flex-1 min-w-0 flex flex-col bg-white min-h-[280px] md:min-h-0">
                       {/* Header */}
-                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 shrink-0">
+                      <div className="flex items-center justify-between px-3.5 py-2 border-b border-slate-200 shrink-0">
                         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
-                          <HelpCircle className="w-4 h-4 text-indigo-600" />
+                          <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
                           <span>Questions ({editableQuestions.length})</span>
                         </span>
                         <button
@@ -1807,8 +1911,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                         </button>
                       </div>
 
-                      {/* Question list – fills all available height */}
-                      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                      {/* Question list – independently scrollable */}
+                      <div className="flex-1 overflow-y-auto p-3 space-y-3">
                         {editableQuestions.length > 0 ? (
                           editableQuestions.map((q, idx) => {
                             const updateQ = (patch: Partial<ReadingQuestion>) => {
@@ -1973,26 +2077,12 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                           <p className="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-lg">No questions in this section. Add questions manually or let AI generate them in the next step.</p>
                         )}
                       </div>
-
-                      {/* Footer */}
-                      <div className="px-4 py-3 bg-blue-50/60 border-t border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shrink-0">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-blue-900">Target Course:</span>
-                          <select value={assignCourseId} onChange={(e) => setAssignCourseId(e.target.value)} className="p-1.5 border border-blue-200 rounded-lg bg-white text-xs font-semibold">
-                            {courses.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
-                          </select>
-                        </div>
-                        <button type="button" disabled={isPublishingAssignment} onClick={handleAssignCurrentPassageDirectly} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center space-x-1">
-                          <span>Assign This Passage Now</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
                     </div>
                   </div>
                 </div>
               ) : (
                 /* Raw Text Editor */
-                <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className="flex-1 min-h-[400px] overflow-y-auto">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Raw Document Text (Full Content)</label>
                   <textarea rows={20} value={editedRawText} onChange={(e) => setEditedRawText(e.target.value)} className="w-full p-3 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 leading-relaxed focus:ring-2 focus:ring-blue-500 focus:outline-hidden" />
                 </div>
@@ -2805,7 +2895,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         </div>
 
         {/* Modal Footer Back/Next Controls */}
-        <div className="bg-slate-50 border-t border-slate-200 px-6 py-3 flex items-center justify-between">
+        <div className={`bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 ${currentStep === 'preview' ? 'px-4 py-2' : 'px-6 py-3'}`}>
           <div>
             {currentStep !== 'upload' && currentStep !== 'review_assignment' && (
               <button
@@ -2848,13 +2938,38 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             )}
 
             {currentStep === 'preview' && importSkillType !== 'speaking' && (
-              <button
-                onClick={() => setCurrentStep('choose_output')}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center space-x-1.5"
-              >
-                <span>Continue to Output Options</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                <div className="hidden sm:flex items-center space-x-1.5 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-700">Course:</span>
+                  <select
+                    value={assignCourseId}
+                    onChange={(e) => setAssignCourseId(e.target.value)}
+                    className="p-1 border border-slate-300 rounded text-xs bg-white text-slate-800 font-semibold max-w-[140px] truncate"
+                  >
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  disabled={isPublishingAssignment}
+                  onClick={handleAssignCurrentPassageDirectly}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold transition-colors flex items-center space-x-1 border border-blue-200"
+                  title="Assign only the currently selected passage directly to the course"
+                >
+                  <span>Assign This Passage</span>
+                </button>
+                <button
+                  onClick={() => setCurrentStep('choose_output')}
+                  className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center space-x-1.5 shadow-xs"
+                >
+                  <span>Continue to Output Options</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
           </div>
         </div>

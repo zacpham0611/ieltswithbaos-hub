@@ -2657,6 +2657,9 @@ export const AssignmentsView: React.FC = () => {
       ? allQuestionsIndexed.filter((item) => item.passageIndex === safePassageIndex)
       : allQuestionsIndexed;
 
+    const activePassageAnsweredCount = activePassageQuestions.filter(({ q }) => Boolean(readingAnswers[q.id]?.trim())).length;
+    const activePassageTotalCount = activePassageQuestions.length;
+
     const questionRenderGroups = buildQuestionRenderGroups(activePassageQuestions);
 
     return (
@@ -2968,102 +2971,53 @@ export const AssignmentsView: React.FC = () => {
                 <div className="shrink-0 px-6 py-3.5 bg-white border-b border-slate-200 shadow-xs space-y-2 z-10">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      Question Navigator ({answeredCount} / {questions.length} Answered)
+                      Question Navigator ({activePassageAnsweredCount} / {activePassageTotalCount} Answered)
                     </span>
                     <span className="text-xs text-slate-500 font-mono font-semibold">
-                      {Math.round((answeredCount / (questions.length || 1)) * 100)}% Complete
+                      {Math.round((activePassageAnsweredCount / (activePassageTotalCount || 1)) * 100)}% Complete
                     </span>
                   </div>
 
-                  {hasMultiPassages ? (
-                    <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                      {(activeAssignment.passages ?? []).map((p, pIdx) => {
-                        const pQuestions = allQuestionsIndexed.filter((item) => item.passageIndex === pIdx);
-                        if (pQuestions.length === 0) return null;
-                        const isCurrentPassage = activePassageTab === pIdx;
-                        const pAnsweredCount = pQuestions.filter(({ q }) => Boolean(readingAnswers[q.id]?.trim())).length;
-
-                        return (
-                          <div key={p.id || pIdx} className="space-y-1">
-                            <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold">
-                              <span className={isCurrentPassage ? 'text-blue-600 font-bold' : ''}>
-                                {p.title || `Passage ${pIdx + 1}`} ({pAnsweredCount}/{pQuestions.length})
-                              </span>
-                              {!isCurrentPassage && (
+                  {/* Active Passage Question Groups and Numbers */}
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {questionRenderGroups.map((group) => {
+                      return (
+                        <div key={group.id} className="space-y-1">
+                          {questionRenderGroups.length > 1 && (
+                            <div className="text-[11px] font-semibold text-slate-500">
+                              {group.rangeTitle}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-1.5">
+                            {group.questions.map(({ q, idx: absoluteIdx }) => {
+                              const isAns = Boolean(readingAnswers[q.id]?.trim());
+                              const isFlag = Boolean(flaggedQuestions[q.id]);
+                              return (
                                 <button
+                                  key={q.id}
                                   type="button"
-                                  onClick={() => setActivePassageTab(pIdx)}
-                                  className="text-[10px] text-blue-500 hover:underline"
+                                  onClick={() => {
+                                    const el = document.getElementById(`q_${q.id}`);
+                                    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }}
+                                  className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
+                                    isFlag
+                                      ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
+                                      : isAns
+                                      ? 'bg-blue-600 text-white shadow-xs'
+                                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                  }`}
+                                  title={`Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
                                 >
-                                  Go to passage
+                                  {absoluteIdx + 1}
                                 </button>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {pQuestions.map(({ q, absoluteIdx }) => {
-                                const isAns = Boolean(readingAnswers[q.id]?.trim());
-                                const isFlag = Boolean(flaggedQuestions[q.id]);
-                                return (
-                                  <button
-                                    key={q.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (activePassageTab !== pIdx) {
-                                        setActivePassageTab(pIdx);
-                                      }
-                                      setTimeout(() => {
-                                        const el = document.getElementById(`q_${q.id}`);
-                                        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                      }, 50);
-                                    }}
-                                    className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
-                                      isFlag
-                                        ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
-                                        : isAns
-                                        ? 'bg-blue-600 text-white shadow-xs'
-                                        : isCurrentPassage
-                                        ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                        : 'bg-slate-50 text-slate-400 hover:bg-slate-200'
-                                    }`}
-                                    title={`Passage ${pIdx + 1} - Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
-                                  >
-                                    {absoluteIdx + 1}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                      {activePassageQuestions.map(({ q, absoluteIdx }) => {
-                        const isAns = Boolean(readingAnswers[q.id]?.trim());
-                        const isFlag = Boolean(flaggedQuestions[q.id]);
-                        return (
-                          <button
-                            key={q.id}
-                            type="button"
-                            onClick={() => {
-                              const el = document.getElementById(`q_${q.id}`);
-                              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            }}
-                            className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center transition-all ${
-                              isFlag
-                                ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-500'
-                                : isAns
-                                ? 'bg-blue-600 text-white shadow-xs'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                            title={`Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
-                          >
-                            {absoluteIdx + 1}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Independent Questions Scroll Body */}
