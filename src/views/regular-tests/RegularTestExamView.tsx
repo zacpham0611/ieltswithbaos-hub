@@ -1031,6 +1031,8 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         const pCount = allReadingQuestions.filter(
                           (q) => (questionPassageIndexMap[q.id] ?? 0) === pIdx
                         ).length;
+                        const rawTitle = p.title || `Passage ${pIdx + 1}`;
+                        const displayTitle = rawTitle.replace(/\b([A-Za-z]+)!(\s+)/g, "$1'$2").trim();
                         return (
                           <button
                             key={p.id || pIdx}
@@ -1042,7 +1044,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                                 : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
                             }`}
                           >
-                            <span>{p.title || `Passage ${pIdx + 1}`}</span>
+                            <span>{displayTitle}</span>
                             <span
                               className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
                                 activeReadingPassageTab === pIdx ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'

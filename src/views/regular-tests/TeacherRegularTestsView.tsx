@@ -55,8 +55,11 @@ import {
   Sparkles,
   Bold,
   Italic,
+  Upload,
+  FileUp,
 } from 'lucide-react';
 import { parseFormattedPrompt } from '../../lib/regularTestManager';
+import { extractWritingFromFile, type ExtractedWritingTask } from '../../lib/writingDocumentExtractor';
 
 export const TeacherRegularTestsView: React.FC = () => {
   const {
@@ -131,6 +134,16 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [writingModelAnswer, setWritingModelAnswer] = useState<string>('');
   const [writingSectionDuration, setWritingSectionDuration] = useState<number>(40);
   const writingPromptRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Writing Library Picker & File Import states
+  const [showWritingPicker, setShowWritingPicker] = useState<boolean>(false);
+  const [writingPickerSearch, setWritingPickerSearch] = useState<string>('');
+  const writingFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isProcessingWritingFile, setIsProcessingWritingFile] = useState<boolean>(false);
+  const [writingImportStatus, setWritingImportStatus] = useState<string>('');
+  const [showWritingImportModal, setShowWritingImportModal] = useState<boolean>(false);
+  const [importedWritingTasks, setImportedWritingTasks] = useState<ExtractedWritingTask[]>([]);
+  const [importedWritingDocTitle, setImportedWritingDocTitle] = useState<string>('');
 
   const applyWritingFormatting = (fmt: 'bold' | 'italic') => {
     const el = writingPromptRef.current;
@@ -532,6 +545,104 @@ export const TeacherRegularTestsView: React.FC = () => {
     }
 
     setShowWritingModal(false);
+  };
+
+  const handleSelectWritingFromLibrary = (resource: any) => {
+    let taskType: 'task1' | 'task2' = 'task2';
+    let taskCat: WritingTaskCategory = 'task2';
+    let prompt = '';
+    let imgUrl: string | undefined = resource.url || undefined;
+    let modelAns: string | undefined = undefined;
+    let minWords = 250;
+    let duration = 40;
+
+    if (resource.content) {
+      try {
+        const parsed = JSON.parse(resource.content);
+        if (parsed && typeof parsed === 'object') {
+          taskType = parsed.taskType || (resource.title?.toLowerCase().includes('task 1') ? 'task1' : 'task2');
+          const chart = (parsed.chartType || '').toLowerCase();
+          taskCat = taskType === 'task1' ? (chart.includes('general') ? 'task1_general' : 'task1_academic') : 'task2';
+          prompt = parsed.prompt || parsed.writingPrompt || parsed.content || '';
+          if (parsed.imageUrl || parsed.task1ImageUrl) imgUrl = parsed.imageUrl || parsed.task1ImageUrl;
+          modelAns = parsed.modelAnswer || parsed.sampleAnswer || parsed.sampleAnswers?.[0]?.content;
+          minWords = parsed.minWords || (taskType === 'task1' ? 150 : 250);
+          duration = taskType === 'task1' ? 20 : 40;
+        }
+      } catch {
+        prompt = resource.content;
+      }
+    }
+    if (!prompt) prompt = resource.title || '';
+
+    const isTask1 = taskType === 'task1';
+    const newSec: RegularTestSection = {
+      id: `sec_${Date.now()}_writing_${Math.random().toString(36).slice(2, 6)}`,
+      skill: 'writing',
+      title: isTask1 ? 'Writing Task 1 (Academic Graph / Chart / Diagram)' : 'Writing Task 2 (Academic Essay)',
+      writingTaskType: taskType,
+      writingTaskCategory: taskCat,
+      writingPrompt: prompt.trim(),
+      writingMinWords: minWords,
+      task1ImageUrl: isTask1 ? imgUrl : undefined,
+      modelAnswer: modelAns?.trim() || undefined,
+      durationMinutes: duration,
+    };
+    setFormSections((prev) => [...prev, newSec]);
+    if (!formSkills.includes('writing')) {
+      setFormSkills((prev) => [...prev, 'writing']);
+    }
+    setShowWritingPicker(false);
+  };
+
+  const handleWritingFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessingWritingFile(true);
+    setWritingImportStatus('Đang đọc và phân tích tài liệu Writing...');
+    try {
+      const { doc } = await extractWritingFromFile(file);
+      if (!doc.tasks || doc.tasks.length === 0) {
+        alert('Không tìm thấy câu hỏi Writing (Task 1 / Task 2) trong file.');
+        return;
+      }
+      setImportedWritingTasks(doc.tasks);
+      setImportedWritingDocTitle(doc.title || file.name.replace(/\.[^/.]+$/, ''));
+      setShowWritingImportModal(true);
+    } catch (err: any) {
+      alert(`Lỗi phân tích file Writing: ${err.message || 'Không thể trích xuất file'}`);
+    } finally {
+      setIsProcessingWritingFile(false);
+      setWritingImportStatus('');
+      if (writingFileInputRef.current) writingFileInputRef.current.value = '';
+    }
+  };
+
+  const handleConfirmImportedWritingTasks = (selectedTasks: ExtractedWritingTask[]) => {
+    if (!selectedTasks || selectedTasks.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 bài Writing.');
+      return;
+    }
+    selectedTasks.forEach((t) => {
+      const isTask1 = t.taskType === 'task1';
+      const newSec: RegularTestSection = {
+        id: `sec_${Date.now()}_writing_${Math.random().toString(36).slice(2, 6)}`,
+        skill: 'writing',
+        title: isTask1 ? 'Writing Task 1 (Academic Graph / Chart / Diagram)' : 'Writing Task 2 (Academic Essay)',
+        writingTaskType: t.taskType,
+        writingTaskCategory: t.taskCategory,
+        writingPrompt: t.prompt,
+        writingMinWords: t.minWords,
+        task1ImageUrl: isTask1 ? t.imageUrl : undefined,
+        modelAnswer: t.sampleAnswers?.[0]?.content,
+        durationMinutes: isTask1 ? 20 : 40,
+      };
+      setFormSections((prev) => [...prev, newSec]);
+    });
+    if (!formSkills.includes('writing')) {
+      setFormSkills((prev) => [...prev, 'writing']);
+    }
+    setShowWritingImportModal(false);
   };
 
   // 3. Speaking Independent Selection
@@ -1422,14 +1533,40 @@ export const TeacherRegularTestsView: React.FC = () => {
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => openCreateWritingModal()}
-                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        + Soạn Writing (Task 1 / 2)
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          ref={writingFileInputRef}
+                          type="file"
+                          accept=".docx,.pdf"
+                          className="hidden"
+                          onChange={handleWritingFileSelect}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowWritingPicker(true)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                        >
+                          <Library className="w-3.5 h-3.5 text-indigo-600" />
+                          + Thêm Writing từ Library
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isProcessingWritingFile}
+                          onClick={() => writingFileInputRef.current?.click()}
+                          className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-indigo-200"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                          {isProcessingWritingFile ? 'Đang xử lý...' : '+ Import Writing từ file'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openCreateWritingModal()}
+                          className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          + Soạn thủ công
+                        </button>
+                      </div>
                     </div>
 
                     <div className="p-4">
@@ -2193,6 +2330,203 @@ export const TeacherRegularTestsView: React.FC = () => {
                     className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs"
                   >
                     {editingWritingSecId ? 'Cập nhật Writing' : 'Thêm vào bài thi'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Portal>
+        )}
+
+        {/* SUB-MODAL 3B: WRITING LIBRARY PICKER */}
+        {showWritingPicker && (
+          <Portal containerId="modal-root">
+            <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <PenTool className="w-5 h-5 text-indigo-400" />
+                    <h3 className="font-bold text-sm">Chọn đề bài Writing từ Thư viện Resources</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowWritingPicker(false)}
+                    className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-4 border-b border-slate-200 bg-slate-50 shrink-0">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm theo tên đề bài Writing, Task 1, Task 2..."
+                      value={writingPickerSearch}
+                      onChange={(e) => setWritingPickerSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-xl text-xs bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-6 overflow-y-auto flex-1 space-y-3">
+                  {(() => {
+                    const writingResources = resources.filter((r) => {
+                      const isWriting = r.skill === 'writing' || (r as any).type === 'writing' || (r.title && r.title.toLowerCase().includes('writing'));
+                      if (!isWriting) return false;
+                      if (!writingPickerSearch.trim()) return true;
+                      const q = writingPickerSearch.toLowerCase();
+                      return (
+                        r.title.toLowerCase().includes(q) ||
+                        (r.description || '').toLowerCase().includes(q) ||
+                        (r.content || '').toLowerCase().includes(q)
+                      );
+                    });
+
+                    if (writingResources.length === 0) {
+                      return (
+                        <div className="p-10 text-center border-2 border-dashed border-slate-200 rounded-xl space-y-2">
+                          <PenTool className="w-8 h-8 text-slate-300 mx-auto" />
+                          <div className="text-xs font-semibold text-slate-600">Không tìm thấy tài liệu Writing nào trong Thư viện</div>
+                          <p className="text-[11px] text-slate-400">Vui lòng import thêm đề Writing vào Resources hoặc soạn thủ công.</p>
+                        </div>
+                      );
+                    }
+
+                    return writingResources.map((res) => {
+                      let promptPreview = res.description || res.title;
+                      let taskCat = 'Task 2';
+                      if (res.content) {
+                        try {
+                          const p = JSON.parse(res.content);
+                          if (p.prompt) promptPreview = p.prompt.slice(0, 140) + '...';
+                          if (p.taskType === 'task1') taskCat = 'Task 1';
+                        } catch {}
+                      }
+                      return (
+                        <div
+                          key={res.id}
+                          className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-all flex items-center justify-between gap-3"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase">
+                                {taskCat}
+                              </span>
+                              <h4 className="font-bold text-xs text-slate-800 truncate">{res.title}</h4>
+                            </div>
+                            <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">{promptPreview}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectWritingFromLibrary(res)}
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0 transition-colors shadow-2xs"
+                          >
+                            Chọn bài này
+                          </button>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+
+                <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowWritingPicker(false)}
+                    className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Portal>
+        )}
+
+        {/* SUB-MODAL 3C: EXTERNAL WRITING FILE IMPORT PREVIEW MODAL */}
+        {showWritingImportModal && (
+          <Portal containerId="modal-root">
+            <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <FileUp className="w-5 h-5 text-indigo-400" />
+                    <div>
+                      <h3 className="font-bold text-sm">Import Đề Writing từ File</h3>
+                      <p className="text-[11px] text-slate-400 truncate max-w-md">{importedWritingDocTitle}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowWritingImportModal(false)}
+                    className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                  <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3 flex items-center justify-between text-xs text-indigo-900 font-semibold">
+                    <span>Đã nhận diện thành công {importedWritingTasks.length} bài Writing trong file.</span>
+                    <span className="text-[11px] text-indigo-700">Chọn các bài bạn muốn thêm vào đề thi:</span>
+                  </div>
+
+                  <div className="space-y-4">
+                    {importedWritingTasks.map((task, idx) => (
+                      <div key={task.id || idx} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white uppercase">
+                              {task.taskType === 'task1' ? 'Task 1' : 'Task 2'}
+                            </span>
+                            <span className="text-xs font-bold text-slate-800">
+                              {task.taskType === 'task1' ? 'Academic Graph / Chart' : 'Academic Essay'}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-mono font-semibold text-slate-500">
+                            Tối thiểu {task.minWords} từ • {task.taskType === 'task1' ? '20' : '40'} phút
+                          </span>
+                        </div>
+
+                        {task.imageUrl && (
+                          <div className="bg-white p-2 border border-slate-200 rounded-lg inline-block max-w-xs">
+                            <img src={task.imageUrl} alt="Task Diagram" className="max-h-40 object-contain rounded" />
+                          </div>
+                        )}
+
+                        <div className="bg-white p-3 border border-slate-200 rounded-lg">
+                          <p className="text-xs text-slate-800 font-medium whitespace-pre-line leading-relaxed">
+                            {task.prompt}
+                          </p>
+                        </div>
+
+                        {task.sampleAnswers && task.sampleAnswers.length > 0 && (
+                          <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1.5">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            Đã kèm bài viết mẫu ({task.sampleAnswers[0].band ? 'Band ' + task.sampleAnswers[0].band : 'Sample Answer'})
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="px-6 py-3.5 bg-white border-t border-slate-200 flex justify-end gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowWritingImportModal(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmImportedWritingTasks(importedWritingTasks)}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Thêm {importedWritingTasks.length} bài vào đề thi
                   </button>
                 </div>
               </div>

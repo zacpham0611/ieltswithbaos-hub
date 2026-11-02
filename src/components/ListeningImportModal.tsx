@@ -27,12 +27,16 @@ interface ListeningImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  targetFolderId?: string | null;
+  targetFolderName?: string;
 }
 
 export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  targetFolderId,
+  targetFolderName,
 }) => {
   const { currentUser, courses, addResource, createAssignment } = useApp();
 
@@ -57,7 +61,7 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
 
   // Resource / Assignment metadata
   const [targetTitle, setTargetTitle] = useState('');
-  const [targetFolder, setTargetFolder] = useState('Listening Tests');
+  const [targetFolder, setTargetFolder] = useState(targetFolderName || (targetFolderId ? '' : 'Listening Tests'));
   const [targetCourseId, setTargetCourseId] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
@@ -118,6 +122,7 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
     if (!file) return;
 
     setIsUploadingAudio(true);
+    setErrorMsg(null);
     try {
       const url = await uploadMediaFile(file, 'audio', `listening_${Date.now()}_${file.name}`);
       setOverallAudioUrl(url);
@@ -126,7 +131,8 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
         setContent({ ...content, audioUrl: url });
       }
     } catch (err: any) {
-      alert(`Lỗi tải lên audio: ${err.message}`);
+      console.error('Audio upload error:', err);
+      setErrorMsg(`Lỗi tải lên audio: ${err.message}`);
     } finally {
       setIsUploadingAudio(false);
       if (audioInputRef.current) audioInputRef.current.value = '';
@@ -139,6 +145,7 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
     if (!file || currentUploadingPartNum === null) return;
 
     setIsUploadingAudio(true);
+    setErrorMsg(null);
     try {
       const url = await uploadMediaFile(file, 'audio', `listening_part${currentUploadingPartNum}_${file.name}`);
       setPartAudios((prev) => ({
@@ -153,7 +160,8 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
         setContent({ ...content, parts: updatedParts });
       }
     } catch (err: any) {
-      alert(`Lỗi tải lên audio Section: ${err.message}`);
+      console.error('Part audio upload error:', err);
+      setErrorMsg(`Lỗi tải lên audio Section: ${err.message}`);
     } finally {
       setIsUploadingAudio(false);
       setCurrentUploadingPartNum(null);
@@ -200,7 +208,8 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
         audioUrl: overallAudioUrl || undefined,
         content: JSON.stringify(finalContent),
         listeningContent: finalContent,
-        folder: targetFolder || 'Listening Tests',
+        folder: targetFolderName !== undefined ? (targetFolderName || undefined) : (targetFolder.trim() || undefined),
+        folderId: targetFolderId || null,
         courseId: targetCourseId || null,
         tags: ['listening', 'imported', audioMode === 'single' ? 'full-audio' : 'per-part-audio'],
         isPublished: true,
@@ -405,14 +414,14 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
                 <input
                   ref={audioInputRef}
                   type="file"
-                  accept="audio/*"
+                  accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac"
                   className="hidden"
                   onChange={handleUploadOverallAudio}
                 />
                 <input
                   ref={partAudioInputRef}
                   type="file"
-                  accept="audio/*"
+                  accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac"
                   className="hidden"
                   onChange={handleUploadPartAudio}
                 />

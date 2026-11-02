@@ -114,6 +114,8 @@ import {
   CheckSquare,
   Eraser,
   Strikethrough,
+  PenTool,
+  Library,
 } from 'lucide-react';
 
 export type PastelMarkerColor =
@@ -293,6 +295,10 @@ export const AssignmentsView: React.FC = () => {
   const [candidatePart2CueCards, setCandidatePart2CueCards] = useState<{ topic: string; points: string[]; resourceTitle?: string }[]>([]);
   const [selectedSpeakingResource, setSelectedSpeakingResource] = useState<any | null>(null);
   const [showSpeakingLibraryPicker, setShowSpeakingLibraryPicker] = useState<boolean>(false);
+  const [selectedWritingResourceId, setSelectedWritingResourceId] = useState<string | null>(null);
+  const [selectedWritingResourceTitle, setSelectedWritingResourceTitle] = useState<string | null>(null);
+  const [showWritingLibraryPicker, setShowWritingLibraryPicker] = useState<boolean>(false);
+  const [writingLibrarySearch, setWritingLibrarySearch] = useState<string>('');
   const [duplicateAssignmentWarning, setDuplicateAssignmentWarning] = useState<{
     exerciseTitle: string;
     existingAssignmentTitle: string;
@@ -1053,7 +1059,58 @@ export const AssignmentsView: React.FC = () => {
         }
       }
 
-      // 2. If readingQuestions is empty and this is reading, parse document structure from text
+      // 2. Handle Writing Resource Assignment
+      if (targetSkill === 'writing' || resource.skill === 'writing' || (resource as any).type === 'writing') {
+        let taskType: 'task1' | 'task2' = 'task2';
+        let taskCat: WritingTaskCategory = 'task2';
+        let writingPrompt = '';
+        let task1ImageUrl: string | undefined = resource.url || undefined;
+        let modelAnswer: string | undefined = undefined;
+        let minWords = 250;
+
+        if (resource.content) {
+          try {
+            const parsed = JSON.parse(resource.content);
+            if (parsed && typeof parsed === 'object') {
+              taskType = parsed.taskType || (resource.title.toLowerCase().includes('task 1') ? 'task1' : 'task2');
+              const chart = (parsed.chartType || '').toLowerCase();
+              taskCat = taskType === 'task1' ? (chart.includes('general') ? 'task1_general' : 'task1_academic') : 'task2';
+              writingPrompt = parsed.prompt || parsed.writingPrompt || parsed.content || '';
+              if (parsed.imageUrl || parsed.task1ImageUrl) task1ImageUrl = parsed.imageUrl || parsed.task1ImageUrl;
+              modelAnswer = parsed.modelAnswer || parsed.sampleAnswer || parsed.sampleAnswers?.[0]?.content;
+              minWords = parsed.minWords || (taskType === 'task1' ? 150 : 250);
+            }
+          } catch {
+            writingPrompt = resource.content;
+          }
+        }
+        if (!writingPrompt) {
+          writingPrompt = resource.title;
+        }
+
+        await createAssignment({
+          courseId: libraryCourseId,
+          title,
+          instructions: `Bài tập IELTS Writing ${taskType === 'task1' ? 'Task 1' : 'Task 2'}. Yêu cầu tối thiểu ${minWords} từ.`,
+          skill: 'writing',
+          objectives: 'Luyện tập kỹ năng IELTS Writing theo tiêu chuẩn quốc tế.',
+          dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+          status: 'published',
+          writingTaskType: taskType,
+          writingTaskCategory: taskCat,
+          writingPrompt,
+          task1ImageUrl,
+          writingMinWords: minWords,
+          modelAnswer,
+          resourceId: resource.id,
+          sourceDocumentName: resource.title,
+        });
+        setShowImportLibraryModal(false);
+        alert('Tài liệu Writing đã được giao thành công cho khóa học!');
+        return;
+      }
+
+      // 3. If readingQuestions is empty and this is reading, parse document structure from text
       if (readingQuestions.length === 0 && targetSkill === 'reading' && readingPassage) {
         const docStruct = parseDocumentStructure(readingPassage, title);
         if (docStruct.questions && docStruct.questions.length > 0) {
@@ -1372,6 +1429,10 @@ export const AssignmentsView: React.FC = () => {
     setFormSpeakingQuestions([]);
     setFormSpeakingPart3Groups([]);
     setFormSpeakingSelectedExerciseIds([]);
+    setSelectedWritingResourceId(null);
+    setSelectedWritingResourceTitle(null);
+    setShowWritingLibraryPicker(false);
+    setWritingLibrarySearch('');
     setShowCreateEditModal(true);
   };
 
@@ -1393,6 +1454,11 @@ export const AssignmentsView: React.FC = () => {
     setFormScoreVisibility(a.scoreVisibility || 'private');
     setFormReadingTestType(a.readingTestType || 'academic');
     setFormReadingPassage(a.readingPassage || '');
+    const linkedWritingRes = a.resourceId ? resources.find((r) => r.id === a.resourceId) : null;
+    setSelectedWritingResourceId(a.resourceId || null);
+    setSelectedWritingResourceTitle(linkedWritingRes?.title || null);
+    setShowWritingLibraryPicker(false);
+    setWritingLibrarySearch('');
     const spkDetails = extractSpeakingAssignmentDetails(a);
     setFormSpeakingPart(spkDetails.part);
     setFormSpeakingParts(spkDetails.parts);
@@ -1525,6 +1591,7 @@ export const AssignmentsView: React.FC = () => {
         writingMinWords: minWords,
         task1ImageUrl: formSkill === 'writing' && formWritingTaskCategory === 'task1_academic' ? formTask1ImageUrl.trim() : undefined,
         modelAnswer: formModelAnswer.trim() || undefined,
+        resourceId: formSkill === 'writing' ? selectedWritingResourceId || undefined : undefined,
         modelAnswerReleaseCondition: formModelAnswerReleaseCondition,
         scoreVisibility: formScoreVisibility,
         readingTestType: formSkill === 'reading' ? formReadingTestType : undefined,
@@ -2923,6 +2990,19 @@ export const AssignmentsView: React.FC = () => {
           }
           offset += pCount;
         }
+
+        // Smart IELTS standard heuristic: partition based on standard question numbers
+        const matchNum = q.id?.match(/(?:q_p\d+_|q_)(\d+)$/)?.[1] || q.prompt?.match(/^(\d+)[\.\s]/)?.[1];
+        const num = matchNum ? parseInt(matchNum, 10) : absoluteIdx + 1;
+        if (activeAssignment.passages.length === 3) {
+          if (num <= 13) return 0;
+          if (num <= 26) return 1;
+          return 2;
+        }
+
+        // Sequential partition fallback across available passages
+        const perPassage = Math.ceil(questions.length / activeAssignment.passages.length);
+        return Math.min(Math.floor(absoluteIdx / Math.max(perPassage, 1)), activeAssignment.passages.length - 1);
       }
       return 0;
     };
@@ -3172,20 +3252,22 @@ export const AssignmentsView: React.FC = () => {
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
-                        className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                      >
-                        Font: {passageFontSize === 'normal' ? '17px' : '19px'}
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0 flex-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
+                          className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                        >
+                          Font: {passageFontSize === 'normal' ? '17px' : '19px'}
+                        </button>
 
-                      <span className="text-xs text-slate-400 font-mono hidden sm:inline">
-                        {((activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) || activeAssignment.readingPassage || '')
-                          .split(/\s+/)
-                          .filter(Boolean).length}{' '}
-                        words
-                      </span>
+                        <span className="text-xs text-slate-400 font-mono hidden sm:inline whitespace-nowrap shrink-0">
+                          {((activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) || activeAssignment.readingPassage || '')
+                            .split(/\s+/)
+                            .filter(Boolean).length}{' '}
+                          words
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -3194,6 +3276,8 @@ export const AssignmentsView: React.FC = () => {
                     <div className="flex items-center space-x-1.5 overflow-x-auto pt-1 pb-0.5">
                       {activeAssignment.passages.map((p, pIdx) => {
                         const pQuestionCount = allQuestionsIndexed.filter((item) => item.passageIndex === pIdx).length;
+                        const rawTitle = p.title || `Passage ${pIdx + 1}`;
+                        const displayTitle = rawTitle.replace(/\b([A-Za-z]+)!(\s+)/g, "$1'$2").trim();
                         return (
                           <button
                             key={p.id || pIdx}
@@ -3205,7 +3289,7 @@ export const AssignmentsView: React.FC = () => {
                                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                             }`}
                           >
-                            <span>{p.title || `Passage ${pIdx + 1}`}</span>
+                            <span>{displayTitle}</span>
                             <span
                               className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
                                 activePassageTab === pIdx ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'
@@ -6332,6 +6416,153 @@ export const AssignmentsView: React.FC = () => {
               {/* WRITING SPECIFIC CONFIGURATION */}
               {formSkill === 'writing' && (
                 <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-200 space-y-3">
+                  {/* Writing Resource from Library Selector */}
+                  <div className="p-3 bg-white rounded-xl border border-amber-300 shadow-2xs space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <PenTool className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="text-xs font-bold text-slate-800">
+                          {selectedWritingResourceTitle ? (
+                            <span className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                              <span>Tài liệu: <strong>{selectedWritingResourceTitle}</strong></span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedWritingResourceId(null);
+                                  setSelectedWritingResourceTitle(null);
+                                }}
+                                className="text-slate-400 hover:text-rose-600 font-bold ml-1 text-sm cursor-pointer"
+                                title="Bỏ chọn tài liệu này"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          ) : (
+                            <span className="text-slate-600">Chọn đề Writing từ Thư viện tài nguyên</span>
+                          )}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowWritingLibraryPicker(!showWritingLibraryPicker)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
+                      >
+                        <Library className="w-3.5 h-3.5" />
+                        <span>{showWritingLibraryPicker ? 'Đóng danh sách' : 'Chọn từ Thư viện'}</span>
+                      </button>
+                    </div>
+
+                    {showWritingLibraryPicker && (() => {
+                      const writingResources = resources.filter((r) => {
+                        const isWriting = r.skill === 'writing' || (r as any).type === 'writing' || (r.tags && r.tags.includes('writing'));
+                        if (!isWriting) return false;
+                        if (!writingLibrarySearch.trim()) return true;
+                        const q = writingLibrarySearch.toLowerCase();
+                        return (r.title || '').toLowerCase().includes(q) || ((r.tags || []) as string[]).some((t) => t.toLowerCase().includes(q));
+                      });
+
+                      return (
+                        <div className="pt-2 border-t border-amber-100 space-y-2 animate-in fade-in duration-150">
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              value={writingLibrarySearch}
+                              onChange={(e) => setWritingLibrarySearch(e.target.value)}
+                              placeholder="Tìm kiếm tài liệu Writing theo tên hoặc tag..."
+                              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-amber-500"
+                            />
+                          </div>
+
+                          {writingResources.length === 0 ? (
+                            <p className="text-xs text-slate-400 py-3 italic text-center">
+                              Không tìm thấy tài liệu Writing nào trong Thư viện. Bạn có thể import từ Word/PDF tại mục Tài nguyên.
+                            </p>
+                          ) : (
+                            <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                              {writingResources.map((res) => {
+                                let taskType: 'task1' | 'task2' = 'task2';
+                                let chartType = '';
+                                let promptText = '';
+                                let imgUrl = res.url || '';
+                                let minW = 250;
+                                let modelAns = '';
+
+                                if (res.content) {
+                                  try {
+                                    const parsed = JSON.parse(res.content);
+                                    if (parsed && typeof parsed === 'object') {
+                                      taskType = parsed.taskType || (res.title.toLowerCase().includes('task 1') ? 'task1' : 'task2');
+                                      chartType = parsed.chartType || '';
+                                      promptText = parsed.prompt || parsed.writingPrompt || parsed.content || '';
+                                      if (parsed.imageUrl || parsed.task1ImageUrl) imgUrl = parsed.imageUrl || parsed.task1ImageUrl;
+                                      minW = parsed.minWords || (taskType === 'task1' ? 150 : 250);
+                                      modelAns = parsed.modelAnswer || parsed.sampleAnswer || parsed.sampleAnswers?.[0]?.content || '';
+                                    }
+                                  } catch {
+                                    promptText = res.content;
+                                  }
+                                }
+                                if (!promptText) promptText = res.title;
+
+                                const isSelected = selectedWritingResourceId === res.id;
+
+                                return (
+                                  <div
+                                    key={res.id}
+                                    onClick={() => {
+                                      const isTask1 = taskType === 'task1';
+                                      const cat: WritingTaskCategory = isTask1
+                                        ? (chartType.toLowerCase().includes('general') ? 'task1_general' : 'task1_academic')
+                                        : 'task2';
+                                      setFormTitle((prev) => !prev.trim() || prev === 'New Assignment' ? res.title : prev);
+                                      setFormWritingTaskCategory(cat);
+                                      setFormWritingPrompt(promptText);
+                                      if (imgUrl) setFormTask1ImageUrl(imgUrl);
+                                      setFormWritingMinWords(minW);
+                                      if (modelAns) setFormModelAnswer(modelAns);
+                                      setSelectedWritingResourceId(res.id);
+                                      setSelectedWritingResourceTitle(res.title);
+                                      setShowWritingLibraryPicker(false);
+                                    }}
+                                    className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                                      isSelected
+                                        ? 'bg-amber-50 border-amber-400 ring-1 ring-amber-400'
+                                        : 'bg-white border-slate-200 hover:border-amber-300 hover:bg-amber-50/20'
+                                    }`}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                                          taskType === 'task1' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'
+                                        }`}>
+                                          {taskType === 'task1' ? (chartType ? `Task 1: ${chartType}` : 'Task 1') : 'Task 2 Essay'}
+                                        </span>
+                                        <span className="font-bold text-xs text-slate-800 truncate">{res.title}</span>
+                                        {res.folder && (
+                                          <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                            📁 {res.folder}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{promptText}</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="px-2.5 py-1 bg-amber-600 text-white rounded text-[11px] font-bold shrink-0 self-center"
+                                    >
+                                      Chọn đề này
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   <div>
                     <label className="block font-bold text-amber-900 mb-1">Writing Task Type *</label>
                     <div className="grid grid-cols-2 gap-2">

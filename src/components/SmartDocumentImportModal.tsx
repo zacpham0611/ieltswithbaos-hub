@@ -64,6 +64,8 @@ interface SmartDocumentImportModalProps {
   onAssignmentCreated?: () => void;
   onResourceCreated?: () => void;
   initialSkill?: 'reading' | 'speaking';
+  targetFolderId?: string | null;
+  targetFolderName?: string;
 }
 
 type WizardStep = 'upload' | 'preview' | 'choose_output' | 'config_word' | 'config_assignment' | 'review_assignment';
@@ -74,6 +76,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   onAssignmentCreated,
   onResourceCreated,
   initialSkill = 'reading',
+  targetFolderId,
+  targetFolderName,
 }) => {
   const { currentUser, courses, createAssignment, addResource } = useApp();
   const { t } = useI18n();
@@ -228,7 +232,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           title: `${cleanBaseName} - Speaking Part 1 (Topics)`,
           type: 'doc',
           skill: 'speaking',
-          folder: 'IELTS Speaking',
+          folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Speaking',
+          folderId: targetFolderId || null,
           tags: ['speaking', 'part1', 'smart-import'],
           content: JSON.stringify({
             part: 'part1',
@@ -246,7 +251,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           title: `${cleanBaseName} - Speaking Part 2 (Cue Cards)`,
           type: 'doc',
           skill: 'speaking',
-          folder: 'IELTS Speaking',
+          folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Speaking',
+          folderId: targetFolderId || null,
           tags: ['speaking', 'part2', 'smart-import'],
           content: JSON.stringify({
             part: 'part2',
@@ -264,7 +270,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           title: `${cleanBaseName} - Speaking Part 3 (Discussion)`,
           type: 'doc',
           skill: 'speaking',
-          folder: 'IELTS Speaking',
+          folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Speaking',
+          folderId: targetFolderId || null,
           tags: ['speaking', 'part3', 'smart-import'],
           content: JSON.stringify({
             part: 'part3',
@@ -584,7 +591,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             content: JSON.stringify(structuredPayload),
             tags: ['smart-import', 'reading', 'full-test', testTitleToSave],
             skill: 'reading',
-            folder: 'IELTS Full Tests',
+            folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Full Tests',
+            folderId: targetFolderId || null,
             courseId: assignCourseId || null,
             isPublished: true,
           });
@@ -609,7 +617,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             content: JSON.stringify(structuredPayload),
             tags: ['smart-import', 'reading'],
             skill: 'reading',
-            folder: 'Imported Tests',
+            folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Imported Tests',
+            folderId: targetFolderId || null,
             courseId: assignCourseId || null,
             isPublished: true,
           });
@@ -693,7 +702,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         content: JSON.stringify(structuredPayload),
         tags: ['smart-import', assignSkill || 'reading', 'interactive-test'],
         skill: assignSkill || 'reading',
-        folder: 'Imported Library Tests',
+        folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Imported Library Tests',
+        folderId: targetFolderId || null,
         courseId: assignCourseId || null,
         isPublished: true,
       });
@@ -816,7 +826,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         content: editedRawText.slice(0, 5000),
         tags: ['converted-docx', assignSkill, 'smart-import'],
         skill: assignSkill,
-        folder: 'Converted Documents',
+        folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Converted Documents',
+        folderId: targetFolderId || null,
         courseId: assignCourseId || null,
         isPublished: true,
       });
@@ -967,7 +978,8 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         content: editedRawText,
         tags: ['original-source', assignSkill, 'smart-import'],
         skill: assignSkill,
-        folder: 'Imported Materials',
+        folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Imported Materials',
+        folderId: targetFolderId || null,
         courseId: assignCourseId || null,
         isPublished: false,
       });

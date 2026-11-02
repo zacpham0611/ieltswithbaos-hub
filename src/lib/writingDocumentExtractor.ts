@@ -1,4 +1,5 @@
 import type { ChartType, WritingTaskType } from '../components/WritingImportModal';
+import type { WritingTaskCategory } from '../types';
 
 export interface ExtractedSampleAnswer {
   id: string;
@@ -13,6 +14,8 @@ export interface ExtractedWritingTask {
   taskType: WritingTaskType;
   title: string;
   chartType?: ChartType;
+  taskCategory?: WritingTaskCategory;
+  imageUrl?: string;
   prompt: string;
   tableMarkdown?: string;
   minWords: number;
@@ -234,4 +237,98 @@ function processWritingSegment(
     suggestedMinutes,
     sampleAnswers,
   };
+}
+
+/**
+ * Extracts IELTS Writing tasks and images from external files (DOCX, PDF, TXT)
+ */
+export async function extractWritingFromFile(
+  file: File
+): Promise<{ doc: ExtractedWritingDocument; images: string[] }> {
+  const arrayBuffer = await file.arrayBuffer();
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+
+  let text = '';
+  const extractedImgs: string[] = [];
+
+  if (extension === 'docx') {
+    const mammothModule = await import('mammoth');
+    const mammoth = (mammothModule as any).default || mammothModule;
+
+    const res = await mammoth.convertToHtml(
+      { arrayBuffer },
+      {
+        convertImage: mammoth.images.inline((element: any) => {
+          return element.read('base64').then((imageBuffer: string) => {
+            const src = `data:${element.contentType};base64,${imageBuffer}`;
+            extractedImgs.push(src);
+            return { src };
+          });
+        }),
+      }
+    );
+
+    let html = res.value || '';
+    html = html.replace(/<tr[^>]*>([\s\S]*?)<\/tr>/gi, (_: string, rowContent: string) => {
+      const cells = Array.from(rowContent.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)).map((m: any) =>
+        m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+      );
+      return cells.length > 0 ? `\n| ${cells.join(' | ')} |\n` : '';
+    });
+    html = html.replace(/<p[^>]*>/gi, '\n').replace(/<\/p>/gi, '\n');
+    text = html
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  } else if (extension === 'pdf') {
+    const pdfjsLib = await import('pdfjs-dist');
+    if (
+      typeof window !== 'undefined' &&
+      'Worker' in window &&
+      !(pdfjsLib as any).GlobalWorkerOptions.workerSrc
+    ) {
+      (pdfjsLib as any).GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${
+        (pdfjsLib as any).version || '3.11.174'
+      }/pdf.worker.min.js`;
+    }
+
+    const pdfDoc = await (pdfjsLib as any).getDocument({
+      data: new Uint8Array(arrayBuffer),
+    }).promise;
+
+    let fullText = '';
+    const numPages = Math.min(pdfDoc.numPages, 5);
+
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str || '').join(' ');
+      fullText += pageText + '\n';
+
+      if (typeof document !== 'undefined') {
+        try {
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            const imgData = canvas.toDataURL('image/png');
+            extractedImgs.push(imgData);
+          }
+        } catch (renderErr) {
+          console.warn('PDF canvas render error:', renderErr);
+        }
+      }
+    }
+    text = fullText.trim();
+  } else {
+    const decoder = new TextDecoder('utf-8');
+    text = decoder.decode(arrayBuffer);
+  }
+
+  const doc = parseWritingDocument(text, file.name);
+  return { doc, images: extractedImgs };
 }

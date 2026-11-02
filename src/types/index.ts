@@ -412,6 +412,7 @@ export interface Assignment {
   dueDate: string;
   status: 'draft' | 'published';
   resources?: string[];
+  resourceId?: string;
   // Reading Specific
   readingPassage?: string;
   readingPassageHtml?: string;

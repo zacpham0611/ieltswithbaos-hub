@@ -28,6 +28,8 @@ interface WritingImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  targetFolderId?: string | null;
+  targetFolderName?: string;
 }
 
 export type WritingTaskType = 'task1' | 'task2';
@@ -44,6 +46,8 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  targetFolderId,
+  targetFolderName,
 }) => {
   const { currentUser, courses, addResource, createAssignment } = useApp();
 
@@ -71,7 +75,7 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
 
   // Metadata for saving
   const [targetTitle, setTargetTitle] = useState('');
-  const [targetFolder, setTargetFolder] = useState('Writing Prompts');
+  const [targetFolder, setTargetFolder] = useState(targetFolderName || (targetFolderId ? '' : 'Writing Prompts'));
   const [targetCourseId, setTargetCourseId] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
@@ -277,7 +281,8 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
         skill: 'writing',
         url: finalImageUrl || undefined,
         content: JSON.stringify(writingContent),
-        folder: targetFolder || 'Writing Prompts',
+        folder: targetFolderName !== undefined ? (targetFolderName || undefined) : (targetFolder.trim() || undefined),
+        folderId: targetFolderId || null,
         courseId: targetCourseId || null,
         tags: ['writing', taskType, taskType === 'task1' ? chartType : 'essay', 'imported'].filter(Boolean),
         isPublished: true,

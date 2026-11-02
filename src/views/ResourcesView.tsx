@@ -334,7 +334,8 @@ export const ResourcesView: React.FC = () => {
       content: resContent || undefined,
       tags: resTags.split(',').map((s) => s.trim()).filter(Boolean),
       skill: resSkill,
-      folder: resFolder || undefined,
+      folder: currentFolder ? currentFolder.name : (resFolder.trim() || undefined),
+      folderId: currentFolderId || null,
       courseId: resCourseId || null,
       isPublished: resIsPublished,
     });
@@ -2169,6 +2170,8 @@ export const ResourcesView: React.FC = () => {
             isOpen={showSmartImportModal}
             onClose={() => setShowSmartImportModal(false)}
             initialSkill={smartImportSkill}
+            targetFolderId={currentFolderId}
+            targetFolderName={currentFolder ? currentFolder.name : undefined}
           />
         </React.Suspense>
       )}
@@ -2178,6 +2181,8 @@ export const ResourcesView: React.FC = () => {
         <ListeningImportModal
           isOpen={showListeningImportModal}
           onClose={() => setShowListeningImportModal(false)}
+          targetFolderId={currentFolderId}
+          targetFolderName={currentFolder ? currentFolder.name : undefined}
         />
       )}
 
@@ -2186,6 +2191,8 @@ export const ResourcesView: React.FC = () => {
         <WritingImportModal
           isOpen={showWritingImportModal}
           onClose={() => setShowWritingImportModal(false)}
+          targetFolderId={currentFolderId}
+          targetFolderName={currentFolder ? currentFolder.name : undefined}
         />
       )}
     </div>

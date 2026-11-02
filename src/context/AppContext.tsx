@@ -695,6 +695,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 tags: r.tags || [],
                 skill: r.skill,
                 folder: r.folder,
+                folderId: r.folder_id || parsedContent?.folderId || null,
                 isPublished: r.is_published,
                 createdAt: r.created_at?.split('T')[0] || '',
                 speakingPart: r.speaking_part || parsedContent?.speakingPart,
@@ -1698,38 +1699,95 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addResource = async (resourceData: Omit<Resource, 'id' | 'teacherId' | 'createdAt'>) => {
     if (!currentUser) return;
 
-    await supabase.from('resources').insert({
+    let contentToSave = resourceData.content || null;
+    if (resourceData.folderId) {
+      if (contentToSave && (contentToSave.startsWith('{') || contentToSave.startsWith('['))) {
+        try {
+          const parsed = JSON.parse(contentToSave);
+          if (parsed && typeof parsed === 'object') {
+            parsed.folderId = resourceData.folderId;
+            contentToSave = JSON.stringify(parsed);
+          }
+        } catch {}
+      } else if (!contentToSave) {
+        contentToSave = JSON.stringify({ folderId: resourceData.folderId });
+      }
+    }
+
+    const { data: insertedData, error: insertErr } = await supabase.from('resources').insert({
       teacher_id: currentUser.id,
       course_id: resourceData.courseId || null,
       title: resourceData.title,
       type: resourceData.type,
       url: resourceData.url || null,
-      content: resourceData.content || null,
+      content: contentToSave,
       tags: resourceData.tags,
       skill: resourceData.skill,
       folder: resourceData.folder || null,
       is_published: resourceData.isPublished,
-    });
+    }).select();
+
+    if (insertErr) {
+      console.warn('addResource insert error:', insertErr.message);
+    }
+
+    const newResId = insertedData?.[0]?.id || `res_${Date.now()}`;
+    const newRes: Resource = {
+      id: newResId,
+      teacherId: currentUser.id,
+      courseId: resourceData.courseId || null,
+      title: resourceData.title,
+      type: resourceData.type,
+      url: resourceData.url,
+      content: contentToSave || undefined,
+      tags: resourceData.tags,
+      skill: resourceData.skill,
+      folder: resourceData.folder,
+      folderId: resourceData.folderId || null,
+      isPublished: resourceData.isPublished,
+      createdAt: new Date().toISOString().split('T')[0],
+      speakingPart: resourceData.speakingPart,
+      listeningContent: resourceData.listeningContent,
+    };
+    setResources((prev) => [newRes, ...prev.filter((r) => r.id !== newResId)]);
 
     refreshData();
   };
 
   const updateResource = async (id: string, updates: Partial<Resource>) => {
+    const existing = resources.find((r) => r.id === id);
     const payload: any = {};
     if (updates.title !== undefined) payload.title = updates.title;
     if (updates.type !== undefined) payload.type = updates.type;
     if (updates.url !== undefined) payload.url = updates.url;
-    if (updates.content !== undefined) payload.content = updates.content;
     if (updates.tags !== undefined) payload.tags = updates.tags;
     if (updates.skill !== undefined) payload.skill = updates.skill;
     if (updates.folder !== undefined) payload.folder = updates.folder;
     if (updates.isPublished !== undefined) payload.is_published = updates.isPublished;
     if (updates.courseId !== undefined) payload.course_id = updates.courseId;
 
+    let finalContent = updates.content !== undefined ? updates.content : existing?.content;
+    if (updates.folderId !== undefined) {
+      if (finalContent && (finalContent.startsWith('{') || finalContent.startsWith('['))) {
+        try {
+          const parsed = JSON.parse(finalContent);
+          if (parsed && typeof parsed === 'object') {
+            parsed.folderId = updates.folderId;
+            finalContent = JSON.stringify(parsed);
+          }
+        } catch {}
+      } else if (!finalContent && updates.folderId) {
+        finalContent = JSON.stringify({ folderId: updates.folderId });
+      }
+      payload.content = finalContent;
+    } else if (updates.content !== undefined) {
+      payload.content = updates.content;
+    }
+
     if (Object.keys(payload).length > 0) {
       await supabase.from('resources').update(payload).eq('id', id);
     }
-    setResources((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+    setResources((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates, content: finalContent } : r)));
   };
 
   const deleteResource = async (id: string) => {
