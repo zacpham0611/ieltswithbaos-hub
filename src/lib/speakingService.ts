@@ -3,6 +3,7 @@ import type {
   Assignment,
   SpeakingTopic,
   SpeakingCueCard,
+  SpeakingPart3Group,
   SpeakingQuestionResponse,
   SpeakingLibraryContent,
 } from '../types/index.ts';
@@ -17,6 +18,7 @@ export function extractSpeakingAssignmentDetails(assign: Partial<Assignment> | u
       topics: [] as SpeakingTopic[],
       cueCard: null as SpeakingCueCard | null,
       questions: [] as string[],
+      groups: [] as SpeakingPart3Group[],
     };
   }
 
@@ -24,7 +26,7 @@ export function extractSpeakingAssignmentDetails(assign: Partial<Assignment> | u
   const part = (assign.speakingPart || rawCueCard.part || 'part2') as 'part1' | 'part2' | 'part3';
 
   // Part 1: Topics with Questions
-  const topics: SpeakingTopic[] = Array.isArray(assign.speakingTopics) && assign.speakingTopics.length > 0
+  let rawTopics: SpeakingTopic[] = Array.isArray(assign.speakingTopics) && assign.speakingTopics.length > 0
     ? assign.speakingTopics
     : Array.isArray(rawCueCard.topics) && rawCueCard.topics.length > 0
     ? rawCueCard.topics
@@ -37,6 +39,13 @@ export function extractSpeakingAssignmentDetails(assign: Partial<Assignment> | u
         },
       ]
     : [];
+
+  // Filter topics if explicit individual exercise selection IDs were stored
+  const selectedIds = Array.isArray(assign.selectedSpeakingExerciseIds) ? assign.selectedSpeakingExerciseIds : [];
+  const topics: SpeakingTopic[] =
+    selectedIds.length > 0 && part === 'part1'
+      ? rawTopics.filter((t) => selectedIds.includes(t.id) || selectedIds.includes(t.topic))
+      : rawTopics;
 
   // Part 2: Cue Card
   const cueCard: SpeakingCueCard | null =
@@ -58,7 +67,7 @@ export function extractSpeakingAssignmentDetails(assign: Partial<Assignment> | u
         }
       : null;
 
-  // Part 3: Independent Questions
+  // Part 3: Independent Questions & Groups
   const questions: string[] = Array.isArray(assign.speakingQuestions) && assign.speakingQuestions.length > 0
     ? assign.speakingQuestions
     : Array.isArray(rawCueCard.questions) && rawCueCard.questions.length > 0
@@ -67,11 +76,16 @@ export function extractSpeakingAssignmentDetails(assign: Partial<Assignment> | u
     ? rawCueCard.points
     : [];
 
+  const groups: SpeakingPart3Group[] = Array.isArray(assign.speakingPart3Groups)
+    ? assign.speakingPart3Groups
+    : [];
+
   return {
     part,
-    topics,
+    topics: topics.length > 0 ? topics : rawTopics,
     cueCard,
     questions,
+    groups,
   };
 }
 
@@ -206,72 +220,18 @@ export async function uploadSpeakingAudio(
 }
 
 /**
- * Auto-transcribes English speaking and translates it into Vietnamese using server-side Gemini AI.
- * Never throws an unhandled error; gracefully returns formatted fallback.
+ * Auto-transcription functionality has been completely removed from Speaking module per product specifications.
+ * Retained as a lightweight zero-overhead stub to prevent breaking any callers.
  */
-export async function transcribeAndTranslateAudio(params: {
+export async function transcribeAndTranslateAudio(_params?: {
   audioUrl?: string;
   promptContext?: string;
   speakingPart?: string;
 }): Promise<{ transcript: string; translation: string }> {
-  try {
-    if (!isSupabaseConfigured) {
-      return {
-        transcript: 'Transcript will be processed once connected to AI service.',
-        translation: 'Bản dịch tiếng Việt sẽ được xử lý khi có kết nối AI.',
-      };
-    }
-
-    const { data, error } = await supabase.functions.invoke('ai-assistant', {
-      body: {
-        action: 'speaking_transcribe_and_translate',
-        audioUrl: params.audioUrl,
-        promptContext: params.promptContext,
-        speakingPart: params.speakingPart || 'part2',
-      },
-    });
-
-    if (error || !data) {
-      // Fallback: Use chat / general translation if specialized action is not deployed
-      const { data: fallbackData } = await supabase.functions.invoke('ai-assistant', {
-        body: {
-          action: 'chat',
-          message: `Given this IELTS Speaking ${params.speakingPart || 'response'} about "${params.promptContext || 'IELTS topic'}", generate an authentic sample student transcript in English and translate it faithfully into Vietnamese. Output JSON: {"transcript": "...", "translation": "..."}`,
-        },
-      });
-
-      if (fallbackData?.draft) {
-        try {
-          const jsonMatch = fallbackData.draft.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            return {
-              transcript: parsed.transcript || fallbackData.draft,
-              translation: parsed.translation || '',
-            };
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      return {
-        transcript: 'Speech recorded successfully. Transcript verification ready for examiner review.',
-        translation: 'Bài nói đã ghi âm thành công. Sẵn sàng cho giáo viên nghe và chấm điểm.',
-      };
-    }
-
-    return {
-      transcript: data.transcript || data.draft || '',
-      translation: data.translation || '',
-    };
-  } catch (err: any) {
-    console.warn('Auto-transcription service error:', err);
-    return {
-      transcript: 'Audio recording saved. Transcript available during teacher grading.',
-      translation: 'Bản ghi âm đã được lưu trữ an toàn để giáo viên đánh giá.',
-    };
-  }
+  return {
+    transcript: '',
+    translation: '',
+  };
 }
 
 /**

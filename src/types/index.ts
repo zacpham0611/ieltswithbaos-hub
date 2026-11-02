@@ -240,6 +240,13 @@ export interface SpeakingQuestionResponse {
   recordedAt?: string;
 }
 
+export interface SpeakingPart3Group {
+  id: string;
+  cueCardTopic?: string;
+  cueCardId?: string;
+  questions: string[];
+}
+
 export interface SpeakingPart1LibraryContent {
   part: 'part1';
   topics: SpeakingTopic[];
@@ -261,6 +268,7 @@ export interface SpeakingPart2LibraryContent {
 export interface SpeakingPart3LibraryContent {
   part: 'part3';
   questions: string[];
+  groups?: SpeakingPart3Group[];
   sourceDocumentName?: string;
 }
 
@@ -299,6 +307,8 @@ export interface Assignment {
   speakingTopics?: SpeakingTopic[];
   speakingCueCard?: SpeakingCueCard;
   speakingQuestions?: string[];
+  speakingPart3Groups?: SpeakingPart3Group[];
+  selectedSpeakingExerciseIds?: string[];
   answerReleasePolicy?: 'immediate' | 'after_submission' | 'never';
   scoreVisibility?: 'private' | 'public';
   sourceDocumentName?: string;

@@ -25,8 +25,16 @@ export interface ExtractedSpeakingPart2 {
   confidence: number;
 }
 
+export interface ExtractedSpeakingPart3Group {
+  id: string;
+  cueCardTopic?: string;
+  cueCardId?: string;
+  questions: string[];
+}
+
 export interface ExtractedSpeakingPart3 {
   questions: string[];
+  groups: ExtractedSpeakingPart3Group[];
   confidence: number;
 }
 
@@ -86,6 +94,14 @@ export function extractSpeakingPartsFromDocument(
 
     // Check section boundaries
     if (
+      /(?:^|\b)(?:part\s*3|phần\s*3|speaking\s*part\s*3|part\s*three)\b/i.test(lower) ||
+      (/^(?:discussion\s*(?:topics|questions)?|follow[\s-]up\s*questions)\b/i.test(lower) && currentSection !== 'part3')
+    ) {
+      currentSection = 'part3';
+      continue;
+    }
+
+    if (
       /(?:^|\b)(?:part\s*1|phần\s*1|speaking\s*part\s*1|part\s*one)\b/i.test(lower) &&
       !lower.includes('part 2') &&
       !lower.includes('part 3')
@@ -95,21 +111,16 @@ export function extractSpeakingPartsFromDocument(
     }
 
     if (
-      /(?:^|\b)(?:part\s*2|phần\s*2|speaking\s*part\s*2|part\s*two|cue\s*card|describe\s+a(?:n)?)\b/i.test(lower) &&
+      /(?:^|\b)(?:part\s*2|phần\s*2|speaking\s*part\s*2|part\s*two|cue\s*card)\b/i.test(lower) &&
       !lower.includes('part 3')
     ) {
       currentSection = 'part2';
-      // If line is "Describe a...", keep it for Part 2 parsing
-      if (/^describe\s+a/i.test(line)) {
-        part2Lines.push(line);
-      }
       continue;
     }
 
-    if (
-      /(?:^|\b)(?:part\s*3|phần\s*3|speaking\s*part\s*3|part\s*three|discussion\s*topics|follow[\s-]up\s*questions)\b/i.test(lower)
-    ) {
-      currentSection = 'part3';
+    if (currentSection !== 'part3' && /^describe\s+a(?:n)?\b/i.test(lower)) {
+      currentSection = 'part2';
+      part2Lines.push(line);
       continue;
     }
 
@@ -144,8 +155,8 @@ export function extractSpeakingPartsFromDocument(
   // 2. Parse Part 2 (Cue Cards with topic, instructions, points)
   const part2Result = parsePart2Content(part2Lines);
 
-  // 3. Parse Part 3 (Independent discussion questions)
-  const part3Result = parsePart3Content(part3Lines);
+  // 3. Parse Part 3 (Discussion questions grouped under corresponding Part 2 Cue Cards)
+  const part3Result = parsePart3Content(part3Lines, part2Result?.cueCards);
 
   const hasContent = Boolean(
     (part1Result && part1Result.topics.length > 0) ||
@@ -164,7 +175,11 @@ export function extractSpeakingPartsFromDocument(
 }
 
 /**
- * Parses Part 1 content into Topics, associating each topic with its questions
+ * Parses Part 1 content into Topics, associating each topic with its questions.
+ * Accurately recognizes multiple topics across various document formats:
+ * - Numbered/labeled topics (e.g., "Topic 1: Names", "1. Study or Work", "Chủ đề 2: Hometown")
+ * - Standalone topic headings (e.g., "NAMES", "HOMETOWN", "Reading books")
+ * - Groups each question strictly under its respective topic.
  */
 function parsePart1Content(lines: string[]): ExtractedSpeakingPart1 | null {
   if (lines.length === 0) return null;
@@ -173,38 +188,79 @@ function parsePart1Content(lines: string[]): ExtractedSpeakingPart1 | null {
   let currentTopic: SpeakingTopic | null = null;
   let topicCounter = 1;
 
+  const isQuestionLine = (str: string): boolean => {
+    const trimmed = str.trim();
+    if (trimmed.endsWith('?')) return true;
+    return /^(?:do|did|does|have|has|had|what|where|when|why|how|can|could|would|should|are|is|was|were|who|whom|which|will|if|tell\s+me\s+about|describe)\b/i.test(trimmed);
+  };
+
+  const isExplicitTopicHeader = (str: string): { match: boolean; title: string } => {
+    const trimmed = str.trim();
+    // Pattern 1: Topic 1: ... or Topic: ... or Chủ đề 1: ...
+    const m1 = trimmed.match(/^(?:topic\s*(?:\d+)?[:\.\-\s]+|chủ\s*đề\s*(?:\d+)?[:\.\-\s]+|part\s*1\s*[-–:]\s*)([A-Za-z0-9\s,\-_'/&]{2,60})$/i);
+    if (m1) {
+      return { match: true, title: m1[1].trim() };
+    }
+    // Pattern 2: Numbered title without question mark, e.g. "1. Work or Studies", "2. Hometown"
+    const m2 = trimmed.match(/^\b\d+[\.\)]\s+([A-Z][a-zA-Z0-9\s,\-_'/&]{1,40})$/);
+    if (m2 && !isQuestionLine(trimmed)) {
+      return { match: true, title: m2[1].trim() };
+    }
+    return { match: false, title: '' };
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const isQ = isQuestionLine(line);
+    const explicitHeader = isExplicitTopicHeader(line);
 
-    // Detect Topic Header: e.g. "Topic: Crowded place", "1. Singing", "TOPIC 2: Money", or short non-question line
-    const topicMatch = line.match(/^(?:topic\s*(?:\d+)?[:\.\-\s]+|\b\d+[\.\)]\s*)([A-Za-z0-9\s,\-_'/]{2,50})$/i);
-    const isExplicitTopic = Boolean(topicMatch);
-    const isQuestion = /\?$/.test(line) || /^(?:do|did|have|has|what|where|when|why|how|can|could|would|are|is|who)\b/i.test(line);
-
-    if (isExplicitTopic && !isQuestion) {
-      const topicName = (topicMatch ? topicMatch[1] : line).trim();
+    // 1. Explicit topic header detection (e.g. "Topic 1: Names", "1. Study or Work")
+    if (explicitHeader.match && !isQ) {
       if (currentTopic && currentTopic.questions.length > 0) {
         topics.push(currentTopic);
       }
       currentTopic = {
         id: `topic_${topicCounter++}`,
-        topic: topicName,
+        topic: explicitHeader.title,
+        title: explicitHeader.title,
         questions: [],
       };
       continue;
     }
 
-    // Check if line looks like a standalone topic title (short, no punctuation, not question)
-    if (!isQuestion && line.length <= 40 && !currentTopic && !line.includes(':') && !line.includes('.')) {
-      currentTopic = {
-        id: `topic_${topicCounter++}`,
-        topic: line,
-        questions: [],
-      };
-      continue;
+    // 2. Standalone topic title (short, title-case or upper, no question mark, not starting with question word)
+    // Triggers when:
+    // a) currentTopic has not been created yet, OR
+    // b) currentTopic already has at least 1 question and this line is not a question,
+    //    and the next line is a question or line is short title.
+    if (!isQ && line.length <= 45 && !line.includes('?') && !line.startsWith('-') && !line.startsWith('*')) {
+      const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
+      const looksLikeHeader =
+        !currentTopic ||
+        (currentTopic.questions.length > 0 &&
+          (isQuestionLine(nextLine) || /^[A-Z\s0-9&/'-]{2,45}$/.test(line) || /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/.test(line)));
+
+      if (looksLikeHeader) {
+        const cleanTitle = line
+          .replace(/^(?:topic\s*(?:\d+)?[:\.\-\s]+|\b\d+[\.\)]\s*)/i, '')
+          .trim();
+
+        if (cleanTitle.length >= 2) {
+          if (currentTopic && currentTopic.questions.length > 0) {
+            topics.push(currentTopic);
+          }
+          currentTopic = {
+            id: `topic_${topicCounter++}`,
+            topic: cleanTitle,
+            title: cleanTitle,
+            questions: [],
+          };
+          continue;
+        }
+      }
     }
 
-    // Clean question text
+    // 3. Question extraction
     const cleanQ = line
       .replace(/^(?:q(?:uestion)?\s*\d*[:\.\-\s]+|\d+[\.\)]\s*|[\-\*\•]\s*)/i, '')
       .trim();
@@ -214,6 +270,7 @@ function parsePart1Content(lines: string[]): ExtractedSpeakingPart1 | null {
         currentTopic = {
           id: `topic_${topicCounter++}`,
           topic: 'General Questions',
+          title: 'General Questions',
           questions: [],
         };
       }
@@ -315,31 +372,116 @@ function parsePart2Content(lines: string[]): ExtractedSpeakingPart2 | null {
 }
 
 /**
- * Parses Part 3 content into independent discussion questions
+ * Parses Part 3 content into discussion questions, grouping them under corresponding
+ * Part 2 Cue Cards as parent groups. Supports standalone Part 3 questions when no Cue Cards are present.
  */
-function parsePart3Content(lines: string[]): ExtractedSpeakingPart3 | null {
+function parsePart3Content(
+  lines: string[],
+  part2CueCards?: ExtractedSpeakingPart2CueCard[]
+): ExtractedSpeakingPart3 | null {
   if (lines.length === 0) return null;
 
-  const questions: string[] = [];
+  const groups: ExtractedSpeakingPart3Group[] = [];
+  const allQuestions: string[] = [];
+  let currentGroup: ExtractedSpeakingPart3Group | null = null;
+  let groupCounter = 1;
+  const cards = part2CueCards || [];
+
+  const isQuestionLine = (str: string): boolean => {
+    const trimmed = str.trim();
+    if (trimmed.endsWith('?')) return true;
+    return /^(?:do|did|does|have|has|had|what|where|when|why|how|can|could|would|should|are|is|was|were|who|whom|which|will|if)\b/i.test(trimmed);
+  };
+
+  const isGroupHeader = (str: string): { match: boolean; topic: string } => {
+    const trimmed = str.trim();
+    // Pattern: "Topic 1: ...", "Part 3 - ...", "Discussion topics related to: ...", "Cue card 1 discussion"
+    const m1 = trimmed.match(
+      /^(?:(?:part\s*3\s*[-–:]\s*)?(?:discussion\s*(?:topics|questions)?\s*(?:related\s*to)?[:\.\-\s]+|topic\s*(?:\d+)?[:\.\-\s]+|chủ\s*đề\s*(?:\d+)?[:\.\-\s]+))([A-Za-z0-9\s,\-_'/&]{2,80})$/i
+    );
+    if (m1) {
+      return { match: true, topic: m1[1].trim() };
+    }
+
+    // Pattern: short heading without question mark if questions follow
+    if (!isQuestionLine(trimmed) && trimmed.length <= 50 && !trimmed.startsWith('-') && !trimmed.startsWith('*')) {
+      const isCardTopicMatch = cards.some((c) =>
+        trimmed.toLowerCase().includes(c.topic.toLowerCase().slice(0, 20))
+      );
+      if (isCardTopicMatch || /^(?:[A-Z\s0-9&/'-]{2,50}|\d+[\.\)]\s+[A-Z][a-zA-Z0-9\s&/'-]+)$/.test(trimmed)) {
+        return { match: true, topic: trimmed.replace(/^\d+[\.\)]\s*/, '').trim() };
+      }
+    }
+
+    return { match: false, topic: '' };
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Skip topic headers if any
-    if (/^topic\s*\d*[:\.\-]/i.test(line) && !line.includes('?')) {
+    const isQ = isQuestionLine(line);
+    const groupHead = isGroupHeader(line);
+
+    if (groupHead.match && !isQ) {
+      if (currentGroup && currentGroup.questions.length > 0) {
+        groups.push(currentGroup);
+      }
+
+      // Check if this group corresponds to a specific Cue Card
+      const matchedCard =
+        cards.find(
+          (c) =>
+            groupHead.topic.toLowerCase().includes(c.topic.toLowerCase().slice(0, 15)) ||
+            c.topic.toLowerCase().includes(groupHead.topic.toLowerCase().slice(0, 15))
+        ) || cards[groups.length] || null;
+
+      currentGroup = {
+        id: `p3_group_${groupCounter++}`,
+        cueCardTopic: matchedCard ? matchedCard.topic : groupHead.topic || `Discussion Topic ${groupCounter}`,
+        cueCardId: matchedCard?.id,
+        questions: [],
+      };
       continue;
     }
 
+    // Clean question text
     const cleanQ = line
       .replace(/^(?:q(?:uestion)?\s*\d*[:\.\-\s]+|\d+[\.\)]\s*|[\-\*\•]\s*)/i, '')
       .trim();
 
     if (cleanQ.length > 5) {
-      questions.push(cleanQ);
+      if (!currentGroup) {
+        // Associate with first Part 2 cue card or default to General Discussion
+        const initialCard = cards[0] || null;
+        currentGroup = {
+          id: `p3_group_${groupCounter++}`,
+          cueCardTopic: initialCard ? initialCard.topic : 'General Discussion',
+          cueCardId: initialCard?.id,
+          questions: [],
+        };
+      }
+      currentGroup.questions.push(cleanQ);
+      allQuestions.push(cleanQ);
     }
   }
 
+  if (currentGroup && currentGroup.questions.length > 0) {
+    groups.push(currentGroup);
+  }
+
+  // If no groups formed but lines exist, create default group
+  if (groups.length === 0 && allQuestions.length > 0) {
+    const initialCard = cards[0] || null;
+    groups.push({
+      id: `p3_group_1`,
+      cueCardTopic: initialCard ? initialCard.topic : 'General Discussion',
+      cueCardId: initialCard?.id,
+      questions: allQuestions,
+    });
+  }
+
   return {
-    questions,
-    confidence: questions.length > 0 ? 0.95 : 0,
+    questions: allQuestions,
+    groups,
+    confidence: allQuestions.length > 0 ? 0.95 : 0,
   };
 }

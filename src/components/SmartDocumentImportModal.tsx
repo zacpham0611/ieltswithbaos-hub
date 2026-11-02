@@ -259,6 +259,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           content: JSON.stringify({
             part: 'part3',
             questions: editedSpeakingPart3.questions,
+            groups: editedSpeakingPart3.groups || [],
             sourceDocumentName: sourceName,
           }),
           isPublished: true,
@@ -1583,77 +1584,176 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                 </div>
               )}
 
-              {/* Tab 3: Part 3 Discussion Questions Editor */}
+              {/* Tab 3: Part 3 Discussion Questions Editor (Grouped by Cue Card) */}
               {speakingActiveTab === 'part3' && (
                 <div className="space-y-4">
-                  {editedSpeakingPart3 && editedSpeakingPart3.questions.length > 0 ? (
-                    <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                        <span className="font-extrabold text-xs uppercase tracking-wider text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-                          Part 3 Independent Discussion Questions
-                        </span>
-                        <span className="text-xs text-slate-500 font-semibold">
-                          {editedSpeakingPart3.questions.length} câu hỏi
-                        </span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {editedSpeakingPart3.questions.map((q, qIdx) => (
-                          <div key={qIdx} className="flex items-center space-x-2">
-                            <span className="text-xs text-slate-400 font-mono w-6 text-right">{qIdx + 1}.</span>
-                            <input
-                              type="text"
-                              value={q}
-                              onChange={(e) => {
-                                const newQs = [...editedSpeakingPart3.questions];
-                                newQs[qIdx] = e.target.value;
-                                setEditedSpeakingPart3({ ...editedSpeakingPart3, questions: newQs });
-                              }}
-                              className="flex-1 p-2 border border-slate-200 rounded-lg text-xs text-slate-800"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newQs = editedSpeakingPart3.questions.filter((_, i) => i !== qIdx);
-                                setEditedSpeakingPart3({ ...editedSpeakingPart3, questions: newQs });
-                              }}
-                              className="p-1 text-slate-400 hover:text-red-500 rounded"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                  {editedSpeakingPart3 && (editedSpeakingPart3.groups?.length > 0 || editedSpeakingPart3.questions.length > 0) ? (
+                    <div className="space-y-4">
+                      {(editedSpeakingPart3.groups || []).map((grp, gIdx) => (
+                        <div key={grp.id || gIdx} className="p-4 bg-white border border-slate-200 rounded-xl space-y-3 shadow-2xs">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-extrabold text-xs uppercase tracking-wider text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
+                                Nhóm {gIdx + 1}: Liên kết Cue Card
+                              </span>
+                              <input
+                                type="text"
+                                value={grp.cueCardTopic || ''}
+                                placeholder="Chủ đề Cue Card liên kết (e.g. Describe a gift, Describe a journey...)"
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const updatedGroups = [...editedSpeakingPart3.groups];
+                                  updatedGroups[gIdx] = { ...updatedGroups[gIdx], cueCardTopic: val };
+                                  setEditedSpeakingPart3({
+                                    ...editedSpeakingPart3,
+                                    groups: updatedGroups,
+                                  });
+                                }}
+                                className="font-bold text-xs text-slate-800 p-1 border border-slate-200 rounded-md focus:border-emerald-500"
+                              />
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-slate-500 font-semibold">
+                                {grp.questions.length} câu hỏi
+                              </span>
+                              {editedSpeakingPart3.groups.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updatedGroups = editedSpeakingPart3.groups.filter((_, i) => i !== gIdx);
+                                    const updatedQs = updatedGroups.flatMap((g) => g.questions);
+                                    setEditedSpeakingPart3({
+                                      ...editedSpeakingPart3,
+                                      groups: updatedGroups,
+                                      questions: updatedQs,
+                                    });
+                                  }}
+                                  className="text-slate-400 hover:text-red-500 p-1"
+                                  title="Xóa nhóm này"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        ))}
-                      </div>
+
+                          <div className="space-y-2">
+                            {grp.questions.map((q, qIdx) => (
+                              <div key={qIdx} className="flex items-center space-x-2">
+                                <span className="text-xs text-slate-400 font-mono w-8 text-right">
+                                  {gIdx + 1}.{qIdx + 1}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={q}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const updatedGroups = [...editedSpeakingPart3.groups];
+                                    const updatedGroupQs = [...updatedGroups[gIdx].questions];
+                                    updatedGroupQs[qIdx] = val;
+                                    updatedGroups[gIdx] = { ...updatedGroups[gIdx], questions: updatedGroupQs };
+                                    const allQs = updatedGroups.flatMap((g) => g.questions);
+                                    setEditedSpeakingPart3({
+                                      ...editedSpeakingPart3,
+                                      groups: updatedGroups,
+                                      questions: allQs,
+                                    });
+                                  }}
+                                  className="flex-1 p-2 border border-slate-200 rounded-lg text-xs text-slate-800"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updatedGroups = [...editedSpeakingPart3.groups];
+                                    const updatedGroupQs = updatedGroups[gIdx].questions.filter((_, i) => i !== qIdx);
+                                    updatedGroups[gIdx] = { ...updatedGroups[gIdx], questions: updatedGroupQs };
+                                    const allQs = updatedGroups.flatMap((g) => g.questions);
+                                    setEditedSpeakingPart3({
+                                      ...editedSpeakingPart3,
+                                      groups: updatedGroups,
+                                      questions: allQs,
+                                    });
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-red-500 rounded"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updatedGroups = [...editedSpeakingPart3.groups];
+                              const updatedGroupQs = [...updatedGroups[gIdx].questions, 'Why do you think this happens?'];
+                              updatedGroups[gIdx] = { ...updatedGroups[gIdx], questions: updatedGroupQs };
+                              const allQs = updatedGroups.flatMap((g) => g.questions);
+                              setEditedSpeakingPart3({
+                                ...editedSpeakingPart3,
+                                groups: updatedGroups,
+                                questions: allQs,
+                              });
+                            }}
+                            className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 flex items-center space-x-1 pt-1"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm câu hỏi vào nhóm này</span>
+                          </button>
+                        </div>
+                      ))}
 
                       <button
                         type="button"
                         onClick={() => {
-                          const newQs = [...editedSpeakingPart3.questions, 'Why do you think this happens?'];
-                          setEditedSpeakingPart3({ ...editedSpeakingPart3, questions: newQs });
+                          const currentGroups = editedSpeakingPart3?.groups || [];
+                          const newGroupId = `p3_group_${currentGroups.length + 1}`;
+                          const newGroup = {
+                            id: newGroupId,
+                            cueCardTopic: `Chủ đề thảo luận ${currentGroups.length + 1}`,
+                            questions: ['How will this topic develop in the future?'],
+                          };
+                          const updatedGroups = [...currentGroups, newGroup];
+                          const allQs = updatedGroups.flatMap((g) => g.questions);
+                          setEditedSpeakingPart3({
+                            ...editedSpeakingPart3,
+                            groups: updatedGroups,
+                            questions: allQs,
+                            confidence: 1,
+                          });
                         }}
-                        className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 flex items-center space-x-1 pt-1"
+                        className="w-full py-2.5 border border-dashed border-emerald-300 text-emerald-800 bg-emerald-50/50 hover:bg-emerald-50 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Thêm câu hỏi thảo luận mới</span>
+                        <Plus className="w-4 h-4" />
+                        <span>+ Thêm nhóm câu hỏi Part 3 mới</span>
                       </button>
                     </div>
                   ) : (
-                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                      Không tìm thấy câu hỏi Part 3 trong tài liệu này.
+                    <div className="space-y-3">
+                      <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                        Không tìm thấy câu hỏi Part 3 trong tài liệu này.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newGroup = {
+                            id: 'p3_group_1',
+                            cueCardTopic: 'General Discussion',
+                            questions: ['How will this issue evolve in the future?'],
+                          };
+                          setEditedSpeakingPart3({
+                            questions: newGroup.questions,
+                            groups: [newGroup],
+                            confidence: 1,
+                          });
+                        }}
+                        className="w-full py-2.5 border border-dashed border-emerald-300 text-emerald-800 bg-emerald-50/50 hover:bg-emerald-50 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Thêm nhóm câu hỏi Part 3</span>
+                      </button>
                     </div>
                   )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const prevQs = editedSpeakingPart3?.questions || [];
-                      setEditedSpeakingPart3({ questions: [...prevQs, 'How will this issue evolve in the future?'], confidence: 1 });
-                    }}
-                    className="w-full py-2.5 border border-dashed border-emerald-300 text-emerald-800 bg-emerald-50/50 hover:bg-emerald-50 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Thêm câu hỏi Part 3 mới</span>
-                  </button>
                 </div>
               )}
             </div>
