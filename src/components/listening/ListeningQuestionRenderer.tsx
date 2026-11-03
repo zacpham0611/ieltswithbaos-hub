@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flag, Info, Image as ImageIcon, AlertCircle, Volume2 } from 'lucide-react';
+import { Flag, AlertCircle, Volume2 } from 'lucide-react';
 import type { ListeningQuestion, ListeningQuestionGroup } from '../../types';
 import { cleanListeningText } from '../../lib/listeningExtractor';
 
@@ -15,6 +15,20 @@ interface ListeningQuestionRendererProps {
   showCorrectAnswers?: boolean;
 }
 
+// Utility to parse options from text if missing on question objects
+const extractOptionsFromText = (text?: string): string[] => {
+  if (!text) return [];
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const opts: string[] = [];
+  for (const line of lines) {
+    const match = line.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
+    if (match) {
+      opts.push(`${match[1].toUpperCase()}. ${match[2].trim()}`);
+    }
+  }
+  return opts;
+};
+
 export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps> = ({
   questionGroup,
   answers,
@@ -25,7 +39,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   showCorrectAnswers = false,
 }) => {
   const {
-    id: groupId,
+    id: _groupId,
     type,
     title,
     instructions,
@@ -43,6 +57,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     safeQuestions[safeQuestions.length - 1]?.questionNumber ||
     safeQuestions[safeQuestions.length - 1]?.number ||
     safeQuestions.length;
+
+  // Set of question IDs whose inputs are directly embedded inside table cells
+  const tableEmbeddedQuestionIds = new Set<string>();
 
   // Render question flag button
   const renderFlagButton = (questionId: string) => {
@@ -64,54 +81,87 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
-  // Render Multiple Choice question
-  const renderMultipleChoice = (q: ListeningQuestion) => {
-    const userVal = answers[q.id] || '';
-    const options = q.options || [];
+  // Helper to resolve options for Multiple Choice
+  const getMultipleChoiceOptions = (q: ListeningQuestion, qIdx: number) => {
+    if (q.options && q.options.length >= 2) return q.options;
+    if (questionGroup.options && questionGroup.options.length >= 2) return questionGroup.options;
+
+    const rawOpts = extractOptionsFromText(groupText || questionGroup.sharedContent);
+    if (rawOpts.length >= 2) {
+      const perQ = Math.max(2, Math.floor(rawOpts.length / Math.max(1, safeQuestions.length)));
+      const sliced = rawOpts.slice(qIdx * perQ, (qIdx + 1) * perQ);
+      if (sliced.length >= 2) return sliced;
+      return rawOpts;
+    }
+    return [];
+  };
+
+  // Render Multiple Choice question (Single Answer: Radio buttons)
+  const renderMultipleChoice = (q: ListeningQuestion, qIdx: number) => {
+    const userVal = (answers[q.id] || '').trim();
+    const options = getMultipleChoiceOptions(q, qIdx);
     const qNum = q.questionNumber || q.number || 1;
     const cleanPrompt = cleanListeningText(q.prompt);
 
     return (
-      <div key={q.id} className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-3">
+      <div key={q.id} className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-baseline gap-2">
             <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
               {qNum}
             </span>
-            <p className="text-sm font-medium text-slate-800 leading-snug">{cleanPrompt}</p>
+            <p className="text-sm font-semibold text-slate-900 leading-snug">{cleanPrompt}</p>
           </div>
           {renderFlagButton(q.id)}
         </div>
 
-        <div className="space-y-2 pt-1 pl-8">
-          {options.map((opt, optIdx) => {
-            const letter = String.fromCharCode(65 + optIdx);
-            const cleanOpt = cleanListeningText(opt);
-            const isSelected = userVal.trim().toUpperCase() === letter || userVal.trim() === cleanOpt.trim();
-            return (
-              <label
-                key={optIdx}
-                className={`flex items-start gap-3 p-2.5 rounded-lg border text-sm cursor-pointer transition ${
-                  isSelected
-                    ? 'bg-blue-50/80 border-blue-400 text-blue-900 font-medium'
-                    : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-                } ${isReadOnly ? 'pointer-events-none' : ''}`}
-              >
-                <input
-                  type="radio"
-                  name={`question_${q.id}`}
-                  value={letter}
-                  checked={isSelected}
-                  disabled={isReadOnly}
-                  onChange={() => onAnswerChange(q.id, letter)}
-                  className="mt-0.5 text-blue-600 focus:ring-blue-500 accent-blue-600"
-                />
-                <span className="font-semibold text-slate-500 w-4">{letter}.</span>
-                <span className="flex-1">{cleanOpt}</span>
-              </label>
-            );
-          })}
-        </div>
+        {options.length > 0 ? (
+          <div className="space-y-2 pt-1 pl-8">
+            {options.map((opt, optIdx) => {
+              const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+              const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
+              const cleanOpt = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
+              const isSelected =
+                userVal.toUpperCase() === letter ||
+                userVal.toUpperCase() === opt.toUpperCase() ||
+                userVal.toUpperCase() === cleanOpt.toUpperCase();
+
+              return (
+                <label
+                  key={optIdx}
+                  className={`flex items-start gap-3 p-3 rounded-lg border text-sm cursor-pointer transition ${
+                    isSelected
+                      ? 'bg-blue-50/90 border-blue-400 text-blue-900 font-medium ring-1 ring-blue-300'
+                      : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                  } ${isReadOnly ? 'pointer-events-none' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name={`listening_mc_${q.id}`}
+                    value={letter}
+                    checked={isSelected}
+                    disabled={isReadOnly}
+                    onChange={() => onAnswerChange(q.id, letter)}
+                    className="mt-0.5 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                  />
+                  <span className="font-bold text-slate-600 w-4 shrink-0">{letter}.</span>
+                  <span className="flex-1 leading-relaxed">{cleanOpt || opt}</span>
+                </label>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="pl-8 pt-1">
+            <input
+              type="text"
+              value={userVal}
+              disabled={isReadOnly}
+              placeholder="Nhập đáp án (A, B, C...)"
+              onChange={(e) => onAnswerChange(q.id, e.target.value.toUpperCase())}
+              className="w-44 px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium uppercase"
+            />
+          </div>
+        )}
 
         {showCorrectAnswers && q.correctAnswer && (
           <div className="pl-8 pt-1 text-xs text-emerald-700 font-medium">
@@ -122,16 +172,22 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
-  // Render Unified Multiple Select Group (e.g. Questions 11-12: Choose TWO letters)
+  // Helper to resolve options for Multiple Select
+  const getMultipleSelectOptions = () => {
+    if (questionGroup.options && questionGroup.options.length >= 2) return questionGroup.options;
+    if (questionGroup.optionsBox && questionGroup.optionsBox.length >= 2) return questionGroup.optionsBox;
+    if (safeQuestions[0]?.options && safeQuestions[0].options.length >= 2) return safeQuestions[0].options;
+    return extractOptionsFromText(groupText || questionGroup.sharedContent);
+  };
+
+  // Render Unified Multiple Select Group (e.g. Questions 18-20: Choose THREE letters, A-G)
   const renderUnifiedMultipleSelect = () => {
-    // Determine max selectable count: from instructions ("Choose TWO" -> 2, "Choose THREE" -> 3) or number of questions
     let maxChoices = safeQuestions.length;
     const instr = (instructions || '').toLowerCase();
     if (instr.includes('choose two') || instr.includes('two letters')) maxChoices = 2;
     else if (instr.includes('choose three') || instr.includes('three letters')) maxChoices = 3;
     else if (instr.includes('choose four')) maxChoices = 4;
 
-    // Collect all currently selected letters across questions in this group
     const currentSelections: string[] = [];
     safeQuestions.forEach((q) => {
       const val = (answers[q.id] || '').trim().toUpperCase();
@@ -139,8 +195,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     });
     const selectedSet = new Set(currentSelections);
 
-    const options = questionGroup.options || safeQuestions[0]?.options || [];
-    const sharedPrompt = cleanListeningText(safeQuestions[0]?.prompt || questionGroup.title || 'Choose the correct letters');
+    const options = getMultipleSelectOptions();
+    const sharedPrompt = cleanListeningText(
+      safeQuestions[0]?.prompt || questionGroup.title || 'Choose the correct letters'
+    );
 
     const handleToggleOption = (letter: string) => {
       if (isReadOnly) return;
@@ -151,14 +209,12 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         nextList.splice(existingIdx, 1);
       } else {
         if (nextList.length >= maxChoices) {
-          // If at limit, replace oldest or block
           nextList.shift();
         }
         nextList.push(letter);
       }
       nextList.sort();
 
-      // Distribute selected letters sequentially to each question in this group
       safeQuestions.forEach((q, idx) => {
         const assignedLetter = nextList[idx] || '';
         onAnswerChange(q.id, assignedLetter);
@@ -166,7 +222,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     };
 
     return (
-      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-4">
+      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -177,7 +233,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                 (Chọn tối đa {maxChoices} đáp án)
               </span>
             </div>
-            <p className="text-sm font-semibold text-slate-800 leading-snug">{sharedPrompt}</p>
+            <p className="text-sm font-semibold text-slate-900 leading-snug">{sharedPrompt}</p>
           </div>
           <div className="flex items-center gap-1">
             {safeQuestions.map((q) => (
@@ -189,8 +245,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         {/* Checkbox Options */}
         <div className="space-y-2 pt-1 pl-2">
           {options.map((opt, optIdx) => {
-            const letter = String.fromCharCode(65 + optIdx);
-            const cleanOpt = cleanListeningText(opt);
+            const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+            const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
+            const cleanOpt = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
             const isChecked = selectedSet.has(letter);
 
             return (
@@ -207,10 +264,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                   checked={isChecked}
                   disabled={isReadOnly}
                   onChange={() => handleToggleOption(letter)}
-                  className="mt-0.5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600"
+                  className="mt-0.5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600 cursor-pointer"
                 />
-                <span className="font-bold text-slate-600 w-4">{letter}.</span>
-                <span className="flex-1">{cleanOpt}</span>
+                <span className="font-bold text-slate-600 w-4 shrink-0">{letter}.</span>
+                <span className="flex-1 leading-relaxed">{cleanOpt || opt}</span>
               </label>
             );
           })}
@@ -238,10 +295,18 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
+  // Helper to resolve options for Matching
+  const getMatchingOptions = (q: ListeningQuestion) => {
+    if (q.options && q.options.length >= 2) return q.options;
+    if (questionGroup.optionsBox && questionGroup.optionsBox.length >= 2) return questionGroup.optionsBox;
+    if (questionGroup.options && questionGroup.options.length >= 2) return questionGroup.options;
+    return extractOptionsFromText(groupText || questionGroup.sharedContent);
+  };
+
   // Render Matching or Labelling
   const renderMatchingOrLabelling = (q: ListeningQuestion) => {
-    const userVal = answers[q.id] || '';
-    const options = questionGroup.optionsBox || questionGroup.options || q.options || [];
+    const userVal = (answers[q.id] || '').trim().toUpperCase();
+    const options = getMatchingOptions(q);
     const qNum = q.questionNumber || q.number || 1;
     const cleanPrompt = cleanListeningText(q.prompt);
 
@@ -250,26 +315,27 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         key={q.id}
         className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-white rounded-xl border border-slate-200 hover:border-slate-300 transition shadow-2xs"
       >
-        <div className="flex items-center gap-2.5 min-w-[200px]">
+        <div className="flex items-center gap-2.5 min-w-[200px] flex-1">
           <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
             {qNum}
           </span>
-          <span className="text-sm font-medium text-slate-800">{cleanPrompt}</span>
+          <span className="text-sm font-semibold text-slate-800 leading-snug">{cleanPrompt}</span>
           {renderFlagButton(q.id)}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {options.length > 0 ? (
             <select
               value={userVal}
               disabled={isReadOnly}
-              onChange={(e) => onAnswerChange(q.id, e.target.value)}
-              className="px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium"
+              onChange={(e) => onAnswerChange(q.id, e.target.value.toUpperCase())}
+              className="px-3 py-1.5 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium max-w-[280px]"
             >
               <option value="">-- Chọn đáp án --</option>
               {options.map((opt: string, idx: number) => {
-                const optLetter = opt.length <= 2 ? opt : String.fromCharCode(65 + idx);
-                const optText = cleanListeningText(opt.replace(/^[A-Za-z][\.\:\)]\s*/, ''));
+                const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+                const optLetter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + idx);
+                const optText = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
                 return (
                   <option key={idx} value={optLetter}>
                     {optLetter}. {optText || opt}
@@ -298,8 +364,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
-
-  // Render Markdown Table as a styled responsive HTML table with embedded gap badges
+  // Render Markdown Table with INTERACTIVE in-cell answer inputs (Preserves table layout and places inputs in cells)
   const renderStructuredTable = (tableMarkdown: string) => {
     const lines = tableMarkdown
       .split('\n')
@@ -308,7 +373,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
     if (lines.length < 2) return null;
 
-    const isSep = (l: string) => /^\|(?:s*:?-+:?s*\|)+$/.test(l);
+    const isSep = (l: string) => /^\|(?:\s*:?-+:?\s*\|)+$/.test(l);
     const dataLines = lines.filter((l) => !isSep(l));
     if (dataLines.length === 0) return null;
 
@@ -323,13 +388,43 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         .map((c) => c.trim())
     );
 
-    const renderCellWithBadges = (cellText: string) => {
-      // Split on badges like [1], [2], or blanks
+    const renderCellContentWithInputs = (cellText: string) => {
       const parts = cellText.split(/(\[[0-9]{1,2}\])/g);
       return parts.map((part, pIdx) => {
         const match = part.match(/^\[([0-9]{1,2})\]$/);
         if (match) {
-          const qNum = match[1];
+          const qNum = parseInt(match[1], 10);
+          const targetQ = safeQuestions.find(
+            (q) => (q.questionNumber || q.number) === qNum
+          );
+
+          if (targetQ) {
+            tableEmbeddedQuestionIds.add(targetQ.id);
+            const userVal = answers[targetQ.id] || '';
+
+            return (
+              <div key={pIdx} className="inline-flex items-center gap-1.5 my-1 flex-wrap">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 shrink-0">
+                  {qNum}
+                </span>
+                <input
+                  type="text"
+                  value={userVal}
+                  disabled={isReadOnly}
+                  placeholder={`[${qNum}]`}
+                  onChange={(e) => onAnswerChange(targetQ.id, e.target.value)}
+                  className="px-2.5 py-1 text-xs sm:text-sm bg-blue-50/80 border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[90px] max-w-[150px]"
+                />
+                {renderFlagButton(targetQ.id)}
+                {showCorrectAnswers && targetQ.correctAnswer && (
+                  <span className="text-[11px] text-emerald-700 font-bold whitespace-nowrap">
+                    [{cleanListeningText(targetQ.correctAnswer)}]
+                  </span>
+                )}
+              </div>
+            );
+          }
+
           return (
             <span
               key={pIdx}
@@ -371,7 +466,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     key={cIdx}
                     className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 leading-relaxed font-normal align-top"
                   >
-                    {renderCellWithBadges(cell)}
+                    {renderCellContentWithInputs(cell)}
                   </td>
                 ))}
               </tr>
@@ -382,61 +477,44 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
-  // Render clean separate answer row for completion questions (ONLY question number and input)
-  const renderTableCompletionAnswerRow = (q: ListeningQuestion) => {
-    const userVal = answers[q.id] || '';
-    const qNum = q.questionNumber || q.number || 1;
-
-    return (
-      <div
-        key={q.id}
-        className="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition"
-      >
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
-            {qNum}
-          </span>
-          <input
-            type="text"
-            value={userVal}
-            disabled={isReadOnly}
-            placeholder={`Nhập đáp án câu ${qNum}...`}
-            onChange={(e) => onAnswerChange(q.id, e.target.value)}
-            className="w-full max-w-md px-3.5 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {renderFlagButton(q.id)}
-          {showCorrectAnswers && q.correctAnswer && (
-            <span className="text-xs text-emerald-700 font-semibold whitespace-nowrap">
-              Đáp án: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Render Gap-fill / Form / Note / Table / Completion
+  // Render Completion / Form / Note / Sentence Questions (Full prompt preserved with inline blank)
   const renderGapFillQuestion = (q: ListeningQuestion) => {
     const userVal = answers[q.id] || '';
     const qNum = q.questionNumber || q.number || 1;
     const cleanPrompt = cleanListeningText(q.prompt);
 
-    // If part of a table or orphan fragment, render separate clean answer control without fragmented text
-    const isTableGroup = type === 'table_completion' || Boolean(questionGroup.groupText?.includes('|'));
-    const isFragment =
-      /^(?:the\b|a\b|an\b|in\b|at\b|by\b|to\b|on\b|meet at\b)/i.test(cleanPrompt) ||
-      /\bp\.?m\.?$/i.test(cleanPrompt) ||
-      cleanPrompt.length < 15 ||
-      /^Question\s+[0-9]+/i.test(cleanPrompt);
-
-    if (isTableGroup || isFragment) {
-      return renderTableCompletionAnswerRow(q);
+    // If prompt is literally just "Question 31", render simple labeled input
+    if (/^Question\s+[0-9]+$/i.test(cleanPrompt.trim())) {
+      return (
+        <div
+          key={q.id}
+          className="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition"
+        >
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
+              {qNum}
+            </span>
+            <input
+              type="text"
+              value={userVal}
+              disabled={isReadOnly}
+              placeholder={`Nhập đáp án câu ${qNum}...`}
+              onChange={(e) => onAnswerChange(q.id, e.target.value)}
+              className="w-full max-w-md px-3.5 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium"
+            />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {renderFlagButton(q.id)}
+            {showCorrectAnswers && q.correctAnswer && (
+              <span className="text-xs text-emerald-700 font-semibold whitespace-nowrap">
+                Đáp án: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      );
     }
 
-    // If prompt contains '_____', render inline completion
     const hasBlank = cleanPrompt.includes('_____');
 
     return (
@@ -464,29 +542,26 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                   {cleanPrompt.split('_____')[1]}
                 </span>
               ) : (
-                <span>{cleanPrompt}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="leading-snug">{cleanPrompt}</span>
+                  <input
+                    type="text"
+                    value={userVal}
+                    disabled={isReadOnly}
+                    placeholder={`[${qNum}]`}
+                    onChange={(e) => onAnswerChange(q.id, e.target.value)}
+                    className="px-3 py-1 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium min-w-[160px]"
+                  />
+                </div>
               )}
             </div>
           </div>
           {renderFlagButton(q.id)}
         </div>
 
-        {/* Separate answer row: ONLY Question Number and Input, without repeating sentence fragments */}
-        {!hasBlank && (
-          <div className="pl-8 pt-1 flex items-center gap-3">
-            <input
-              type="text"
-              value={userVal}
-              disabled={isReadOnly}
-              placeholder={`Nhập đáp án câu ${qNum}...`}
-              onChange={(e) => onAnswerChange(q.id, e.target.value)}
-              className="w-full max-w-sm px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium"
-            />
-            {showCorrectAnswers && q.correctAnswer && (
-              <span className="text-xs text-emerald-700 font-semibold whitespace-nowrap">
-                Đáp án: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
-              </span>
-            )}
+        {showCorrectAnswers && q.correctAnswer && (
+          <div className="pl-8 pt-1 text-xs text-emerald-700 font-semibold">
+            Đáp án: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
           </div>
         )}
       </div>
@@ -496,6 +571,18 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   const effectiveGroupContent = groupText || questionGroup.sharedContent || '';
   const isGroupMultiSelect = type === 'multiple_select';
 
+  // Filter raw option lines from displayed groupText so options are not duplicated visually
+  const getDisplayGroupText = (rawText: string) => {
+    return rawText
+      .split('\n')
+      .filter((line) => {
+        const isOptLine = /^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)/i.test(line.trim());
+        return !isOptLine;
+      })
+      .join('\n')
+      .trim();
+  };
+
   const isSingleIndependent =
     !instructions &&
     !imageUrl &&
@@ -504,6 +591,16 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     !questionGroup.audioUrl &&
     !questionGroup.optionsBox?.length &&
     safeQuestions.length === 1;
+
+  // Pre-render table if present to collect embedded questions
+  const renderedTable = effectiveGroupContent.includes('|')
+    ? renderStructuredTable(effectiveGroupContent)
+    : null;
+
+  // Filter out questions already rendered in table cells
+  const remainingQuestionsToRender = safeQuestions.filter(
+    (q) => !tableEmbeddedQuestionIds.has(q.id)
+  );
 
   return (
     <div className="space-y-4 mb-6">
@@ -528,7 +625,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             </p>
           )}
 
-          {/* Shared group audio recording (rendered ONCE for group) */}
+          {/* Shared group audio recording */}
           {questionGroup.audioUrl && (
             <div className="my-3 p-3 bg-blue-50/80 rounded-xl border border-blue-200 flex flex-col sm:flex-row items-center gap-3">
               <div className="flex items-center gap-2 text-xs font-bold text-blue-900 shrink-0">
@@ -544,7 +641,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             </div>
           )}
 
-          {/* Optional shared group diagram / image (rendered ONCE for group) */}
+          {/* Optional shared group diagram / image */}
           {imageUrl && (
             <div className="my-3 p-2 bg-white rounded-lg border border-slate-200 max-w-xl mx-auto text-center">
               <img
@@ -558,78 +655,93 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             </div>
           )}
 
-        {/* Options Box (for Matching / Labelling / Completion) formatted clearly */}
-        {((questionGroup.optionsBox && questionGroup.optionsBox.length > 0) ||
-          (questionGroup.options &&
-            questionGroup.options.length > 0 &&
-            (type === 'matching' ||
-              type === 'plan_map_diagram_labelling' ||
-              type === 'summary_completion'))) && (
-          <div className="p-3 bg-white rounded-lg border border-slate-200 my-2">
-            <span className="text-xs font-bold text-slate-700 block mb-1.5 uppercase tracking-wide">
-              Danh sách lựa chọn (Options):
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              {(questionGroup.optionsBox || questionGroup.options || []).map((opt, oIdx) => {
-                const letter = opt.length <= 2 ? opt : String.fromCharCode(65 + oIdx);
-                const text = cleanListeningText(opt.replace(/^[A-Za-z][\.\:\)]\s*/, ''));
-                return (
-                  <div
-                    key={oIdx}
-                    className="text-xs text-slate-800 flex items-start gap-1.5 p-2 bg-slate-50 rounded-lg border border-slate-200"
-                  >
-                    <span className="font-bold text-blue-700 shrink-0 w-4">{letter}.</span>
-                    <span className="flex-1">{text || opt}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+          {/* Options Box (for Matching / Labelling / Completion) formatted clearly */}
+          {(() => {
+            const displayOpts =
+              (questionGroup.optionsBox && questionGroup.optionsBox.length > 0)
+                ? questionGroup.optionsBox
+                : (questionGroup.options && questionGroup.options.length > 0)
+                ? questionGroup.options
+                : (type === 'matching' || type === 'plan_map_diagram_labelling')
+                ? extractOptionsFromText(groupText || questionGroup.sharedContent)
+                : [];
 
-        {/* Structured group text or notes / tables */}
-        {Boolean(effectiveGroupContent) && (
-          <div className="my-2">
-            {effectiveGroupContent.includes('|') ? (
-              <>
-                {effectiveGroupContent
-                  .split('\n')
-                  .filter((l: string) => !l.trim().startsWith('|'))
-                  .join(' ')
-                  .trim() && (
-                  <p className="text-xs font-semibold text-slate-800 mb-1.5">
-                    {cleanListeningText(
-                      effectiveGroupContent
-                        .split('\n')
-                        .filter((l: string) => !l.trim().startsWith('|'))
-                        .join(' ')
-                    )}
-                  </p>
-                )}
-                {renderStructuredTable(effectiveGroupContent)}
-              </>
-            ) : (
-              <div className="p-3.5 bg-white rounded-xl border border-slate-200 text-xs text-slate-800 whitespace-pre-wrap font-sans leading-relaxed shadow-2xs">
-                {cleanListeningText(effectiveGroupContent)}
+            if (displayOpts.length === 0) return null;
+
+            return (
+              <div className="p-3 bg-white rounded-lg border border-slate-200 my-2 shadow-2xs">
+                <span className="text-xs font-bold text-slate-700 block mb-1.5 uppercase tracking-wide">
+                  Danh sách lựa chọn (Options):
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {displayOpts.map((opt, oIdx) => {
+                    const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+                    const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + oIdx);
+                    const text = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
+                    return (
+                      <div
+                        key={oIdx}
+                        className="text-xs text-slate-800 flex items-start gap-1.5 p-2 bg-slate-50 rounded-lg border border-slate-200"
+                      >
+                        <span className="font-bold text-blue-700 shrink-0 w-4">{letter}.</span>
+                        <span className="flex-1 leading-relaxed">{text || opt}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            )}
-          </div>
-        )}
-      </div>
+            );
+          })()}
+
+          {/* Structured group text or notes / tables */}
+          {Boolean(effectiveGroupContent) && (
+            <div className="my-2">
+              {effectiveGroupContent.includes('|') ? (
+                <>
+                  {effectiveGroupContent
+                    .split('\n')
+                    .filter((l: string) => !l.trim().startsWith('|'))
+                    .join(' ')
+                    .trim() && (
+                    <p className="text-xs font-semibold text-slate-800 mb-1.5">
+                      {cleanListeningText(
+                        effectiveGroupContent
+                          .split('\n')
+                          .filter((l: string) => !l.trim().startsWith('|'))
+                          .join(' ')
+                      )}
+                    </p>
+                  )}
+                  {renderedTable}
+                </>
+              ) : (
+                (() => {
+                  const cleanedText = getDisplayGroupText(effectiveGroupContent);
+                  if (!cleanedText) return null;
+                  return (
+                    <div className="p-3.5 bg-white rounded-xl border border-slate-200 text-xs text-slate-800 whitespace-pre-wrap font-sans leading-relaxed shadow-2xs">
+                      {cleanListeningText(cleanedText)}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Render Questions */}
       <div className="space-y-3">
-        {safeQuestions.length === 0 ? (
+        {remainingQuestionsToRender.length === 0 && tableEmbeddedQuestionIds.size === 0 ? (
           <div className="p-4 bg-white rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-500">
             Không có câu hỏi trong phần này.
           </div>
         ) : isGroupMultiSelect ? (
           renderUnifiedMultipleSelect()
         ) : (
-          safeQuestions.map((q) => {
+          remainingQuestionsToRender.map((q, qIdx) => {
             const qType = q.type || type;
-            if (qType === 'multiple_choice') return renderMultipleChoice(q);
+            if (qType === 'multiple_choice') return renderMultipleChoice(q, qIdx);
             if (qType === 'multiple_select') return renderUnifiedMultipleSelect();
             if (qType === 'matching' || qType === 'plan_map_diagram_labelling')
               return renderMatchingOrLabelling(q);

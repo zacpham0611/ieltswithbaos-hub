@@ -780,6 +780,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             .order('created_at', { ascending: false });
 
           if (rtData) {
+            // If any test has empty sections, hydrate from regular_test_versions
+            const missingSectionsTestIds = rtData
+              .filter((t: any) => !t.sections || t.sections.length === 0)
+              .map((t: any) => t.id);
+
+            const versionSectionsMap: Record<string, any[]> = {};
+            if (missingSectionsTestIds.length > 0) {
+              try {
+                const { data: vData } = await supabase
+                  .from('regular_test_versions')
+                  .select('test_id, sections')
+                  .in('test_id', missingSectionsTestIds)
+                  .order('version_number', { ascending: false });
+
+                if (vData) {
+                  for (const v of vData) {
+                    if (!versionSectionsMap[v.test_id] && v.sections?.length) {
+                      versionSectionsMap[v.test_id] = v.sections;
+                    }
+                  }
+                }
+              } catch (vErr) {
+                console.warn('Hydrating sections from regular_test_versions warning:', vErr);
+              }
+            }
+
             setRegularTests(
               rtData.map((t: any) => ({
                 id: t.id,
@@ -805,7 +831,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 status: t.status,
                 currentVersion: t.current_version || 1,
                 releaseSettings: t.release_settings,
-                sections: t.sections || [],
+                sections: (t.sections && t.sections.length > 0) ? t.sections : (versionSectionsMap[t.id] || []),
                 createdAt: t.created_at?.split('T')[0] || '',
                 updatedAt: t.updated_at?.split('T')[0] || '',
               }))
@@ -1200,6 +1226,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               .order('created_at', { ascending: false });
 
             if (rtData) {
+              // Hydrate sections from regular_test_versions if empty
+              const missingSectionsTestIds = rtData
+                .filter((t: any) => !t.sections || t.sections.length === 0)
+                .map((t: any) => t.id);
+
+              const versionSectionsMap: Record<string, any[]> = {};
+              if (missingSectionsTestIds.length > 0) {
+                try {
+                  const { data: vData } = await supabase
+                    .from('regular_test_versions')
+                    .select('test_id, sections')
+                    .in('test_id', missingSectionsTestIds)
+                    .order('version_number', { ascending: false });
+
+                  if (vData) {
+                    for (const v of vData) {
+                      if (!versionSectionsMap[v.test_id] && v.sections?.length) {
+                        versionSectionsMap[v.test_id] = v.sections;
+                      }
+                    }
+                  }
+                } catch (vErr) {
+                  console.warn('Student hydrating sections from regular_test_versions warning:', vErr);
+                }
+              }
+
               setRegularTests(
                 rtData.map((t: any) => ({
                   id: t.id,
@@ -1225,7 +1277,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   status: t.status,
                   currentVersion: t.current_version || 1,
                   releaseSettings: t.release_settings,
-                  sections: t.sections || [],
+                  sections: (t.sections && t.sections.length > 0) ? t.sections : (versionSectionsMap[t.id] || []),
                   createdAt: t.created_at?.split('T')[0] || '',
                   updatedAt: t.updated_at?.split('T')[0] || '',
                 }))
@@ -3210,6 +3262,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const isSectionsSchemaCacheError = (err: any) => {
+    if (!err) return false;
+    const msg = (err.message || '').toLowerCase();
+    return (
+      err.code === 'PGRST204' ||
+      msg.includes("'sections' column") ||
+      msg.includes('column "sections"') ||
+      (msg.includes('sections') && msg.includes('schema cache')) ||
+      (msg.includes('sections') && msg.includes('does not exist'))
+    );
+  };
+
   const createRegularTest = async (testData: Partial<RegularTest>): Promise<RegularTest> => {
     if (!currentUser || currentUser.role !== 'teacher') {
       throw new Error('Only teachers can create regular tests');
@@ -3316,11 +3380,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let { error: insertError } = await supabase.from('regular_tests').insert(dbPayload);
 
       // Backwards-compatibility fallback if database has not executed migration 20261103000002_add_regular_tests_sections
-      if (insertError && insertError.message?.toLowerCase().includes('column "sections"')) {
-        console.warn('DB regular_tests missing sections column, falling back without sections column:', insertError.message);
+      // or if PostgREST schema cache does not have the 'sections' column
+      if (insertError && isSectionsSchemaCacheError(insertError)) {
+        console.warn('DB regular_tests missing sections column in schema cache, falling back to version snapshot persistence:', insertError.message);
         const { sections: _omitted, ...fallbackPayload } = dbPayload;
         const retryRes = await supabase.from('regular_tests').insert(fallbackPayload);
         insertError = retryRes.error;
+
+        // Persist draft sections to regular_test_versions so content is NEVER lost
+        if (!insertError && newTest.sections?.length) {
+          try {
+            await supabase.from('regular_test_versions').upsert({
+              test_id: toValidUUID(newTest.id),
+              version_number: newTest.currentVersion || 1,
+              sections: newTest.sections,
+              instructions: newTest.instructions || '',
+              config_snapshot: {
+                title: newTest.title,
+                durationMinutes: newTest.durationMinutes,
+                skills: newTest.skills,
+              },
+              created_by: toValidUUID(newTest.teacherId),
+            }, { onConflict: 'test_id,version_number' });
+          } catch (vErr) {
+            console.warn('Could not mirror draft sections to regular_test_versions:', vErr);
+          }
+        }
       }
 
       if (insertError) {
@@ -3397,11 +3482,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let { error: updateError } = await supabase.from('regular_tests').update(dbUpdates).eq('id', id);
 
       // Backwards-compatibility fallback if database has not executed migration 20261103000002_add_regular_tests_sections
-      if (updateError && updateError.message?.toLowerCase().includes('column "sections"')) {
-        console.warn('DB regular_tests missing sections column on update, retrying without sections column...');
+      // or if PostgREST schema cache does not have the 'sections' column
+      if (updateError && isSectionsSchemaCacheError(updateError)) {
+        console.warn('DB regular_tests missing sections column on update in schema cache, retrying with version snapshot persistence...');
         const { sections: _omitted, ...fallbackUpdates } = dbUpdates;
         const retryRes = await supabase.from('regular_tests').update(fallbackUpdates).eq('id', id);
         updateError = retryRes.error;
+
+        // Persist updated sections to regular_test_versions
+        if (!updateError && updates.sections?.length) {
+          try {
+            const currentV = updates.currentVersion || 1;
+            await supabase.from('regular_test_versions').upsert({
+              test_id: toValidUUID(id),
+              version_number: currentV,
+              sections: updates.sections,
+              instructions: updates.instructions || '',
+              created_by: currentUser.id,
+            }, { onConflict: 'test_id,version_number' });
+          } catch (vErr) {
+            console.warn('Could not mirror updated sections to regular_test_versions:', vErr);
+          }
+        }
       }
 
       if (updateError) {

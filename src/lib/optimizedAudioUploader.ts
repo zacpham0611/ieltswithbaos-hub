@@ -206,6 +206,24 @@ function uploadChunkXHR(
   });
 }
 
+// Extract Supabase project details from client safely without storage/v1 duplication
+export function getSupabaseEndpoints(): { baseUrl: string; storageBaseUrl: string; apiKey: string } {
+  const rawStorage = (supabase as any).storageUrl;
+  const rawSupabase = (supabase as any).supabaseUrl;
+
+  let baseUrl = '';
+  if (typeof rawSupabase === 'string' && rawSupabase) {
+    baseUrl = rawSupabase.replace(/\/+$/, '');
+  } else if (rawStorage) {
+    const s = typeof rawStorage === 'string' ? rawStorage : rawStorage.origin || rawStorage.href || '';
+    baseUrl = s.replace(/\/storage\/v1\/?$/, '').replace(/\/+$/, '');
+  }
+
+  const storageBaseUrl = baseUrl ? `${baseUrl}/storage/v1` : '';
+  const apiKey = (supabase as any).supabaseKey || '';
+  return { baseUrl, storageBaseUrl, apiKey };
+}
+
 /**
  * TUS Resumable Upload Engine (Supabase Storage open protocol)
  * Designed for large audio files (>= 6 MB) with automatic chunking and resume capability
@@ -221,9 +239,7 @@ export async function uploadViaTusResumable(
   const totalSize = fileOrBlob.size;
   const signature = getFileSignature(fileOrBlob, options.preferredFileName);
 
-  // Extract Supabase project details from client
-  const supabaseUrl = (supabase as any).storageUrl || (supabase as any).supabaseUrl || '';
-  const apiKey = (supabase as any).supabaseKey || '';
+  const { baseUrl, storageBaseUrl, apiKey } = getSupabaseEndpoints();
   let token = apiKey;
 
   // Retrieve current session token if signed in
@@ -234,7 +250,7 @@ export async function uploadViaTusResumable(
     }
   } catch {}
 
-  const tusEndpoint = `${supabaseUrl}/storage/v1/upload/resumable`;
+  const tusEndpoint = `${storageBaseUrl}/upload/resumable`;
   let uploadUrl: string | null = null;
   let currentOffset = 0;
   let isResumed = false;
@@ -298,7 +314,7 @@ export async function uploadViaTusResumable(
     }
 
     // Handle relative vs absolute Location URL
-    uploadUrl = location.startsWith('http') ? location : `${supabaseUrl}${location.startsWith('/') ? '' : '/'}${location}`;
+    uploadUrl = location.startsWith('http') ? location : `${baseUrl}${location.startsWith('/') ? '' : '/'}${location}`;
     currentOffset = 0;
 
     resumableSessionCache.set(signature, {
@@ -480,11 +496,10 @@ export async function uploadViaStandardProgress(
         throw new Error('Upload aborted by user');
       }
 
-      // If in browser with XHR and Supabase URL available:
-      const supabaseUrl = (supabase as any).storageUrl || (supabase as any).supabaseUrl || '';
-      const apiKey = (supabase as any).supabaseKey || '';
+      // If in browser with XHR and Supabase storage endpoint available:
+      const { storageBaseUrl, apiKey } = getSupabaseEndpoints();
 
-      if (typeof XMLHttpRequest !== 'undefined' && supabaseUrl && apiKey) {
+      if (typeof XMLHttpRequest !== 'undefined' && storageBaseUrl && apiKey) {
         let token = apiKey;
         try {
           const { data: sessionData } = await supabase.auth.getSession();
@@ -493,7 +508,7 @@ export async function uploadViaStandardProgress(
           }
         } catch {}
 
-        const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${filePath}`;
+        const uploadUrl = `${storageBaseUrl}/object/${bucket}/${filePath}`;
         const headers: Record<string, string> = {
           Authorization: `Bearer ${token}`,
           apikey: apiKey,
@@ -501,50 +516,70 @@ export async function uploadViaStandardProgress(
           'x-upsert': 'true',
         };
 
-        const res = await uploadChunkXHR(
-          uploadUrl,
-          fileOrBlob,
-          headers,
-          'POST',
-          (loaded, total) => {
+        try {
+          const res = await uploadChunkXHR(
+            uploadUrl,
+            fileOrBlob,
+            headers,
+            'POST',
+            (loaded, total) => {
+              onProgress?.({
+                loaded,
+                total,
+                percentage: Math.min(99, Math.round((loaded / total) * 100)),
+                status: 'uploading',
+              });
+            },
+            signal
+          );
+
+          if (res.status === 200 || res.status === 201) {
             onProgress?.({
-              loaded,
-              total,
-              percentage: Math.min(99, Math.round((loaded / total) * 100)),
-              status: 'uploading',
+              loaded: totalSize,
+              total: totalSize,
+              percentage: 99,
+              status: 'finalizing',
             });
-          },
-          signal
-        );
 
-        if (res.status === 200 || res.status === 201) {
-          onProgress?.({
-            loaded: totalSize,
-            total: totalSize,
-            percentage: 99,
-            status: 'finalizing',
-          });
+            const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
 
-          const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+            onProgress?.({
+              loaded: totalSize,
+              total: totalSize,
+              percentage: 100,
+              status: 'completed',
+            });
+            return publicUrlData.publicUrl;
+          }
 
-          onProgress?.({
-            loaded: totalSize,
-            total: totalSize,
-            percentage: 100,
-            status: 'completed',
-          });
-          return publicUrlData.publicUrl;
+          // If bucket not found, attempt auto-creation
+          if (res.status === 404 || res.responseText?.toLowerCase().includes('bucket not found')) {
+            try {
+              await supabase.storage.createBucket(bucket, { public: true, fileSizeLimit: 50 * 1024 * 1024 });
+              continue;
+            } catch {}
+          }
+
+          // For permanent client errors (400, 401, 403, 413, 415), do not spin in retry loops
+          if (res.status === 401 || res.status === 403) {
+            throw new Error(`Lỗi phân quyền Supabase Storage (${res.status}): Người dùng chưa được cấp quyền tải lên bucket "${bucket}".`);
+          }
+          if (res.status === 413) {
+            throw new Error(`Tệp âm thanh vượt quá giới hạn dung lượng lưu trữ của bucket "${bucket}".`);
+          }
+          if (res.status === 415) {
+            throw new Error(`Định dạng âm thanh "${contentType}" không được hỗ trợ trong bucket "${bucket}".`);
+          }
+
+          // Try SDK fallback before failing
+          console.warn(`XHR upload returned status ${res.status}, falling back to Supabase SDK upload:`, res.responseText);
+        } catch (xhrErr: any) {
+          // If permanent permission or size error, rethrow immediately
+          if (xhrErr.message?.includes('401') || xhrErr.message?.includes('403') || xhrErr.message?.includes('413') || xhrErr.message?.includes('415')) {
+            throw xhrErr;
+          }
+          console.warn('XHR upload attempt error, falling back to Supabase SDK upload:', xhrErr.message);
         }
-
-        // If bucket not found, attempt auto-creation
-        if (res.status === 404 || res.responseText?.toLowerCase().includes('bucket not found')) {
-          try {
-            await supabase.storage.createBucket(bucket, { public: true, fileSizeLimit: 50 * 1024 * 1024 });
-            continue;
-          } catch {}
-        }
-
-        throw new Error(`Storage upload failed with status ${res.status}: ${res.responseText}`);
       }
 
       // Default SDK upload fallback

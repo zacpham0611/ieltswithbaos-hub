@@ -227,6 +227,15 @@ function processListeningPart(
       
       const groupOpts = currentGroupOptions.length > 0 ? [...currentGroupOptions] : undefined;
 
+      // Assign matching/shared options to questions if missing
+      if (groupOpts) {
+        currentGroupQuestions.forEach((q) => {
+          if ((q.type === 'matching' || currentType === 'matching') && (!q.options || q.options.length === 0)) {
+            q.options = [...groupOpts];
+          }
+        });
+      }
+
       questionGroups.push({
         id: currentGroupId,
         part: partNumber as any,
@@ -236,6 +245,7 @@ function processListeningPart(
         instructions: currentInstructions,
         wordLimit: currentWordLimit,
         options: groupOpts,
+        optionsBox: groupOpts,
         questions: [...currentGroupQuestions],
         groupText: currentGroupText.trim() || undefined,
       });
@@ -298,8 +308,8 @@ function processListeningPart(
       continue;
     }
 
-    // Check for Shared Options for matching or multiple choice: "A They gave higher marks."
-    const sharedOptMatch = line.match(/^([A-G])[\.\)\:\s\-]\s+(.*)$/i);
+    // Check for Shared Options for matching or multiple choice: "A They gave higher marks." or "• A They gave higher marks."
+    const sharedOptMatch = line.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
     if (sharedOptMatch && !line.includes('|') && !isBlankPattern.test(line)) {
       currentGroupOptions.push(`${sharedOptMatch[1].toUpperCase()}. ${sharedOptMatch[2].trim()}`);
       continue;
@@ -314,8 +324,12 @@ function processListeningPart(
         const opts: string[] = [];
         let j = i + 1;
         while (j < lines.length) {
-          const optL = lines[j];
-          const om = optL.match(/^([A-G])[\.\)\:\s\-]\s*(.*)$/i);
+          const optL = lines[j].trim();
+          if (!optL) {
+            j++;
+            continue;
+          }
+          const om = optL.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s*)(.*)$/i);
           if (om) {
             opts.push(`${om[1].toUpperCase()}. ${om[2].trim()}`);
             j++;
@@ -326,6 +340,10 @@ function processListeningPart(
           }
         }
         i = j - 1;
+
+        if (opts.length > 0) {
+          currentGroupOptions = [...opts];
+        }
 
         for (let k = 0; k < count; k++) {
           const qNum = startN + k;
@@ -362,7 +380,7 @@ function processListeningPart(
           j++;
           continue;
         }
-        const optMatch = optLine.match(/^([A-E])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
+        const optMatch = optLine.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
         if (optMatch) {
           options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
           j++;
