@@ -128,7 +128,6 @@ export const ResourcesView: React.FC = () => {
   const [resType, setResType] = useState<ResourceType>('pdf');
   const [resUrl, setResUrl] = useState('');
   const [resContent, setResContent] = useState('');
-  const [resTags, setResTags] = useState('cambridge, reading');
   const [resSkill, setResSkill] = useState<CourseSkill>('reading');
   const [resFolder, setResFolder] = useState('Reading Practice');
   const [resCourseId, setResCourseId] = useState<string>('');
@@ -172,7 +171,7 @@ export const ResourcesView: React.FC = () => {
   const filteredResources = nonArchivedResources.filter((r) => {
     const matchesSearch =
       r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+      Boolean(r.folder && r.folder.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesSkill = skillFilter === 'all' || r.skill === skillFilter;
     const matchesFolder = folderFilter === 'all' || r.folder === folderFilter;
     return matchesSearch && matchesSkill && matchesFolder;
@@ -365,7 +364,7 @@ export const ResourcesView: React.FC = () => {
       type: resType,
       url: resUrl || undefined,
       content: resContent || undefined,
-      tags: resTags.split(',').map((s) => s.trim()).filter(Boolean),
+      tags: [],
       skill: resSkill,
       folder: currentFolder ? currentFolder.name : (resFolder.trim() || undefined),
       folderId: currentFolderId || null,
@@ -888,7 +887,6 @@ export const ResourcesView: React.FC = () => {
                         )}
                         <th className="py-3 px-4">{t('resources.tableTitle')}</th>
                         <th className="py-3 px-4">Kỹ năng & Thư mục</th>
-                        <th className="py-3 px-4">{t('resources.tableTags')}</th>
                         <th className="py-3 px-4">{t('resources.tableVisibility')}</th>
                         <th className="py-3 px-4 text-right">{t('common.actions')}</th>
                       </tr>
@@ -896,18 +894,17 @@ export const ResourcesView: React.FC = () => {
                     <tbody className="divide-y divide-slate-100">
                       {materialsInCurrentFolder.length === 0 ? (
                         <tr>
-                          <td colSpan={isTeacher ? 6 : 5} className="py-8 text-center text-slate-400">
+                          <td colSpan={isTeacher ? 5 : 4} className="py-8 text-center text-slate-400">
                             Chưa có tài liệu nào trong thư mục này.
                           </td>
                         </tr>
                       ) : (
                         materialsInCurrentFolder.map((res) => {
                           const isAiReadingTest =
-                            res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+                            res.folder === 'AI Reading Tests' || (res.type as any) === 'ai-test';
                           const isReadingResource =
                             res.skill === 'reading' ||
-                            res.tags.includes('reading') ||
-                            (res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
+                            Boolean(res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
                           const isSelectedForMerge = selectedPassageIdsForMerge.includes(res.id);
 
                           return (
@@ -966,24 +963,6 @@ export const ResourcesView: React.FC = () => {
                                     {res.skill}
                                   </span>
                                 )}
-                              </td>
-
-                              <td className="py-3 px-4">
-                                <div className="flex flex-wrap gap-1">
-                                  {(() => {
-                                    const redundantTagRegex = /^(?:smart-import|reading|full-test|merged-test|academic|interactive-test|test\s*\d+|practice\s*test\s*\d+|converted-docx|original-source)$/i;
-                                    const visibleTags = (res.tags || []).filter((tg) => !redundantTagRegex.test(tg.trim()));
-                                    if (visibleTags.length === 0) return <span className="text-slate-400 text-xs">-</span>;
-                                    return visibleTags.map((tg) => (
-                                      <span
-                                        key={tg}
-                                        className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
-                                      >
-                                        #{tg}
-                                      </span>
-                                    ));
-                                  })()}
-                                </div>
                               </td>
 
                               <td className="py-3 px-4">
@@ -1098,7 +1077,6 @@ export const ResourcesView: React.FC = () => {
                     )}
                     <th className="py-3 px-4">{t('resources.tableTitle')}</th>
                     <th className="py-3 px-4">{t('resources.tableFolderSkill')}</th>
-                    <th className="py-3 px-4">{t('resources.tableTags')}</th>
                     <th className="py-3 px-4">{t('resources.tableVisibility')}</th>
                     <th className="py-3 px-4 text-right">{t('common.actions')}</th>
                   </tr>
@@ -1106,18 +1084,17 @@ export const ResourcesView: React.FC = () => {
                 <tbody className="divide-y divide-slate-100">
                   {filteredResources.length === 0 ? (
                     <tr>
-                      <td colSpan={isTeacher ? 6 : 5} className="py-8 text-center text-slate-400">
+                      <td colSpan={isTeacher ? 5 : 4} className="py-8 text-center text-slate-400">
                         {t('resources.noResources')}
                       </td>
                     </tr>
                   ) : (
                     filteredResources.map((res) => {
                       const isAiReadingTest =
-                        res.folder === 'AI Reading Tests' || res.tags.includes('ai-generated');
+                        res.folder === 'AI Reading Tests' || (res.type as any) === 'ai-test';
                       const isReadingResource =
                         res.skill === 'reading' ||
-                        res.tags.includes('reading') ||
-                        (res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
+                        Boolean(res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
                       const isSelectedForMerge = selectedPassageIdsForMerge.includes(res.id);
 
                       return (
@@ -1176,24 +1153,6 @@ export const ResourcesView: React.FC = () => {
                                 {res.skill}
                               </span>
                             )}
-                          </td>
-
-                          <td className="py-3 px-4">
-                            <div className="flex flex-wrap gap-1">
-                              {(() => {
-                                const redundantTagRegex = /^(?:smart-import|reading|full-test|merged-test|academic|interactive-test|test\s*\d+|practice\s*test\s*\d+|converted-docx|original-source)$/i;
-                                const visibleTags = (res.tags || []).filter((tg) => !redundantTagRegex.test(tg.trim()));
-                                if (visibleTags.length === 0) return <span className="text-slate-400 text-xs">-</span>;
-                                return visibleTags.map((tg) => (
-                                  <span
-                                    key={tg}
-                                    className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
-                                  >
-                                    #{tg}
-                                  </span>
-                                ));
-                              })()}
-                            </div>
                           </td>
 
                           <td className="py-3 px-4">
@@ -1447,17 +1406,6 @@ export const ResourcesView: React.FC = () => {
                     placeholder="e.g. Reading Practice, Vocabulary Sheets"
                     value={resFolder}
                     onChange={(e) => setResFolder(e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">{t('resources.resourceTags')}</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. academic, task2, band7"
-                    value={resTags}
-                    onChange={(e) => setResTags(e.target.value)}
                     className="w-full p-2 border border-slate-300 rounded-lg outline-hidden"
                   />
                 </div>

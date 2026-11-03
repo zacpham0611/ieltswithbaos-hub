@@ -692,7 +692,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 url: r.url,
                 audioUrl: r.audio_url || parsedContent?.audioUrl,
                 content: r.content,
-                tags: r.tags || [],
+                tags: [],
                 skill: r.skill,
                 folder: r.folder,
                 folderId: r.folder_id || parsedContent?.folderId || null,
@@ -1721,7 +1721,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       type: resourceData.type,
       url: resourceData.url || null,
       content: contentToSave,
-      tags: resourceData.tags,
+      tags: [],
       skill: resourceData.skill,
       folder: resourceData.folder || null,
       is_published: resourceData.isPublished,
@@ -1740,7 +1740,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       type: resourceData.type,
       url: resourceData.url,
       content: contentToSave || undefined,
-      tags: resourceData.tags,
+      tags: [],
       skill: resourceData.skill,
       folder: resourceData.folder,
       folderId: resourceData.folderId || null,
@@ -1760,7 +1760,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updates.title !== undefined) payload.title = updates.title;
     if (updates.type !== undefined) payload.type = updates.type;
     if (updates.url !== undefined) payload.url = updates.url;
-    if (updates.tags !== undefined) payload.tags = updates.tags;
+    if (updates.tags !== undefined) payload.tags = [];
     if (updates.skill !== undefined) payload.skill = updates.skill;
     if (updates.folder !== undefined) payload.folder = updates.folder;
     if (updates.isPublished !== undefined) payload.is_published = updates.isPublished;

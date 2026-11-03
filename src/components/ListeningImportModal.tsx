@@ -211,7 +211,7 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
         folder: targetFolderName !== undefined ? (targetFolderName || undefined) : (targetFolder.trim() || undefined),
         folderId: targetFolderId || null,
         courseId: targetCourseId || null,
-        tags: ['listening', 'imported', audioMode === 'single' ? 'full-audio' : 'per-part-audio'],
+        tags: [],
         isPublished: true,
       });
 

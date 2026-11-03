@@ -324,7 +324,7 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
           folder: targetFolderName !== undefined ? (targetFolderName || undefined) : (targetFolder.trim() || undefined),
           folderId: targetFolderId || null,
           courseId: targetCourseId || null,
-          tags: ['writing', 'task1', task1ChartType, 'imported'].filter(Boolean),
+          tags: [],
           isPublished: true,
         });
         savedCount++;
@@ -364,7 +364,7 @@ export const WritingImportModal: React.FC<WritingImportModalProps> = ({
           folder: targetFolderName !== undefined ? (targetFolderName || undefined) : (targetFolder.trim() || undefined),
           folderId: targetFolderId || null,
           courseId: targetCourseId || null,
-          tags: ['writing', 'task2', 'essay', 'imported'].filter(Boolean),
+          tags: [],
           isPublished: true,
         });
         savedCount++;

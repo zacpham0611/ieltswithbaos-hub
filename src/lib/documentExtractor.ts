@@ -95,6 +95,112 @@ export function validateDocumentFile(file: File): { valid: boolean; error?: stri
 }
 
 /**
+ * Normalizes common OCR artifacts, split words/syllables, character substitutions,
+ * and misplaced spaces around hyphens while preserving authentic punctuation,
+ * capitalization, and quotation marks.
+ */
+export function normalizeOcrText(text: string): string {
+  if (!text) return '';
+
+  let normalized = text;
+
+  // 1. Correct split words and syllables:
+  // e.g. "Y ou" -> "You", "y ou" -> "you"
+  normalized = normalized.replace(/\b([Yy])\s+ou\b/g, '$1ou');
+  normalized = normalized.replace(/\b([Tt])\s+he\b/g, '$1he');
+  normalized = normalized.replace(/\b([Tt])\s+o\b/g, '$1o');
+  normalized = normalized.replace(/\b([Ii])\s+n\b/g, '$1n');
+  normalized = normalized.replace(/\b([Ii])\s+t\b/g, '$1t');
+  normalized = normalized.replace(/\b([Oo])\s+n\b/g, '$1n');
+  normalized = normalized.replace(/\b([Oo])\s+f\b/g, '$1f');
+  normalized = normalized.replace(/\b([Aa])\s+t\b/g, '$1t');
+  normalized = normalized.replace(/\b([Aa])\s+s\b/g, '$1s');
+  normalized = normalized.replace(/\b([Ii])\s+s\b/g, '$1s');
+
+  // Common reading text syllables split by OCR:
+  // "river be nds" -> "river bends"
+  normalized = normalized.replace(/\b([Bb]e)\s+(nds|nding)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Cc]o)\s+(ntrol)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Ff]lo)\s+(od|ods|oding)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Ff]loo)\s+(ds?)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Dd]am)\s+(ages?)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Ee]ngi)\s+(neers?)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Dd]e)\s+(fences?|fenses?)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Ss]ol)\s+(utions?)\b/g, '$1$2');
+  normalized = normalized.replace(/\b([Aa]ppro)\s+(aches?)\b/g, '$1$2');
+
+  // 2. Correct character substitutions:
+  // "shouId" -> "should", "wouId" -> "would", "couId" -> "could" (capital I instead of lowercase l)
+  normalized = normalized.replace(/\b([Ss]h|[Ww]|[Cc])ouId\b/g, '$1ould');
+  normalized = normalized.replace(/\b([Ss]h|[Ww]|[Cc])ouIdn\'t\b/g, "$1ouldn't");
+  normalized = normalized.replace(/\b([Dd]ifficu)It\b/g, '$1lt');
+  normalized = normalized.replace(/\b([Ff]o)II(ow[a-z]*)\b/g, '$1ll$2');
+  normalized = normalized.replace(/\b([Ee]xamp)Ie\b/g, '$1le');
+
+  // 3. Correct misplaced spaces around hyphens:
+  // "rhinoceros - sized" -> "rhinoceros-sized"
+  // "re - engineered" -> "re-engineered"
+  normalized = normalized.replace(/\b([a-zA-Z]{2,})\s+-\s+([a-zA-Z]{2,})\b/g, '$1-$2');
+  normalized = normalized.replace(/\b([a-zA-Z]{2,})-\s+([a-zA-Z]{2,})\b/g, '$1-$2');
+  normalized = normalized.replace(/\b([a-zA-Z]{2,})\s+-([a-zA-Z]{2,})\b/g, '$1-$2');
+
+  return normalized;
+}
+
+/**
+ * Contextual and structural validation for IELTS Reading passage titles.
+ * Accepts authentic titles including those with punctuation (… , ' , ‘...’ , ? , -).
+ * Rejects false positives, generic headers, timing instructions, fragments, and page references.
+ */
+export function isValidPassageTitle(candidate: string): boolean {
+  if (!candidate) return false;
+  const trimmed = candidate.trim();
+  if (trimmed.length < 3 || trimmed.length > 120) return false;
+
+  // Reject generic headers & labels like "Passage 2", "Reading Passage 10", "Section 1", "Test 1"
+  if (/^(?:reading\s+)?passage\s+\d+[\s\.\:\-]*$/i.test(trimmed)) return false;
+  if (/^(?:section|part|test|practice\s+test)\s+\d+[\s\.\:\-]*$/i.test(trimmed)) return false;
+
+  // Reject page references & cross-reference fragments:
+  // e.g. "Passage 3 on pages 12 and 13", "Passage 2 on pages 6 and 7", "10 and 11", "6 and 7", "pages 12 and 13"
+  if (/^(?:(?:reading\s+)?passage\s+\d+\s+)?(?:on|in|from)\s+pages?\s+\d+.*$/i.test(trimmed)) return false;
+  if (/^(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?\.?$/i.test(trimmed)) return false;
+  if (/^\d+\s+and\s+\d+\.?$/i.test(trimmed)) return false;
+  if (/^and\s+\d+\.?$/i.test(trimmed)) return false;
+
+  // Reject in-sentence tail phrases:
+  if (/^(?:which\s+are\s+based\s+on|based\s+on|refer\s+to|in\s+reading\s+passage)/i.test(trimmed)) return false;
+
+  // Reject single-word prepositional/directional fragments:
+  if (/^(?:below|above|between|from|refer|based|which|underneath|following|answers?|answer\s+keys?)\.?$/i.test(trimmed)) {
+    return false;
+  }
+
+  // Reject timing notes and test instructions (normalized and unnormalized OCR variants):
+  if (
+    /(?:spend\s+about\s+\d+\s+minutes|you\s+should\s+spend|y\s*ou\s+shou[li]d\s+spend|questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend)/i.test(
+      trimmed
+    )
+  ) {
+    return false;
+  }
+
+  // Reject standalone question instructions or options:
+  if (
+    /^(?:questions?|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi|read\s+the|in\s+boxes|true|false|not\s+given)/i.test(
+      trimmed
+    )
+  ) {
+    return false;
+  }
+
+  // Reject standalone paragraph letters: "A", "Paragraph A", "A.", etc.
+  if (/^(?:paragraph\s+|section\s+)?[A-Z][\.\:\)]?$/i.test(trimmed)) return false;
+
+  return true;
+}
+
+/**
  * Extracts lines from PDF text items respecting multi-column layouts
  */
 export function extractLinesFromPdfItems(items: any[]): string {
@@ -231,7 +337,7 @@ export async function extractPdfText(file: File): Promise<{ text: string; pageCo
     const isScanned = pageCount > 0 && totalChars < 40;
 
     return {
-      text: fullText.trim(),
+      text: normalizeOcrText(fullText.trim()),
       pageCount,
       isScanned,
     };
@@ -277,7 +383,7 @@ export async function extractDocxText(file: File): Promise<{ text: string; html:
     ]);
 
     return {
-      text: rawResult.value.trim(),
+      text: normalizeOcrText(rawResult.value.trim()),
       html: htmlResult.value,
     };
   } catch (err: any) {
@@ -290,7 +396,8 @@ export async function extractDocxText(file: File): Promise<{ text: string; html:
  */
 export async function extractPlainText(file: File): Promise<string> {
   try {
-    return await file.text();
+    const text = await file.text();
+    return normalizeOcrText(text);
   } catch (err: any) {
     throw new Error(`Text reading failed: ${err.message || 'Unknown error'}`);
   }
@@ -1069,7 +1176,7 @@ function extractPassageHtml(
 }
 
 export function parseDocumentStructure(rawText: string, fallbackName: string, htmlContent?: string): DocumentStructure {
-  const cleanRaw = rawText
+  const cleanRaw = normalizeOcrText(rawText)
     .replace(/\r\n/g, '\n')
     .replace(/\[\-\-\- Page \d+ \-\-\-\]/g, '')
     .replace(/\[page \d+\]/gi, '');
@@ -1488,13 +1595,57 @@ export function formatPassageParagraphs(
   const effectiveLines = (rawLines && rawLines.length > 0) ? rawLines : lines;
   if (effectiveLines.length === 0) return { formattedText: '', detectedParagraphLabels: [], labeledParagraphs: [] };
 
-  const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-K])[\.\:\)]?$/i;
-  const inlineLabelRegex =
-    /^(?:(?:paragraph|section)\s+([A-K])[\.\:\)]?|\[([A-K])\]|\(([A-K])\)|([A-K])(?:[\.\:\)]|\t|\s{2,}))\s*(.*)$/i;
+  // Preprocess lines: normalize OCR text and split embedded paragraph labels
+  // where a previous sentence ended without a newline:
+  // e.g. "flood defences across Europe. B Engineers are now working..."
+  // e.g. "development. [C] In addition..."
+  const preProcessedLines: string[] = [];
+  for (const rawLine of effectiveLines) {
+    const normalized = normalizeOcrText(rawLine);
+    // Split on embedded paragraph labels following a sentence end
+    const splitBoundary = normalized.replace(
+      /([.?!'"])\s+(?:\[([A-Z])\]|\(([A-Z])\)|([B-HJ-Z])[\.\:\)]?|(?:paragraph|section)\s+([A-Z])[\.\:\)]?)\s+([A-Z0-9].*)/g,
+      (match, p1, b1, b2, b3, b4, rest) => {
+        const letter = b1 || b2 || b3 || b4;
+        return `${p1}\n\n${letter}\n${rest}`;
+      }
+    );
+    const subLines = splitBoundary.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (subLines.length > 0) {
+      preProcessedLines.push(...subLines);
+    }
+  }
+
+  const linesToProcess = preProcessedLines.length > 0 ? preProcessedLines : effectiveLines;
+
+  const standaloneLabelRegex = /^(?:paragraph\s+|section\s+)?([A-Z])[\.\:\)]?$/i;
+
+  // First, check whether subsequent labels (B, C, D...) exist to disambiguate 'A' from the English article 'A'
+  let hasLaterLetterLabels = false;
+  for (const line of linesToProcess) {
+    const tr = line.trim();
+    if (!tr) continue;
+    if (standaloneLabelRegex.test(tr) && tr.length <= 15) {
+      const match = tr.match(standaloneLabelRegex);
+      if (match && match[1].toUpperCase() !== 'A' && match[1].toUpperCase() !== 'I') {
+        hasLaterLetterLabels = true;
+        break;
+      }
+    } else if (
+      /^(?:(?:paragraph|section)\s+([B-HJ-Z])[\.\:\)]?|\[([B-HJ-Z])\]|\(([B-HJ-Z])\)|([B-HJ-Z])(?:[\.\:\)]|\t|\s+))\s*([A-Z0-9].*)$/i.test(tr)
+    ) {
+      hasLaterLetterLabels = true;
+      break;
+    }
+  }
+
+  const inlineLabelRegex = hasLaterLetterLabels
+    ? /^(?:(?:paragraph|section)\s+([A-Z])[\.\:\)]?|\[([A-Z])\]|\(([A-Z])\)|([A-Z])(?:[\.\:\)]|\t|\s+))\s*(.*)$/i
+    : /^(?:(?:paragraph|section)\s+([A-Z])[\.\:\)]?|\[([A-Z])\]|\(([A-Z])\)|([A-Z])(?:[\.\:\)]|\t|\s{2,}))\s*(.*)$/i;
 
   // Check if explicit labels exist (e.g. A, B, C...)
   let explicitLabelCount = 0;
-  for (const line of effectiveLines) {
+  for (const line of linesToProcess) {
     const tr = line.trim();
     if (!tr) continue;
     if (standaloneLabelRegex.test(tr) && tr.length <= 15) explicitLabelCount++;
@@ -1513,8 +1664,8 @@ export function formatPassageParagraphs(
     let currentBlock: ParaBlock = { lines: [] };
     const detectedLabels = new Set<string>();
 
-    for (let i = 0; i < effectiveLines.length; i++) {
-      const rawLine = effectiveLines[i].trim();
+    for (let i = 0; i < linesToProcess.length; i++) {
+      const rawLine = linesToProcess[i].trim();
       if (!rawLine) continue;
       if (/^(?:\[\-\-\- Page \d+ \-\-\-\]|(?:T\s*e\s*s\s*t|Practice\s+Test)\s*\d+[\s\.\:\-]*)$/i.test(rawLine)) continue;
 
@@ -1530,7 +1681,7 @@ export function formatPassageParagraphs(
         continue;
       }
 
-      // Check inline label (e.g. "A. In the early 19th century..." or "A\tBamboo...")
+      // Check inline label (e.g. "A. In the early 19th century..." or "A\tBamboo..." or "A Recently...")
       const inlineMatch = rawLine.match(inlineLabelRegex);
       if (inlineMatch) {
         const letter = (inlineMatch[1] || inlineMatch[2] || inlineMatch[3] || inlineMatch[4]).toUpperCase();
@@ -1656,7 +1807,7 @@ function parseSinglePassage(
   // Filter out running page markers and headers like "Test 1", "Test 2", "[--- Page \d+ ---]"
   const pLines = passageChunk
     .split('\n')
-    .map((l) => l.trim())
+    .map((l) => normalizeOcrText(l.trim()))
     .filter((l) => {
       if (!l) return false;
       if (/^(?:\[\-\-\- Page \d+ \-\-\-\]|(?:T\s*e\s*s\s*t|Practice\s+Test)\s*\d+[\s\.\:\-]*)$/i.test(l)) return false;
@@ -1691,39 +1842,54 @@ function parseSinglePassage(
       if (explicitHeaderMatch && explicitHeaderMatch[1]) {
         let candidate = explicitHeaderMatch[1].trim();
         candidate = candidate.replace(/^(?:TEST|PRACTICE\s+TEST)\s+\d+[\s\:\-\–]+/i, '').trim();
-        if (!/^(?:you\s+should\s+spend|questions?\s+\d+|based\s+on|on\s+pages?)/i.test(candidate)) {
+        if (isValidPassageTitle(candidate)) {
           explicitTitle = candidate;
         }
       }
     }
 
     // Skip timing or meta notes like "Questions 1–13 – You should spend about 20 minutes on questions 1–13..."
-    // and multi-line wrapped instruction lines like "Passage 2 on pages 6 and 7."
-    while (
-      nextIdx < pLines.length &&
-      (/^(?:questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend|you\s+should\s+spend|which\s+are\s+based\s+on|based\s+on|(?:(?:reading\s+)?passage\s+\d+\s+)?(?:on\s+)?pages?\s+\d+(?:\s+and\s+\d+)?\.?$|and\s+\d+\.?$|(?:on\s+)?pages?\s+\d+)/i.test(
-        pLines[nextIdx]
-      ))
-    ) {
-      nextIdx++;
+    // and multi-line wrapped instruction lines or fragmented page numbers like "10 and 11" or "below"
+    while (nextIdx < pLines.length && !isValidPassageTitle(pLines[nextIdx])) {
+      const line = pLines[nextIdx];
+      const isTimingNote = /^(?:questions?\s+\d+[\s\-\–to]+\d+.*you\s+should\s+spend|you\s+should\s+spend|y\s*ou\s+shou[li]d\s+spend|spend\s+about)/i.test(
+        line
+      );
+      const isFragmentOrPageRef =
+        /^(?:(?:reading\s+)?passage\s+\d+\s+)?(?:on|in|from)\s+pages?\s+\d+|^(?:on\s+)?pages?\s+\d+|^\d+\s+and\s+\d+\.?$|^and\s+\d+\.?$|^below\.?$|^which\s+are\s+based\s+on|^based\s+on/i.test(
+          line
+        );
+      if (isTimingNote || isFragmentOrPageRef) {
+        nextIdx++;
+      } else {
+        break;
+      }
     }
 
     if (explicitTitle) {
       passageTitle = explicitTitle;
       contentStartIndex = nextIdx;
-    } else if (
-      nextIdx < pLines.length &&
-      pLines[nextIdx].length < 120 &&
-      !/^(?:questions?|\d+[\.\:\)]|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi|read\s+the|you\s+should|in\s+boxes)/i.test(pLines[nextIdx])
-    ) {
+    } else if (nextIdx < pLines.length && isValidPassageTitle(pLines[nextIdx])) {
       passageTitle = pLines[nextIdx];
       contentStartIndex = nextIdx + 1;
     } else {
       contentStartIndex = nextIdx;
     }
-  } else if (pLines[0].length < 120 && !/^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+)/i.test(pLines[0])) {
-    passageTitle = pLines[0];
-    contentStartIndex = 1;
+  } else {
+    // Check line 0 or early lines for a valid title
+    let foundTitle = false;
+    for (let idx = 0; idx < Math.min(3, pLines.length); idx++) {
+      if (isValidPassageTitle(pLines[idx])) {
+        passageTitle = pLines[idx];
+        contentStartIndex = idx + 1;
+        foundTitle = true;
+        break;
+      }
+    }
+    if (!foundTitle) {
+      passageTitle = `Passage ${passageIndex}`;
+      contentStartIndex = 0;
+    }
   }
 
   // Clean passageTitle if contaminated by trailing punctuation, page numbers, instructions, or Test [X] labels
@@ -1731,27 +1897,23 @@ function parseSinglePassage(
     .replace(/^(?:TEST|PRACTICE\s+TEST)\s+\d+[\s\:\-\–]+/i, '')
     .replace(/\s+(?:TEST|PRACTICE\s+TEST)\s+\d+$/i, '')
     .replace(/^[\:\-\–\.\s]+/, '')
-    .replace(/[\:\-\–\.\s]+$/, '')
     .trim();
-  if (
-    /^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+|reading\s+passage\s+\d+\s+on\s+pages?|and\s+\d+)/i.test(passageTitle) ||
-    passageTitle.length < 3
-  ) {
+
+  if (!isValidPassageTitle(passageTitle)) {
     passageTitle = `Passage ${passageIndex}`;
   }
 
   // Fallback if passageTitle became "Passage X" but actual title is at contentStartIndex:
   if (
-    (/^passage\s+\d+$/i.test(passageTitle) || /^(?:which\s+are\s+based\s+on|based\s+on|on\s+pages?|pages?\s+\d+)/i.test(passageTitle)) &&
+    passageTitle === `Passage ${passageIndex}` &&
     contentStartIndex < pLines.length &&
-    pLines[contentStartIndex].length < 120 &&
-    !/^(?:questions?|\d+[\.\:\)]|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi|read\s+the|you\s+should|in\s+boxes|true|false|not\s+given)/i.test(pLines[contentStartIndex])
+    isValidPassageTitle(pLines[contentStartIndex])
   ) {
     let candidate = pLines[contentStartIndex]
       .replace(/^(?:TEST|PRACTICE\s+TEST)\s+\d+[\s\:\-\–]+/i, '')
       .replace(/\s+(?:TEST|PRACTICE\s+TEST)\s+\d+$/i, '')
       .trim();
-    if (candidate.length >= 3) {
+    if (isValidPassageTitle(candidate)) {
       passageTitle = candidate;
       contentStartIndex++;
     }

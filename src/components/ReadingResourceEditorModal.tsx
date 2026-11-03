@@ -67,7 +67,6 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
 
   const [resTitle, setResTitle] = useState('');
   const [targetFolderId, setTargetFolderId] = useState<string | null>(null);
-  const [resTags, setResTags] = useState('');
   const [passages, setPassages] = useState<EditablePassage[]>([]);
 
   const [isDirty, setIsDirty] = useState(false);
@@ -78,7 +77,6 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
     if (isOpen && resource) {
       setResTitle(resource.title || '');
       setTargetFolderId(resource.folderId || null);
-      setResTags((resource.tags || []).join(', '));
       setIsDirty(false);
       setErrorMessage(null);
       setActivePassageIdx(0);
@@ -301,17 +299,12 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
         },
       };
 
-      const tagsArray = resTags
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
       // Save directly back to the SAME Resource ID in-place
       await updateResource(resource.id, {
         title: resTitle.trim(),
         folder: targetFolder ? targetFolder.name : undefined,
         folderId: targetFolderId || null,
-        tags: tagsArray.length > 0 ? tagsArray : resource.tags,
+        tags: [],
         content: JSON.stringify(updatedPayload),
       });
 
@@ -749,22 +742,6 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Tags (phân cách bằng dấu phẩy):
-                  </label>
-                  <input
-                    type="text"
-                    value={resTags}
-                    onChange={(e) => {
-                      setIsDirty(true);
-                      setResTags(e.target.value);
-                    }}
-                    placeholder="ví dụ: cambridge, mock test, reading"
-                    className="w-full p-2.5 border border-slate-300 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500 outline-hidden"
-                  />
                 </div>
               </div>
             )}

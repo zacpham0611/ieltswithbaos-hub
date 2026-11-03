@@ -491,13 +491,7 @@ export const AiReadingTestGeneratorModal: React.FC<AiReadingTestGeneratorModalPr
         skill: 'reading',
         folder: 'AI Reading Tests',
         content: testJson,
-        tags: [
-          'ielts',
-          'reading',
-          'ai-generated',
-          `diff-${generatedTest.difficultyLevel}`,
-          `${totalQ}-questions`,
-        ],
+        tags: [],
         isPublished: false, // Never auto-published
         courseId: null, // Saved to global library
       });

@@ -242,7 +242,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           skill: 'speaking',
           folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Speaking',
           folderId: targetFolderId || null,
-          tags: ['speaking', 'part1', 'smart-import'],
+          tags: [],
           content: JSON.stringify({
             part: 'part1',
             topics: editedSpeakingPart1.topics,
@@ -261,7 +261,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           skill: 'speaking',
           folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Speaking',
           folderId: targetFolderId || null,
-          tags: ['speaking', 'part2', 'smart-import'],
+          tags: [],
           content: JSON.stringify({
             part: 'part2',
             cueCards: editedSpeakingPart2.cueCards,
@@ -280,7 +280,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           skill: 'speaking',
           folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Speaking',
           folderId: targetFolderId || null,
-          tags: ['speaking', 'part3', 'smart-import'],
+          tags: [],
           content: JSON.stringify({
             part: 'part3',
             questions: editedSpeakingPart3.questions,
