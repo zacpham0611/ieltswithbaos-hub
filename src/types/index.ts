@@ -180,6 +180,7 @@ export interface ReadingQuestion {
   /** Reference to shared resources if belonging to a shared resource set */
   sharedResourceId?: string;
   correctAnswer: string;
+  acceptedAlternatives?: string[];
   explanation: string;
   points?: number;
   source?: 'extracted_from_doc' | 'ai_generated' | 'answer_key_extracted' | 'source_extracted' | string;

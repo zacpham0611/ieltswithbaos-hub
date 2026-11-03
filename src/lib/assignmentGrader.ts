@@ -558,7 +558,10 @@ export function gradeSingleQuestion(
   const normUserWithoutHyphens = normUser.replace(/-/g, ' ');
   const strippedUserWithoutHyphens = strippedUser.replace(/-/g, ' ');
 
-  const rawAlternatives = key.split(/\s*(?:\/|\bor\b)\s*/i);
+  const rawAlternatives = [
+    ...key.split(/\s*(?:\/|\bor\b|\|)\s*/i),
+    ...(Array.isArray((q as any).acceptedAlternatives) ? (q as any).acceptedAlternatives : []),
+  ];
   const alternatives = rawAlternatives
     .map((alt) => normalizeAnswerText(alt))
     .filter(Boolean);

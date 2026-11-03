@@ -22,6 +22,7 @@ import { processDocumentFile } from '../lib/documentExtractor';
 import { parseListeningDocument } from '../lib/listeningExtractor';
 import { uploadMediaFile } from '../lib/mediaStorage';
 import type { AudioUploadProgress } from '../lib/optimizedAudioUploader';
+import { ListeningQuestionEditor } from './listening/ListeningQuestionEditor';
 import { Portal } from './Portal';
 import type { ListeningTestContent, ListeningPart, ListeningQuestion } from '../types/index.ts';
 
@@ -609,103 +610,19 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
                 )}
               </div>
 
-              {/* SECTION TABS & QUESTIONS PREVIEW */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                  <div className="flex items-center space-x-2">
-                    {content.parts.map((p, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setActivePartIndex(idx)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                          activePartIndex === idx
-                            ? 'bg-purple-600 text-white shadow-xs'
-                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        Section {p.partNumber} ({p.questions.length} câu)
-                      </button>
-                    ))}
-                  </div>
-
-                  <span className="text-xs text-slate-500 font-semibold">
-                    Tổng cộng: {content.parts.reduce((sum, p) => sum + p.questions.length, 0)} câu hỏi
-                  </span>
-                </div>
-
-                {activePart && (
-                  <div className="space-y-4 bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-bold text-slate-900">
-                        {activePart.title}
-                      </h4>
-                      <span className="text-xs text-purple-700 font-semibold bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">
-                        {activePart.questions.length} câu hỏi trích xuất
-                      </span>
-                    </div>
-
-                    {/* Question Groups */}
-                    {activePart.questionGroups && activePart.questionGroups.length > 0 && (
-                      <div className="space-y-2">
-                        {activePart.questionGroups.map((grp, gIdx) => (
-                          <div key={gIdx} className="p-3 bg-purple-50/40 rounded-xl border border-purple-200 text-xs">
-                            <span className="font-bold text-purple-900 block mb-1">
-                              Nhóm {gIdx + 1} ({grp.type || 'Question Group'}):
-                            </span>
-                            <p className="text-slate-700 italic">{grp.instructions || 'Nghe và trả lời các câu hỏi.'}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Questions List */}
-                    <div className="space-y-3">
-                      {activePart.questions.map((q, qIdx) => (
-                        <div key={q.id || qIdx} className="p-3.5 bg-slate-50/60 rounded-xl border border-slate-200 space-y-2 text-xs">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1 flex-1">
-                              <span className="font-bold text-purple-800 mr-2">
-                                Câu {q.questionNumber || qIdx + 1}:
-                              </span>
-                              <span className="text-slate-900 font-medium">
-                                {q.prompt || '(Điền từ thích hợp vào chỗ trống)'}
-                              </span>
-                            </div>
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-200 text-slate-700 shrink-0">
-                              {q.type}
-                            </span>
-                          </div>
-
-                          {/* Options if MCQ */}
-                          {q.options && q.options.length > 0 && (
-                            <div className="pl-4 grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px] text-slate-600">
-                              {q.options.map((opt, oIdx) => (
-                                <div key={oIdx} className="flex items-center space-x-1.5">
-                                  <span className="font-bold text-slate-700">{String.fromCharCode(65 + oIdx)}.</span>
-                                  <span>{typeof opt === 'string' ? opt : (opt as any)?.text || JSON.stringify(opt)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Correct Answer Input */}
-                          <div className="flex items-center space-x-2 pt-1">
-                            <span className="text-[11px] font-bold text-emerald-800">Đáp án đúng (Answer Key):</span>
-                            <input
-                              type="text"
-                              value={q.correctAnswer || ''}
-                              onChange={(e) => handleUpdateQuestionAnswer(activePartIndex, qIdx, e.target.value)}
-                              placeholder="Nhập đáp án..."
-                              className="px-2 py-1 rounded border border-emerald-300 font-mono font-bold text-emerald-900 bg-white text-xs w-48 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* Question-Type-Specific Interactive Editor & Review */}
+              <ListeningQuestionEditor
+                parts={content.parts}
+                activePartIndex={activePartIndex}
+                onActivePartIndexChange={setActivePartIndex}
+                onChange={(updatedParts) => {
+                  setContent({
+                    ...content,
+                    parts: updatedParts,
+                    totalQuestions: updatedParts.reduce((sum, p) => sum + (p.questions?.length || 0), 0),
+                  });
+                }}
+              />
             </div>
           )}
         </div>

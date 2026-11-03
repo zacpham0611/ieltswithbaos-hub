@@ -351,10 +351,32 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
           </div>
         )}
 
-        {/* Optional structured group text (e.g. form layout, note outlines, table) */}
-        {groupText && (
+        {/* Optional group options box (e.g. for Matching / Summary Completion / Labelling: Options A-G) */}
+        {((questionGroup.optionsBox && questionGroup.optionsBox.length > 0) ||
+          (questionGroup.options && questionGroup.options.length > 0 && (type === 'matching' || type === 'plan_map_diagram_labelling' || type === 'summary_completion'))) && (
+          <div className="p-3 bg-white rounded-lg border border-slate-200 my-2">
+            <span className="text-xs font-bold text-slate-700 block mb-1.5 uppercase tracking-wide">
+              Danh sách lựa chọn (Options):
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {(questionGroup.optionsBox || questionGroup.options || []).map((opt, oIdx) => {
+                const letter = opt.length <= 2 ? opt : String.fromCharCode(65 + oIdx);
+                const text = opt.replace(/^[A-Za-z][\.\:\)]\s*/, '');
+                return (
+                  <div key={oIdx} className="text-xs text-slate-800 flex items-start gap-1.5 p-1.5 bg-slate-50 rounded border border-slate-100">
+                    <span className="font-bold text-blue-700 shrink-0">{letter}.</span>
+                    <span>{text || opt}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Optional structured group text or shared content (e.g. form layout, note outlines, table) */}
+        {(groupText || questionGroup.sharedContent) && (
           <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed my-2">
-            {groupText}
+            {groupText || questionGroup.sharedContent}
           </div>
         )}
       </div>
