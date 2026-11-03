@@ -24,6 +24,7 @@ import {
   getSpeakingResourceDetails as getSharedSpeakingResourceDetails,
 } from '../../utils/speakingLinkage';
 import { LibraryFolderBrowser } from '../../components/LibraryFolderBrowser';
+import { BulkAudioUploadModal } from '../../components/BulkAudioUploadModal';
 import {
   ShieldCheck,
   Plus,
@@ -116,6 +117,7 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [formSections, setFormSections] = useState<RegularTestSection[]>([]);
   const [savingTest, setSavingTest] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [bulkAudioTargetTest, setBulkAudioTargetTest] = useState<RegularTest | null>(null);
 
   // Sub-Modals for Section Creation & Preview
   const [showListeningPicker, setShowListeningPicker] = useState<boolean>(false);
@@ -275,6 +277,25 @@ export const TeacherRegularTestsView: React.FC = () => {
     setShowCreatorModal(true);
   };
 
+  const handleAssignBulkAudio = async (assignments: Array<{ sectionId: string; audioUrl: string }>) => {
+    if (!bulkAudioTargetTest) return;
+    const updatedSections = (bulkAudioTargetTest.sections || []).map((sec) => {
+      const match = assignments.find((a) => a.sectionId === sec.id);
+      if (match) {
+        return {
+          ...sec,
+          audioUrl: match.audioUrl,
+          listeningAudioUrl: match.audioUrl,
+        };
+      }
+      return sec;
+    });
+    await updateRegularTest(bulkAudioTargetTest.id, {
+      sections: updatedSections,
+    });
+    setBulkAudioTargetTest((prev) => (prev ? { ...prev, sections: updatedSections } : null));
+  };
+
   const handleSaveTest = async () => {
     if (!formTitle.trim()) {
       setFormError('Vui lòng nhập tiêu đề bài kiểm tra (Test title is required)');
@@ -285,7 +306,7 @@ export const TeacherRegularTestsView: React.FC = () => {
       return;
     }
     if (formSections.length === 0) {
-      setFormError('Vui lòng thêm ít nhất một phần thi (Reading, Writing hoặc Speaking)');
+      setFormError('Vui lòng thêm ít nhất một phần thi (Listening, Reading, Writing hoặc Speaking)');
       return;
     }
 

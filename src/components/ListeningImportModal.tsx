@@ -107,7 +107,7 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
       setRawText(doc.rawText);
       setProcessStatus('Đang phân tích Sections, câu hỏi và đáp án...');
 
-      const parsed = parseListeningDocument(doc.rawText, file.name);
+      const parsed = parseListeningDocument(doc.rawText, file.name, doc.htmlContent);
       setContent(parsed);
       setTargetTitle(parsed.title || file.name.replace(/\.[^/.]+$/, ''));
       setActivePartIndex(0);

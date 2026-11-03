@@ -1,13 +1,15 @@
 import { supabase, isSupabaseConfigured } from './supabase.ts';
 
 export type AudioUploadStatus =
+  | 'pending'
   | 'queued'
   | 'uploading'
   | 'processing'
   | 'finalizing'
   | 'completed'
   | 'failed'
-  | 'retrying';
+  | 'retrying'
+  | 'cancelled';
 
 export interface AudioUploadProgress {
   loaded: number;
@@ -461,13 +463,6 @@ export async function uploadViaStandardProgress(
   const { onProgress, signal, maxRetries = 3 } = options;
   const totalSize = fileOrBlob.size;
 
-  onProgress?.({
-    loaded: 0,
-    total: totalSize,
-    percentage: 0,
-    status: 'uploading',
-  });
-
   let attempt = 0;
   let lastError: Error | null = null;
 
@@ -475,6 +470,13 @@ export async function uploadViaStandardProgress(
     attempt++;
     try {
       if (signal?.aborted) {
+        onProgress?.({
+          loaded: totalSize,
+          total: totalSize,
+          percentage: 100,
+          status: 'cancelled',
+          error: 'Tải lên đã bị hủy bởi người dùng',
+        });
         throw new Error('Upload aborted by user');
       }
 
@@ -519,7 +521,7 @@ export async function uploadViaStandardProgress(
           onProgress?.({
             loaded: totalSize,
             total: totalSize,
-            percentage: 100,
+            percentage: 99,
             status: 'finalizing',
           });
 
@@ -565,7 +567,7 @@ export async function uploadViaStandardProgress(
         onProgress?.({
           loaded: totalSize,
           total: totalSize,
-          percentage: 100,
+          percentage: 99,
           status: 'finalizing',
         });
         const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
@@ -581,6 +583,16 @@ export async function uploadViaStandardProgress(
       throw new Error(uploadRes.error.message);
     } catch (err: any) {
       lastError = err;
+      if (signal?.aborted) {
+        onProgress?.({
+          loaded: totalSize,
+          total: totalSize,
+          percentage: 100,
+          status: 'cancelled',
+          error: 'Tải lên đã bị hủy bởi người dùng',
+        });
+        throw err;
+      }
       if (attempt >= maxRetries) {
         break;
       }
@@ -620,10 +632,28 @@ export async function uploadAudioOptimized(
   const size = fileOrBlob.size || 0;
   const signature = getFileSignature(fileOrBlob, effectiveFileName);
 
+  // Monotonic progress tracker - prevents 99% -> 1% jumps and backwards progress regressions
+  let highestPercentage = 0;
+  let highestLoaded = 0;
+  const safeProgress = (p: AudioUploadProgress) => {
+    highestPercentage = Math.max(highestPercentage, p.percentage);
+    highestLoaded = Math.max(highestLoaded, p.loaded);
+    onProgress?.({
+      ...p,
+      loaded: highestLoaded,
+      percentage: highestPercentage,
+    });
+  };
+
+  const safeOptions: AudioUploadOptions = {
+    ...options,
+    onProgress: safeProgress,
+  };
+
   // 1. Check if identical file was already successfully uploaded (instant 0ms cache hit)
   if (completedUploadsCache.has(signature)) {
     const cachedUrl = completedUploadsCache.get(signature)!;
-    onProgress?.({
+    safeProgress({
       loaded: size,
       total: size,
       percentage: 100,
@@ -654,7 +684,7 @@ export async function uploadAudioOptimized(
 
     // Local / unconfigured fallback
     if (!isSupabaseConfigured) {
-      onProgress?.({
+      safeProgress({
         loaded: Math.round(size * 0.5),
         total: size,
         percentage: 50,
@@ -669,7 +699,7 @@ export async function uploadAudioOptimized(
         localUrl = await blobToBase64(fileOrBlob);
       }
 
-      onProgress?.({
+      safeProgress({
         loaded: size,
         total: size,
         percentage: 100,
@@ -700,13 +730,13 @@ export async function uploadAudioOptimized(
         const isLargeFile = size >= 6 * 1024 * 1024;
         if (isLargeFile && enableTus) {
           try {
-            finalUrl = await uploadViaTusResumable(fileOrBlob, bucket, filePath, mimeType, options);
+            finalUrl = await uploadViaTusResumable(fileOrBlob, bucket, filePath, mimeType, safeOptions);
           } catch (tusErr) {
             console.warn('TUS resumable upload notice, falling back to standard upload:', tusErr);
-            finalUrl = await uploadViaStandardProgress(fileOrBlob, bucket, filePath, mimeType, options);
+            finalUrl = await uploadViaStandardProgress(fileOrBlob, bucket, filePath, mimeType, safeOptions);
           }
         } else {
-          finalUrl = await uploadViaStandardProgress(fileOrBlob, bucket, filePath, mimeType, options);
+          finalUrl = await uploadViaStandardProgress(fileOrBlob, bucket, filePath, mimeType, safeOptions);
         }
 
         // Cache verified bucket and completed file URL

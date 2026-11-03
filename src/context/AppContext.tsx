@@ -3217,6 +3217,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const isUUID = (str?: string) =>
       Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+
+    // Fallback deterministic UUID converter for mock IDs (e.g. 'course-1', 'teacher-1')
+    const toValidUUID = (str?: string): string => {
+      if (isUUID(str)) return str!;
+      let hash = 0;
+      const s = str || 'default-id';
+      for (let i = 0; i < s.length; i++) {
+        hash = ((hash << 5) - hash) + s.charCodeAt(i);
+        hash |= 0;
+      }
+      const hex = Math.abs(hash).toString(16).padStart(8, '0');
+      return `${hex.slice(0, 8)}-0000-4000-8000-${hex.padEnd(12, '0').slice(0, 12)}`;
+    };
+
     const testId = isUUID(testData.id) ? testData.id! : generateUUID();
     const preset = testData.strictPreset || 'standard';
     const strictSettings = testData.strictSettings || getStrictSettingsForPreset(preset);
@@ -3260,10 +3274,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     try {
-      const { error: insertError } = await supabase.from('regular_tests').insert({
+      // Ensure valid UUIDs for PostgreSQL schema constraints and RLS alignment
+      let effectiveTeacherId = isUUID(currentUser.id) ? currentUser.id : toValidUUID(currentUser.id);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id) {
+          effectiveTeacherId = sessionData.session.user.id;
+        }
+      } catch {}
+
+      const effectiveCourseId = isUUID(newTest.courseId) ? newTest.courseId : toValidUUID(newTest.courseId);
+      const effectiveStudentIds = (newTest.eligibleStudentIds || [])
+        .map((id) => (isUUID(id) ? id : toValidUUID(id)))
+        .filter(isUUID);
+
+      const dbPayload: any = {
         id: newTest.id,
-        course_id: newTest.courseId,
-        teacher_id: newTest.teacherId,
+        course_id: effectiveCourseId,
+        teacher_id: effectiveTeacherId,
         title: newTest.title,
         instructions: newTest.instructions,
         skills: newTest.skills,
@@ -3273,7 +3301,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         duration_minutes: newTest.durationMinutes,
         timing_mode: newTest.timingMode,
         section_timers: newTest.sectionTimers,
-        eligible_student_ids: newTest.eligibleStudentIds,
+        eligible_student_ids: effectiveStudentIds,
         max_attempts: newTest.maxAttempts,
         access_code_enabled: newTest.accessCodeEnabled,
         access_code_hash: newTest.accessCodeHash,
@@ -3283,7 +3311,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         current_version: newTest.currentVersion,
         release_settings: newTest.releaseSettings,
         sections: newTest.sections,
-      });
+      };
+
+      let { error: insertError } = await supabase.from('regular_tests').insert(dbPayload);
+
+      // Backwards-compatibility fallback if database has not executed migration 20261103000002_add_regular_tests_sections
+      if (insertError && insertError.message?.toLowerCase().includes('column "sections"')) {
+        console.warn('DB regular_tests missing sections column, falling back without sections column:', insertError.message);
+        const { sections: _omitted, ...fallbackPayload } = dbPayload;
+        const retryRes = await supabase.from('regular_tests').insert(fallbackPayload);
+        insertError = retryRes.error;
+      }
 
       if (insertError) {
         console.error('Failed to create regular test in database:', insertError);
@@ -3314,10 +3352,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     try {
+      const isUUID = (str?: string) =>
+        Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+      const toValidUUID = (str?: string): string => {
+        if (isUUID(str)) return str!;
+        let hash = 0;
+        const s = str || 'default-id';
+        for (let i = 0; i < s.length; i++) {
+          hash = ((hash << 5) - hash) + s.charCodeAt(i);
+          hash |= 0;
+        }
+        const hex = Math.abs(hash).toString(16).padStart(8, '0');
+        return `${hex.slice(0, 8)}-0000-4000-8000-${hex.padEnd(12, '0').slice(0, 12)}`;
+      };
+
       const dbUpdates: any = { updated_at: new Date().toISOString() };
       if (updates.title !== undefined) dbUpdates.title = updates.title;
       if (updates.instructions !== undefined) dbUpdates.instructions = updates.instructions;
-      if (updates.courseId !== undefined) dbUpdates.course_id = updates.courseId;
+      if (updates.courseId !== undefined) {
+        dbUpdates.course_id = isUUID(updates.courseId) ? updates.courseId : toValidUUID(updates.courseId);
+      }
       if (updates.skills !== undefined) dbUpdates.skills = updates.skills;
       if (updates.availabilityStart !== undefined) dbUpdates.availability_start = updates.availabilityStart || null;
       if (updates.availabilityEnd !== undefined) dbUpdates.availability_end = updates.availabilityEnd || null;
@@ -3325,7 +3379,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (updates.durationMinutes !== undefined) dbUpdates.duration_minutes = updates.durationMinutes;
       if (updates.timingMode !== undefined) dbUpdates.timing_mode = updates.timingMode;
       if (updates.sectionTimers !== undefined) dbUpdates.section_timers = updates.sectionTimers;
-      if (updates.eligibleStudentIds !== undefined) dbUpdates.eligible_student_ids = updates.eligibleStudentIds;
+      if (updates.eligibleStudentIds !== undefined) {
+        dbUpdates.eligible_student_ids = updates.eligibleStudentIds
+          .map((sid) => (isUUID(sid) ? sid : toValidUUID(sid)))
+          .filter(isUUID);
+      }
       if (updates.maxAttempts !== undefined) dbUpdates.max_attempts = updates.maxAttempts;
       if (updates.accessCodeEnabled !== undefined) dbUpdates.access_code_enabled = updates.accessCodeEnabled;
       if (updatedHash !== undefined) dbUpdates.access_code_hash = updatedHash;
@@ -3336,7 +3394,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (updates.releaseSettings !== undefined) dbUpdates.release_settings = updates.releaseSettings;
       if (updates.sections !== undefined) dbUpdates.sections = updates.sections;
 
-      const { error: updateError } = await supabase.from('regular_tests').update(dbUpdates).eq('id', id);
+      let { error: updateError } = await supabase.from('regular_tests').update(dbUpdates).eq('id', id);
+
+      // Backwards-compatibility fallback if database has not executed migration 20261103000002_add_regular_tests_sections
+      if (updateError && updateError.message?.toLowerCase().includes('column "sections"')) {
+        console.warn('DB regular_tests missing sections column on update, retrying without sections column...');
+        const { sections: _omitted, ...fallbackUpdates } = dbUpdates;
+        const retryRes = await supabase.from('regular_tests').update(fallbackUpdates).eq('id', id);
+        updateError = retryRes.error;
+      }
+
       if (updateError) {
         console.error('Failed to update regular test in database:', updateError);
         throw new Error(`Không thể cập nhật bài kiểm tra trong cơ sở dữ liệu: ${updateError.message}`);

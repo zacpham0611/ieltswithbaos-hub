@@ -268,6 +268,7 @@ export interface ListeningQuestionGroup {
   questionType?: QuestionType;
   sharedContent?: string;
   groupText?: string;
+  audioUrl?: string;
   imageUrl?: string;
   imageCaption?: string;
   wordLimit?: string;

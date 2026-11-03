@@ -218,6 +218,31 @@ export function normalizeOptions(rawOptions: any): string[] | undefined {
 /**
  * Safely resolves the display prompt from divergent field names (prompt, questionText, text, etc.)
  */
+/**
+ * Strips raw HTML entities, escaped characters, SVG artifacts, and accidental metadata headers from reading text
+ */
+export function cleanReadingText(text?: string): string {
+  if (!text) return '';
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    .replace(/svgFlag/gi, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Strip accidental Vietnamese/English question-type metadata labels mistakenly prepended to prompt
+    .replace(/\*\*(?:dạng\s+câu\s+hỏi|question\s+type|notes\s+with\s+blanks)[:\s]*[^\*]*\*\*/gi, '')
+    .replace(/^(?:dạng\s+câu\s+hỏi|question\s+type|notes\s+with\s+blanks)[:\s]*[^\n]*\n?/gi, '')
+    .trim();
+}
+
+/**
+ * Resolves the primary prompt string for a reading question from various possible field names.
+ * Cleans internal artifacts, unescapes entities, and removes redundant duplicate question number headers.
+ */
 export function resolveQuestionPrompt(raw: any, fallbackIndex?: number): string {
   if (!raw) return `Question ${fallbackIndex ?? 1}`;
 
@@ -235,10 +260,21 @@ export function resolveQuestionPrompt(raw: any, fallbackIndex?: number): string 
 
   for (const cand of candidates) {
     if (typeof cand === 'string' && cand.trim().length > 0) {
-      let cleaned = cand.trim();
+      let cleaned = cleanReadingText(cand.trim());
+
+      // Strip redundant leading "**Question 32**" or "Question 32:" when rendered inside question cards
+      if (fallbackIndex !== undefined) {
+        const redundantPrefixRegex = new RegExp(
+          `^(?:\\*\\*(?:Question|Câu)\\s*${fallbackIndex}[:\\.]?\\*\\*|(?:Question|Câu)\\s*${fallbackIndex}[:\\.]?)\\s*`,
+          'i'
+        );
+        cleaned = cleaned.replace(redundantPrefixRegex, '').trim();
+      }
+      cleaned = cleaned.replace(/^\*\*(?:Question|Câu)\s*\d+[:\.]?\*\*\s*/i, '').trim();
+
       // Format numbered blanks like "33 ........" to "(33) ........"
       cleaned = cleaned.replace(/(?:^|\s)(?!\()(\d+)\s*([\.]{3,}|_{3,})/g, ' ($1) $2');
-      return cleaned.trim();
+      return cleaned.trim() || `Question ${fallbackIndex ?? 1}`;
     }
   }
 
@@ -770,7 +806,7 @@ export function buildQuestionRenderGroups(
  * Each question's prompt is a sentence with blanks (e.g. "The ... 33 ............. is rising.").
  * This collapses them into a single continuous text with [N] blank markers.
  * If prompts are distinct sentences, they are joined with spaces.
- * If a question's prompt is already the full text (with inline blank), it's used as-is.
+ * Deduplicates overlapping sentences or identical multi-sentence prompt blocks to prevent repetition.
  */
 export function buildCompletionGroupText(
   questions: Array<{ q: ReadingQuestion; idx: number }>
@@ -778,11 +814,11 @@ export function buildCompletionGroupText(
   if (questions.length === 0) return '';
 
   // Check if all questions share the same prompt (e.g. the entire summary was stored in each question)
-  const firstPrompt = (questions[0].q.prompt || '').trim();
+  const firstPrompt = cleanReadingText(questions[0].q.prompt || '').trim();
   const allSharePrompt =
     questions.length > 1 &&
     firstPrompt.length > 50 &&
-    questions.every(({ q }) => (q.prompt || '').trim() === firstPrompt);
+    questions.every(({ q }) => cleanReadingText(q.prompt || '').trim() === firstPrompt);
 
   if (allSharePrompt) {
     return firstPrompt.replace(
@@ -791,12 +827,23 @@ export function buildCompletionGroupText(
     );
   }
 
-  // Otherwise, process each prompt individually
-  const prompts = questions.map(({ q, idx }) => {
-    let rawPrompt = (q.prompt || '').trim();
+  // Otherwise, process each prompt individually, guarding against duplicated paragraphs / sentences
+  const seenNormPrompts: string[] = [];
+  const prompts: string[] = [];
+
+  for (const { q, idx } of questions) {
+    let rawPrompt = cleanReadingText(q.prompt || '').trim();
     const qNum = idx + 1;
 
-    // First replace explicit numbered blanks like "33 ............" or "33 _____"
+    // Normalize whitespace for duplicate detection
+    const normalizedPrompt = rawPrompt.replace(/\s+/g, ' ');
+
+    // Check if rawPrompt is already identical to an existing prompt or completely subsumed by it
+    if (seenNormPrompts.some((sp) => sp === normalizedPrompt || (sp.length > 50 && sp.includes(normalizedPrompt)))) {
+      continue;
+    }
+
+    // Format numbered blanks like "33 ............" or "33 _____"
     let formatted = rawPrompt.replace(
       /(?:^|\s)(\d{1,2})\s*(?:[\.]{3,}|[_]{3,}|…{1,})/g,
       (_, num) => ` [${num}]`
@@ -814,8 +861,18 @@ export function buildCompletionGroupText(
       }
     }
 
-    return formatted;
-  });
+    // Check if this prompt subsumes previously added shorter prompts
+    const subsumedIdx = seenNormPrompts.findIndex(
+      (sp) => normalizedPrompt.length > 50 && normalizedPrompt.includes(sp)
+    );
+    if (subsumedIdx !== -1) {
+      seenNormPrompts[subsumedIdx] = normalizedPrompt;
+      prompts[subsumedIdx] = formatted;
+    } else {
+      seenNormPrompts.push(normalizedPrompt);
+      prompts.push(formatted);
+    }
+  }
 
   const isBulletOrList =
     questions.some(({ q }) => /^[•\-\*\d+\.]\s+/m.test((q.prompt || '').trim())) ||

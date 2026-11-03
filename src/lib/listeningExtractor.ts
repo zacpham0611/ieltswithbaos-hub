@@ -27,11 +27,83 @@ export function cleanListeningText(text?: string): string {
 /**
  * Extracts questions, groups, and parts from raw listening test text (PDF / DOCX transcript / test papers).
  */
+
+/**
+ * Converts HTML table elements into standard Markdown tables with preserved column structure
+ * and formatted gap markers [1], [2], etc.
+ */
+export function convertHtmlTablesToMarkdown(html: string): string {
+  if (!html) return html;
+  return html.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_match, tableBody) => {
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rMatch: RegExpExecArray | null;
+    const rows: string[][] = [];
+
+    while ((rMatch = rowRegex.exec(tableBody)) !== null) {
+      const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      let cMatch: RegExpExecArray | null;
+      const cells: string[] = [];
+
+      while ((cMatch = cellRegex.exec(rMatch[1])) !== null) {
+        let cellText = cMatch[1]
+          .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}/gi, '[$1]')
+          .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>/gi, '$1')
+          .replace(/\b([0-9]{1,2})\s*[\u2026\.]{2,}/g, '[$1]')
+          .replace(/\b([0-9]{1,2})\s*_{2,}/g, '[$1]')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/\s+/g, ' ')
+          .trim();
+        cells.push(cellText);
+      }
+      if (cells.some((c) => c.length > 0)) {
+        rows.push(cells);
+      }
+    }
+
+    if (rows.length === 0) return '';
+    const maxCols = Math.max(...rows.map((r) => r.length));
+    const normalizedRows = rows.map((r) => {
+      while (r.length < maxCols) r.push('');
+      return '| ' + r.join(' | ') + ' |';
+    });
+    const headerSep = '| ' + Array(maxCols).fill('---').join(' | ') + ' |';
+    normalizedRows.splice(1, 0, headerSep);
+    return '\n\n' + normalizedRows.join('\n') + '\n\n';
+  });
+}
+
+/**
+ * Transforms DOCX HTML output into clean text with structured Markdown tables
+ */
+export function htmlToListeningText(html: string): string {
+  let text = convertHtmlTablesToMarkdown(html);
+  text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n• $1\n');
+  text = text.replace(/<\/p>/gi, '\n\n');
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  text = text.replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n\n$1\n\n');
+  text = text.replace(/<[^>]+>/g, '');
+  text = text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"');
+  return text;
+}
+
 export function parseListeningDocument(
   rawText: string,
-  fileName: string = 'IELTS Listening Practice'
+  fileName: string = 'IELTS Listening Practice',
+  htmlContent?: string
 ): ListeningTestContent {
-  const cleanText = (rawText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const sourceText = htmlContent && htmlContent.includes('<table') ? htmlToListeningText(htmlContent) : (rawText || '');
+  const cleanText = sourceText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
   const allLines = cleanText.split('\n').map((l) => l.trim());
 
   // Extract detected answer keys if an ANSWER KEY section exists
@@ -132,8 +204,8 @@ function processListeningPart(
   const questionGroups: ListeningQuestionGroup[] = [];
   const allQuestions: ListeningQuestion[] = [];
 
-  // Group boundary regex: "Questions 1-5", "Questions 6 - 10", etc.
-  const groupRangeRegex = /^(?:Questions?)\s+([0-9]{1,2})\s*[-–—to]+\s*([0-9]{1,2})\.?\s*(.*)$/i;
+  // Group boundary regex: "Questions 1-5", "Questions 11 and 12", "Questions 6 - 10", etc.
+  const groupRangeRegex = /^(?:Questions?)\s+([0-9]{1,2})\s*(?:[-–—to]+|\band\b|\&)\s*([0-9]{1,2})[\.\:\)]?\s*(.*)$/i;
   // Word limit regex: "Write NO MORE THAN TWO WORDS..."
   const wordLimitRegex = /(?:(?:Write\s+)?(?:NO MORE THAN\s+(?:ONE|TWO|THREE|FOUR|[1-4])\s+WORDS?|ONE\s+WORD\s+ONLY)(?:\s+AND\/OR\s+A\s+NUMBER)?)/i;
 
@@ -329,7 +401,12 @@ function processListeningPart(
 
     // Check for Table Rows: lines with |
     if (line.includes('|')) {
-      currentGroupText += (currentGroupText ? '\n' : '') + line;
+      // Clean blank markers in table cells so the table displays visual badges [1], [2], etc.
+      const formattedTableLine = line.replace(
+        /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g,
+        '[$1$2]'
+      );
+      currentGroupText += (currentGroupText ? '\n' : '') + formattedTableLine;
 
       // Table matching row: | 25 male students marking female presenters | |
       const matchRow = line.match(/^\|\s*([0-9]{1,2})\s+([^|]+)\|/);
@@ -349,23 +426,19 @@ function processListeningPart(
         continue;
       }
 
-      // Table completion cells with blanks: e.g. | the 1 ………… | or | 31 ………… languages |
-      const cellMatches = Array.from(line.matchAll(/\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/g));
+      // Table completion cells with blanks: e.g. | the 1 ………… | or | [1] | or | 31 ………… languages |
+      const cellMatches = Array.from(line.matchAll(/(?:\[([0-9]{1,2})\]|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g));
       if (cellMatches.length > 0) {
         currentType = 'table_completion';
         for (const cm of cellMatches) {
-          const qNum = parseInt(cm[1], 10);
-          const cells = line.split('|').map((c) => c.trim()).filter(Boolean);
-          const matchedCell = cells.find((c) => c.includes(cm[0])) || line;
-          const prompt = matchedCell.replace(cm[0], '_____').trim();
-
+          const qNum = parseInt(cm[1] || cm[2], 10);
           currentGroupQuestions.push({
             id: `q_p${partNumber}_${qNum}`,
             number: qNum,
             questionNumber: qNum,
             part: partNumber as any,
             type: 'table_completion',
-            prompt: prompt.includes('_____') ? prompt : `Question ${qNum}: _____`,
+            prompt: `Question ${qNum}`,
             maxWords: parseWordCount(currentWordLimit),
             allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
           });
@@ -473,34 +546,59 @@ function inferQuestionTypeFromPart(partNumber: number): ListeningQuestionType {
 
 function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestionType {
   const lower = instruction.toLowerCase();
-  if (lower.includes('choose two') || lower.includes('choose 2') || lower.includes('choose three')) {
+  if (
+    lower.includes('choose two') ||
+    lower.includes('choose 2') ||
+    lower.includes('choose three') ||
+    lower.includes('choose 3') ||
+    lower.includes('choose four') ||
+    lower.includes('two letters') ||
+    lower.includes('three letters') ||
+    lower.includes('four letters') ||
+    lower.includes('chọn hai') ||
+    lower.includes('chọn ba') ||
+    lower.includes('chọn 2') ||
+    lower.includes('chọn 3') ||
+    lower.includes('multiple select')
+  ) {
     return 'multiple_select';
   }
-  if (lower.includes('choose the correct letter') || lower.includes('multiple choice')) {
+  if (
+    lower.includes('choose the correct letter') ||
+    lower.includes('multiple choice') ||
+    lower.includes('chọn đáp án đúng')
+  ) {
     return 'multiple_choice';
   }
-  if (lower.includes('map') || lower.includes('plan') || lower.includes('diagram') || lower.includes('label')) {
+  if (
+    lower.includes('map') ||
+    lower.includes('plan') ||
+    lower.includes('diagram') ||
+    lower.includes('label') ||
+    lower.includes('sơ đồ') ||
+    lower.includes('bản đồ')
+  ) {
     return 'plan_map_diagram_labelling';
   }
-  if (lower.includes('flow-chart') || lower.includes('flowchart')) {
+  if (lower.includes('flow-chart') || lower.includes('flowchart') || lower.includes('lưu đồ')) {
     return 'flowchart_completion';
   }
-  if (lower.includes('table')) {
+  if (lower.includes('table') || lower.includes('bảng')) {
     return 'table_completion';
   }
-  if (lower.includes('form')) {
+  if (lower.includes('form') || lower.includes('biểu mẫu') || lower.includes('đơn vị')) {
     return 'form_completion';
   }
-  if (lower.includes('summary')) {
+  if (lower.includes('summary') || lower.includes('tóm tắt')) {
     return 'summary_completion';
   }
-  if (lower.includes('matching') || lower.includes('match')) {
+  if (lower.includes('matching') || lower.includes('match') || lower.includes('nối')) {
     return 'matching';
   }
-  if (lower.includes('sentence')) {
+  if (lower.includes('sentence') || lower.includes('câu')) {
     return 'sentence_completion';
   }
-  if (lower.includes('short answer')) {
+  if (lower.includes('short answer') || lower.includes('câu hỏi ngắn')) {
     return 'short_answer';
   }
   return 'note_completion';

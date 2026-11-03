@@ -1,4 +1,5 @@
 import type { ReadingQuestion, QuestionType, AssignmentSkill, QuestionGroup, ParsedPassage } from '../types/index.ts';
+import { cleanReadingText } from './questionNormalizer.ts';
 
 export interface ParsedTest {
   id: string;
@@ -2048,6 +2049,8 @@ function parseSinglePassage(
     const headingsList: string[] = [];
     const featuresList: string[] = [];
     const optionsBox: string[] = [];
+    const inlineCompletionPassages: string[] = [];
+    let detectedGroupMetaType: QuestionType | null = null;
 
     let wordLimitInfo: { limitStr?: string; maxWords?: number } = {};
     let currentQ: Partial<ReadingQuestion> | null = null;
@@ -2113,8 +2116,27 @@ function parseSinglePassage(
     }
 
     for (let li = 0; li < gRange.lines.length; li++) {
-      const line = gRange.lines[li];
+      let line = gRange.lines[li];
       if (line.startsWith('[--- Page') || line.endsWith('---]')) {
+        continue;
+      }
+
+      // Strip internal markers like svgFlag or <svg>...</svg>
+      line = line
+        .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+        .replace(/svgFlag/gi, '')
+        .trim();
+      if (!line) continue;
+
+      // Check for Vietnamese / English question-type metadata line (e.g. "Dạng câu hỏi: Multiple Selection (choose THREE answers)")
+      const dqhMatch = line.match(/^(?:\*\*)?(?:dạng\s+câu\s+hỏi|question\s+type)\s*[:\-\.]\s*(.*?)(?:\*\*)?$/i);
+      if (dqhMatch) {
+        const metaTypeStr = dqhMatch[1].trim();
+        const detectedType = detectQuestionType('', metaTypeStr);
+        if (detectedType && detectedType !== 'short_answer') {
+          detectedGroupMetaType = detectedType;
+        }
+        // Do NOT push this metadata line into groupInstructions or promptCandidates!
         continue;
       }
 
@@ -2168,6 +2190,7 @@ function parseSinglePassage(
       // Check for inline blanks (e.g. Summary Completion: "...in the 33 ……………. Another variable...")
       const inlineMatches = Array.from(line.matchAll(/(?:^|\s)(\d{1,2})\s*(?:[\.|\_|\…|\–|\-]{2,}|_{2,})/g));
       if (!stdMatch && inlineMatches.length > 0) {
+        inlineCompletionPassages.push(line);
         if (currentQ && currentQ.prompt) {
           finalizeQuestion(
             currentQ,
@@ -2185,7 +2208,12 @@ function parseSinglePassage(
           const blankQNum = im[1];
           const n = parseInt(blankQNum, 10);
           if (n >= 1 && n <= 40) {
-            const matchingSentence = sentences.find((s) => s.includes(im[0])) || line;
+            let matchingSentence = sentences.find((s) => s.includes(im[0])) || line;
+            const subSentences = matchingSentence.split(/(?<=[.!?]|\b[\.\_…–\-]{2,}\s+)\s+(?=[A-Z0-9])/);
+            const subMatch = subSentences.find((s) => s.includes(im[0]));
+            if (subMatch && subMatch.length > 15) {
+              matchingSentence = subMatch.trim();
+            }
             const detailItem = effectiveDetails[blankQNum];
             const assignedKey = detailItem?.answer || effectiveAnswerKeys[blankQNum] || '';
             const assignedSource =
@@ -2361,7 +2389,7 @@ function parseSinglePassage(
           if (optMatch) {
             detectedOptions.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
           } else if (
-            !/^(?:questions?|\d+[\.\:\)]|choose|write\s+the|which\s+(?:two|three|four)|select)/i.test(line) &&
+            !/^(?:questions?|\d+[\.\:\)]|choose|write\s+the|which\s+(?:two|three|four)|select|dạng\s+câu\s+hỏi|question\s+type)/i.test(line) &&
             line.length > 5
           ) {
             promptCandidates.push(line);
@@ -2370,7 +2398,7 @@ function parseSinglePassage(
           }
         }
 
-        const qPrompt = promptCandidates.join(' ').trim() || gRange.title;
+        const qPrompt = cleanReadingText(promptCandidates.join(' ').trim()) || gRange.title;
         const targetNums = rangeNums.length > 0 ? rangeNums : [allQuestions.length + 1];
 
         for (const n of targetNums) {
@@ -2407,6 +2435,7 @@ function parseSinglePassage(
     }
 
     let primaryType =
+      detectedGroupMetaType ||
       (instructionType !== 'short_answer' ? instructionType : null) ||
       groupQuestions.find((q) => q.type !== 'short_answer')?.type ||
       'short_answer';
@@ -2505,6 +2534,7 @@ function parseSinglePassage(
       questionType: primaryType,
       wordLimit: wordLimitInfo.limitStr,
       maxWords: wordLimitInfo.maxWords,
+      groupText: inlineCompletionPassages.length > 0 ? inlineCompletionPassages.join('\n\n').trim() : undefined,
       headingsList: headingsList.length > 0 ? headingsList : undefined,
       featuresList: featuresList.length > 0 ? featuresList : undefined,
       optionsBox: optionsBox.length > 0 ? optionsBox : undefined,
@@ -2562,6 +2592,7 @@ function finalizeQuestion(
   detectedAnswerDetails?: Record<string, ExtractedAnswerItem>
 ) {
   const qNum = q.id?.replace('q_', '') || `${questions.length + 1}`;
+  q.prompt = cleanReadingText(q.prompt);
   const options = q.options && q.options.length > 0 ? q.options : undefined;
   const qType = q.type || detectQuestionType(q.prompt || '', instructionContext, options);
 

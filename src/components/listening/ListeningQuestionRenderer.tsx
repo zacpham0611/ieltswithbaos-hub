@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flag, Info, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { Flag, Info, Image as ImageIcon, AlertCircle, Volume2 } from 'lucide-react';
 import type { ListeningQuestion, ListeningQuestionGroup } from '../../types';
 import { cleanListeningText } from '../../lib/listeningExtractor';
 
@@ -298,11 +298,143 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
+
+  // Render Markdown Table as a styled responsive HTML table with embedded gap badges
+  const renderStructuredTable = (tableMarkdown: string) => {
+    const lines = tableMarkdown
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('|') && l.endsWith('|'));
+
+    if (lines.length < 2) return null;
+
+    const isSep = (l: string) => /^\|(?:s*:?-+:?s*\|)+$/.test(l);
+    const dataLines = lines.filter((l) => !isSep(l));
+    if (dataLines.length === 0) return null;
+
+    const headerCells = dataLines[0]
+      .slice(1, -1)
+      .split('|')
+      .map((c) => c.trim());
+    const bodyRows = dataLines.slice(1).map((l) =>
+      l
+        .slice(1, -1)
+        .split('|')
+        .map((c) => c.trim())
+    );
+
+    const renderCellWithBadges = (cellText: string) => {
+      // Split on badges like [1], [2], or blanks
+      const parts = cellText.split(/(\[[0-9]{1,2}\])/g);
+      return parts.map((part, pIdx) => {
+        const match = part.match(/^\[([0-9]{1,2})\]$/);
+        if (match) {
+          const qNum = match[1];
+          return (
+            <span
+              key={pIdx}
+              className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 mx-1 shadow-2xs"
+            >
+              [{qNum}]
+            </span>
+          );
+        }
+        return <span key={pIdx}>{cleanListeningText(part)}</span>;
+      });
+    };
+
+    return (
+      <div className="overflow-x-auto my-3 rounded-xl border border-slate-200 shadow-2xs bg-white">
+        <table className="w-full text-left border-collapse text-xs sm:text-sm">
+          <thead>
+            <tr className="bg-slate-100 border-b border-slate-200">
+              {headerCells.map((h, hIdx) => (
+                <th
+                  key={hIdx}
+                  className="px-4 py-2.5 font-bold text-slate-800 border-r last:border-r-0 border-slate-200 tracking-wide"
+                >
+                  {cleanListeningText(h)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {bodyRows.map((row, rIdx) => (
+              <tr
+                key={rIdx}
+                className={`hover:bg-slate-50/80 transition-colors ${
+                  rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                }`}
+              >
+                {row.map((cell, cIdx) => (
+                  <td
+                    key={cIdx}
+                    className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 leading-relaxed font-normal align-top"
+                  >
+                    {renderCellWithBadges(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  // Render clean separate answer row for completion questions (ONLY question number and input)
+  const renderTableCompletionAnswerRow = (q: ListeningQuestion) => {
+    const userVal = answers[q.id] || '';
+    const qNum = q.questionNumber || q.number || 1;
+
+    return (
+      <div
+        key={q.id}
+        className="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition"
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
+            {qNum}
+          </span>
+          <input
+            type="text"
+            value={userVal}
+            disabled={isReadOnly}
+            placeholder={`Nhập đáp án câu ${qNum}...`}
+            onChange={(e) => onAnswerChange(q.id, e.target.value)}
+            className="w-full max-w-md px-3.5 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {renderFlagButton(q.id)}
+          {showCorrectAnswers && q.correctAnswer && (
+            <span className="text-xs text-emerald-700 font-semibold whitespace-nowrap">
+              Đáp án: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Render Gap-fill / Form / Note / Table / Completion
   const renderGapFillQuestion = (q: ListeningQuestion) => {
     const userVal = answers[q.id] || '';
     const qNum = q.questionNumber || q.number || 1;
     const cleanPrompt = cleanListeningText(q.prompt);
+
+    // If part of a table or orphan fragment, render separate clean answer control without fragmented text
+    const isTableGroup = type === 'table_completion' || Boolean(questionGroup.groupText?.includes('|'));
+    const isFragment =
+      /^(?:the\b|a\b|an\b|in\b|at\b|by\b|to\b|on\b|meet at\b)/i.test(cleanPrompt) ||
+      /\bp\.?m\.?$/i.test(cleanPrompt) ||
+      cleanPrompt.length < 15 ||
+      /^Question\s+[0-9]+/i.test(cleanPrompt);
+
+    if (isTableGroup || isFragment) {
+      return renderTableCompletionAnswerRow(q);
+    }
 
     // If prompt contains '_____', render inline completion
     const hasBlank = cleanPrompt.includes('_____');
@@ -361,43 +493,70 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
+  const effectiveGroupContent = groupText || questionGroup.sharedContent || '';
   const isGroupMultiSelect = type === 'multiple_select';
+
+  const isSingleIndependent =
+    !instructions &&
+    !imageUrl &&
+    !groupText &&
+    !questionGroup.sharedContent &&
+    !questionGroup.audioUrl &&
+    !questionGroup.optionsBox?.length &&
+    safeQuestions.length === 1;
 
   return (
     <div className="space-y-4 mb-6">
-      {/* Group Header: Title, Instruction, Word Limit badge */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-          <h4 className="text-sm font-bold text-slate-900">
-            {cleanListeningText(title) || `Questions ${firstQNum} - ${lastQNum}`}
-          </h4>
-          {wordLimit && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300">
-              <AlertCircle className="w-3.5 h-3.5" />
-              {cleanListeningText(wordLimit)}
-            </span>
-          )}
-        </div>
-
-        {instructions && (
-          <p className="text-xs text-slate-600 italic font-medium mb-2">
-            {cleanListeningText(instructions)}
-          </p>
-        )}
-
-        {/* Optional shared group diagram / image */}
-        {imageUrl && (
-          <div className="my-3 p-2 bg-white rounded-lg border border-slate-200 max-w-xl mx-auto text-center">
-            <img
-              src={imageUrl}
-              alt={imageCaption || 'Listening diagram or map'}
-              className="max-h-72 w-auto mx-auto object-contain rounded"
-            />
-            {imageCaption && (
-              <p className="text-xs text-slate-500 mt-1 italic">{cleanListeningText(imageCaption)}</p>
+      {/* Group Header: Title, Instruction, Word Limit badge, Shared Audio/Image/Text */}
+      {!isSingleIndependent && (
+        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+            <h4 className="text-sm font-bold text-slate-900">
+              {cleanListeningText(title) || `Questions ${firstQNum} - ${lastQNum}`}
+            </h4>
+            {wordLimit && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300">
+                <AlertCircle className="w-3.5 h-3.5" />
+                {cleanListeningText(wordLimit)}
+              </span>
             )}
           </div>
-        )}
+
+          {instructions && (
+            <p className="text-xs text-slate-600 italic font-medium mb-2">
+              {cleanListeningText(instructions)}
+            </p>
+          )}
+
+          {/* Shared group audio recording (rendered ONCE for group) */}
+          {questionGroup.audioUrl && (
+            <div className="my-3 p-3 bg-blue-50/80 rounded-xl border border-blue-200 flex flex-col sm:flex-row items-center gap-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-900 shrink-0">
+                <Volume2 className="w-4 h-4 text-blue-700" />
+                <span>Audio dùng chung cho nhóm ({firstQNum}–{lastQNum}):</span>
+              </div>
+              <audio
+                controls
+                src={questionGroup.audioUrl}
+                className="w-full h-9 rounded-lg"
+                controlsList="nodownload"
+              />
+            </div>
+          )}
+
+          {/* Optional shared group diagram / image (rendered ONCE for group) */}
+          {imageUrl && (
+            <div className="my-3 p-2 bg-white rounded-lg border border-slate-200 max-w-xl mx-auto text-center">
+              <img
+                src={imageUrl}
+                alt={imageCaption || 'Listening diagram or map'}
+                className="max-h-72 w-auto mx-auto object-contain rounded"
+              />
+              {imageCaption && (
+                <p className="text-xs text-slate-500 mt-1 italic">{cleanListeningText(imageCaption)}</p>
+              )}
+            </div>
+          )}
 
         {/* Options Box (for Matching / Labelling / Completion) formatted clearly */}
         {((questionGroup.optionsBox && questionGroup.optionsBox.length > 0) ||
@@ -429,12 +588,35 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         )}
 
         {/* Structured group text or notes / tables */}
-        {(groupText || questionGroup.sharedContent) && (
-          <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed my-2">
-            {cleanListeningText(groupText || questionGroup.sharedContent)}
+        {Boolean(effectiveGroupContent) && (
+          <div className="my-2">
+            {effectiveGroupContent.includes('|') ? (
+              <>
+                {effectiveGroupContent
+                  .split('\n')
+                  .filter((l: string) => !l.trim().startsWith('|'))
+                  .join(' ')
+                  .trim() && (
+                  <p className="text-xs font-semibold text-slate-800 mb-1.5">
+                    {cleanListeningText(
+                      effectiveGroupContent
+                        .split('\n')
+                        .filter((l: string) => !l.trim().startsWith('|'))
+                        .join(' ')
+                    )}
+                  </p>
+                )}
+                {renderStructuredTable(effectiveGroupContent)}
+              </>
+            ) : (
+              <div className="p-3.5 bg-white rounded-xl border border-slate-200 text-xs text-slate-800 whitespace-pre-wrap font-sans leading-relaxed shadow-2xs">
+                {cleanListeningText(effectiveGroupContent)}
+              </div>
+            )}
           </div>
         )}
       </div>
+      )}
 
       {/* Render Questions */}
       <div className="space-y-3">

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { SpeakingSectionWorkspace } from './SpeakingSectionWorkspace';
 import { ExamListeningAudioPlayer } from '../../components/listening/ExamListeningAudioPlayer';
+import { renderCleanMarkdown } from '../../utils/textFormatter';
 import { ListeningQuestionRenderer } from '../../components/listening/ListeningQuestionRenderer';
 import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../../components/writing/WritingTask1VisualRenderer';
 
@@ -1284,7 +1285,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                             {qNum}
                           </span>
                           <span className="text-sm md:text-base font-semibold text-slate-900 leading-snug whitespace-pre-line">
-                            {q.prompt || (q as any).question || (q as any).questionText}
+                            {renderCleanMarkdown(q.prompt || (q as any).question || (q as any).questionText, qNum)}
                           </span>
                         </div>
 

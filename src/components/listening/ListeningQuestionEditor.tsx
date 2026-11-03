@@ -17,6 +17,12 @@ import {
   ListOrdered,
   FileText,
   Volume2,
+  Split,
+  CheckSquare,
+  Square,
+  FolderPlus,
+  ArrowRightLeft,
+  X,
 } from 'lucide-react';
 import type {
   ListeningPart,
@@ -87,6 +93,200 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
   const [previewMode, setPreviewMode] = useState(false);
   const [previewAnswers, setPreviewAnswers] = useState<Record<string, string>>({});
   const [uploadingImageGroupId, setUploadingImageGroupId] = useState<string | null>(null);
+
+  // Multi-select questions state for shared resource grouping
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set());
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupConfig, setGroupConfig] = useState<{
+    groupTitle: string;
+    instructions: string;
+    audioUrl: string;
+    groupText: string;
+    imageUrl: string;
+    imageCaption: string;
+    type: ListeningQuestionType;
+    wordLimit: string;
+  }>({
+    groupTitle: '',
+    instructions: 'Complete the notes below. Write NO MORE THAN TWO WORDS AND/OR A NUMBER for each answer.',
+    audioUrl: '',
+    groupText: '',
+    imageUrl: '',
+    imageCaption: '',
+    type: 'note_completion',
+    wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
+  });
+
+  const handleToggleSelectQuestion = (qId: string) => {
+    setSelectedQuestionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(qId)) next.delete(qId);
+      else next.add(qId);
+      return next;
+    });
+  };
+
+  const handleSelectAllInPart = () => {
+    const allIds = (activePart.questions || []).map((q) => q.id);
+    if (selectedQuestionIds.size === allIds.length && allIds.length > 0) {
+      setSelectedQuestionIds(new Set());
+    } else {
+      setSelectedQuestionIds(new Set(allIds));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedQuestionIds(new Set());
+  };
+
+  const handleOpenGroupModal = () => {
+    if (selectedQuestionIds.size === 0) return;
+    const selectedQuestions = (activePart.questions || []).filter((q) => selectedQuestionIds.has(q.id));
+    const nums = selectedQuestions.map((q) => q.questionNumber || q.number || 0).sort((a, b) => a - b);
+    const firstNum = nums[0] || 1;
+    const lastNum = nums[nums.length - 1] || nums.length;
+    const defaultType = selectedQuestions[0]?.type || 'note_completion';
+
+    setGroupConfig({
+      groupTitle: `Questions ${firstNum}–${lastNum}`,
+      instructions: selectedQuestions[0]?.instruction || 'Complete the notes below. Write NO MORE THAN TWO WORDS AND/OR A NUMBER for each answer.',
+      audioUrl: activePart.audioUrl || '',
+      groupText: '',
+      imageUrl: '',
+      imageCaption: '',
+      type: defaultType,
+      wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
+    });
+    setShowGroupModal(true);
+  };
+
+  const handleConfirmCreateGroup = () => {
+    if (selectedQuestionIds.size === 0) return;
+
+    const allPartQuestions = activePart.questions || [];
+    const questionsToGroup = allPartQuestions
+      .filter((q) => selectedQuestionIds.has(q.id))
+      .map((q) => ({
+        ...q,
+        type: groupConfig.type,
+      }));
+
+    const newGroupId = `grp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    questionsToGroup.forEach((q) => {
+      q.groupId = newGroupId;
+    });
+
+    const newGroup: ListeningQuestionGroup = {
+      id: newGroupId,
+      part: activePart.partNumber || activePartIndex + 1,
+      groupTitle: groupConfig.groupTitle,
+      title: groupConfig.groupTitle,
+      instructions: groupConfig.instructions,
+      wordLimit: groupConfig.wordLimit,
+      type: groupConfig.type,
+      audioUrl: groupConfig.audioUrl.trim() || undefined,
+      imageUrl: groupConfig.imageUrl.trim() || undefined,
+      imageCaption: groupConfig.imageCaption.trim() || undefined,
+      groupText: groupConfig.groupText.trim() || undefined,
+      sharedContent: groupConfig.groupText.trim() || undefined,
+      questions: questionsToGroup,
+    };
+
+    // Remove selected questions from existing groups
+    const updatedGroups = (activePart.questionGroups || [])
+      .map((grp) => ({
+        ...grp,
+        questions: (grp.questions || []).filter((q) => !selectedQuestionIds.has(q.id)),
+      }))
+      .filter((grp) => grp.questions && grp.questions.length > 0);
+
+    updatedGroups.push(newGroup);
+
+    const allFlat = updatedGroups.flatMap((g) => g.questions || []);
+    updateActivePart({
+      questionGroups: updatedGroups,
+      questions: allFlat,
+    });
+
+    setSelectedQuestionIds(new Set());
+    setShowGroupModal(false);
+  };
+
+  const handleUngroupQuestions = (qIdsToUngroup?: string[]) => {
+    const targetIds = new Set(qIdsToUngroup || Array.from(selectedQuestionIds));
+    if (targetIds.size === 0) return;
+
+    const remainingGroups: ListeningQuestionGroup[] = [];
+    const newIndependentGroups: ListeningQuestionGroup[] = [];
+
+    (activePart.questionGroups || []).forEach((grp) => {
+      const keptQuestions = (grp.questions || []).filter((q) => !targetIds.has(q.id));
+      const extractedQuestions = (grp.questions || []).filter((q) => targetIds.has(q.id));
+
+      if (keptQuestions.length > 0) {
+        remainingGroups.push({
+          ...grp,
+          questions: keptQuestions,
+        });
+      }
+
+      extractedQuestions.forEach((q) => {
+        const indepId = `grp_indep_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const qNum = q.questionNumber || q.number || 1;
+        newIndependentGroups.push({
+          id: indepId,
+          part: activePart.partNumber || activePartIndex + 1,
+          groupTitle: `Question ${qNum}`,
+          title: `Question ${qNum}`,
+          instructions: '',
+          type: q.type,
+          questions: [{ ...q, groupId: indepId }],
+        });
+      });
+    });
+
+    const finalGroups = [...remainingGroups, ...newIndependentGroups];
+    const allFlat = finalGroups.flatMap((g) => g.questions || []);
+
+    updateActivePart({
+      questionGroups: finalGroups,
+      questions: allFlat,
+    });
+
+    setSelectedQuestionIds(new Set());
+  };
+
+  const handleMoveQuestionsToGroup = (qIds: string[], targetGroupId: string) => {
+    const targetIds = new Set(qIds);
+    let movingQuestions: ListeningQuestion[] = [];
+
+    const updatedGroups = (activePart.questionGroups || [])
+      .map((grp) => {
+        const moving = (grp.questions || []).filter((q) => targetIds.has(q.id));
+        movingQuestions.push(...moving);
+        return {
+          ...grp,
+          questions: (grp.questions || []).filter((q) => !targetIds.has(q.id)),
+        };
+      })
+      .filter((grp) => grp.questions.length > 0 || grp.id === targetGroupId);
+
+    const targetGroup = updatedGroups.find((g) => g.id === targetGroupId);
+    if (targetGroup) {
+      movingQuestions.forEach((q) => {
+        q.groupId = targetGroupId;
+      });
+      targetGroup.questions = [...(targetGroup.questions || []), ...movingQuestions];
+    }
+
+    const allFlat = updatedGroups.flatMap((g) => g.questions || []);
+    updateActivePart({
+      questionGroups: updatedGroups,
+      questions: allFlat,
+    });
+
+    setSelectedQuestionIds(new Set());
+  };
 
   const activePart = parts[activePartIndex] || {
     partNumber: activePartIndex + 1,
@@ -1139,6 +1339,212 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
             </div>
           </div>
 
+          {/* BATCH SELECTION & SHARED RESOURCE GROUPING TOOLBAR */}
+          <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-200 flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleSelectAllInPart}
+                className="flex items-center gap-1.5 text-xs font-bold text-purple-900 hover:text-purple-700 cursor-pointer"
+              >
+                {selectedQuestionIds.size === (activePart.questions?.length || 0) && (activePart.questions?.length || 0) > 0 ? (
+                  <CheckSquare className="w-4 h-4 text-purple-700" />
+                ) : (
+                  <Square className="w-4 h-4 text-purple-400" />
+                )}
+                <span>
+                  {selectedQuestionIds.size === (activePart.questions?.length || 0) && (activePart.questions?.length || 0) > 0
+                    ? 'Bỏ chọn tất cả'
+                    : 'Chọn tất cả câu hỏi'}
+                </span>
+              </button>
+
+              {selectedQuestionIds.size > 0 && (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-600 text-white shadow-2xs">
+                  Đã chọn {selectedQuestionIds.size} câu
+                </span>
+              )}
+            </div>
+
+            {selectedQuestionIds.size > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenGroupModal}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                  title="Gộp các câu hỏi đã chọn vào một nhóm tài nguyên chung"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  <span>Tạo nhóm tài nguyên dùng chung ({selectedQuestionIds.size})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleUngroupQuestions()}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  title="Tách các câu hỏi đã chọn thành từng câu độc lập"
+                >
+                  <Split className="w-4 h-4 text-slate-600" />
+                  <span>Tách độc lập ({selectedQuestionIds.size})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition cursor-pointer"
+                  title="Bỏ chọn"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <span className="text-xs text-purple-700 font-medium italic">
+                💡 Chọn các câu hỏi bằng ô vuông (checkbox) để gộp nhóm tài nguyên dùng chung (audio, bảng biểu, ảnh, hướng dẫn).
+              </span>
+            )}
+          </div>
+
+          {/* GROUP CREATION MODAL OVERLAY */}
+          {showGroupModal && (
+            <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <FolderPlus className="w-5 h-5 text-purple-600" />
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Tạo nhóm tài nguyên dùng chung (Group Questions / Share Resource)
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGroupModal(false)}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <p className="text-xs text-slate-600">
+                  Gộp <strong>{selectedQuestionIds.size} câu hỏi</strong> đã chọn vào một nhóm. Tất cả câu hỏi trong nhóm sẽ dùng chung tài nguyên bên dưới và hiển thị cùng nhau cho học sinh.
+                </p>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Tiêu đề nhóm (Group Title):</label>
+                    <input
+                      type="text"
+                      value={groupConfig.groupTitle}
+                      onChange={(e) => setGroupConfig({ ...groupConfig, groupTitle: e.target.value })}
+                      placeholder="VD: Questions 1–5"
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-hidden focus:bg-white focus:border-purple-500 font-semibold"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Dạng câu hỏi của nhóm:</label>
+                      <select
+                        value={groupConfig.type}
+                        onChange={(e) =>
+                          setGroupConfig({ ...groupConfig, type: e.target.value as ListeningQuestionType })
+                        }
+                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-hidden focus:bg-white focus:border-purple-500 font-semibold"
+                      >
+                        {LISTENING_QUESTION_TYPES.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Giới hạn từ (Word limit):</label>
+                      <input
+                        type="text"
+                        value={groupConfig.wordLimit}
+                        onChange={(e) => setGroupConfig({ ...groupConfig, wordLimit: e.target.value })}
+                        placeholder="NO MORE THAN TWO WORDS"
+                        className="w-full px-3 py-1.5 bg-amber-50/50 border border-amber-200 rounded-lg outline-hidden font-semibold text-amber-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Hướng dẫn làm bài (Instructions):</label>
+                    <input
+                      type="text"
+                      value={groupConfig.instructions}
+                      onChange={(e) => setGroupConfig({ ...groupConfig, instructions: e.target.value })}
+                      placeholder="VD: Complete the notes below. Write NO MORE THAN TWO WORDS..."
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-hidden italic"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-blue-900 mb-1 flex items-center gap-1.5">
+                      <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Audio riêng cho nhóm này (Tùy chọn):</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={groupConfig.audioUrl}
+                      onChange={(e) => setGroupConfig({ ...groupConfig, audioUrl: e.target.value })}
+                      placeholder="Dán URL mp3 nếu nhóm này có file audio riêng..."
+                      className="w-full px-3 py-1.5 bg-blue-50/40 border border-blue-200 rounded-lg outline-hidden font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
+                      <span>URL Ảnh sơ đồ / Bản đồ / Biểu đồ dùng chung (Tùy chọn):</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={groupConfig.imageUrl}
+                      onChange={(e) => setGroupConfig({ ...groupConfig, imageUrl: e.target.value })}
+                      placeholder="https://... ảnh sơ đồ / biểu đồ"
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-hidden font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-slate-600" />
+                      <span>Nội dung ghi chú / Bảng biểu dùng chung (Group Text / Notes):</span>
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={groupConfig.groupText}
+                      onChange={(e) => setGroupConfig({ ...groupConfig, groupText: e.target.value })}
+                      placeholder="Văn bản hoặc dàn ý bảng biểu hiển thị phía trên các câu hỏi..."
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-hidden font-sans"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowGroupModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmCreateGroup}
+                    className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Xác nhận tạo nhóm</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* QUESTION GROUPS LIST */}
           {activePart.questionGroups && activePart.questionGroups.length > 0 ? (
             <div className="space-y-6">
@@ -1261,6 +1667,40 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
                     ))}
                   </div>
 
+                  {/* Dedicated Audio Recording for Group (Shared Resource) */}
+                  <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200/80 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                        <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>File Audio dùng riêng cho nhóm này (Tùy chọn)</span>
+                      </span>
+                      <span className="text-[10px] text-blue-600">
+                        Học sinh sẽ nghe đoạn audio này riêng cho nhóm {grp.groupTitle || grp.title}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={grp.audioUrl || ''}
+                        onChange={(e) => handleUpdateGroup(gIdx, { audioUrl: e.target.value })}
+                        placeholder="Dán URL file mp3 dùng riêng cho nhóm này (https://...)"
+                        className="flex-1 px-2.5 py-1.5 text-xs font-mono bg-white border border-blue-200 rounded-lg outline-hidden text-slate-700 focus:border-blue-500"
+                      />
+                      {grp.audioUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateGroup(gIdx, { audioUrl: undefined })}
+                          className="text-xs text-rose-600 hover:underline px-2 shrink-0 cursor-pointer"
+                        >
+                          Xóa audio
+                        </button>
+                      )}
+                    </div>
+                    {grp.audioUrl && (
+                      <audio controls src={grp.audioUrl} className="w-full h-8 mt-1" />
+                    )}
+                  </div>
+
                   {/* Shared Content / Group Outline (for notes outlines, table format, shared text) */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
@@ -1346,17 +1786,17 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
                     </div>
                   )}
 
-                  {/* If Plan / Map / Diagram Labelling: Diagram Image Upload */}
-                  {grp.type === 'plan_map_diagram_labelling' && (
+                  {/* Diagram / Map / Chart Image Upload (Available for labelling or any group sharing visual) */}
+                  {(grp.type === 'plan_map_diagram_labelling' || grp.imageUrl !== undefined) ? (
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                           <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Ảnh sơ đồ / Bản đồ (Diagram / Map Image)</span>
+                          <span>Ảnh sơ đồ / Bản đồ / Biểu đồ dùng chung</span>
                         </span>
                         <label className="px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1 cursor-pointer">
                           <Upload className="w-3.5 h-3.5" />
-                          <span>{uploadingImageGroupId === grp.id ? 'Đang tải...' : 'Tải ảnh sơ đồ lên'}</span>
+                          <span>{uploadingImageGroupId === grp.id ? 'Đang tải...' : 'Tải ảnh lên'}</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -1372,14 +1812,14 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
                           type="text"
                           value={grp.imageUrl || ''}
                           onChange={(e) => handleUpdateGroup(gIdx, { imageUrl: e.target.value })}
-                          placeholder="Hoặc dán URL ảnh sơ đồ (https://...)"
+                          placeholder="Hoặc dán URL ảnh (https://...)"
                           className="flex-1 px-2.5 py-1 text-xs font-mono bg-white border border-slate-300 rounded-lg outline-hidden text-slate-700"
                         />
-                        {grp.imageUrl && (
+                        {grp.imageUrl !== undefined && (
                           <button
                             type="button"
                             onClick={() => handleUpdateGroup(gIdx, { imageUrl: undefined })}
-                            className="text-xs text-rose-600 hover:underline shrink-0"
+                            className="text-xs text-rose-600 hover:underline shrink-0 cursor-pointer"
                           >
                             Xóa ảnh
                           </button>
@@ -1395,6 +1835,17 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
                           />
                         </div>
                       )}
+                    </div>
+                  ) : (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateGroup(gIdx, { imageUrl: '' })}
+                        className="text-xs text-purple-700 hover:text-purple-900 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                      >
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>+ Thêm ảnh sơ đồ / biểu đồ / hình minh họa dùng chung</span>
+                      </button>
                     </div>
                   )}
 
@@ -1416,6 +1867,15 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
                           {/* Question Card Header */}
                           <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
                             <div className="flex items-center gap-2">
+                              {/* Selection checkbox */}
+                              <input
+                                type="checkbox"
+                                checked={selectedQuestionIds.has(q.id)}
+                                onChange={() => handleToggleSelectQuestion(q.id)}
+                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                                title="Chọn câu hỏi này để gộp nhóm tài nguyên dùng chung"
+                              />
+
                               {/* Question number badge & custom number input */}
                               <span className="w-7 h-7 rounded-lg bg-purple-600 text-white font-bold text-xs flex items-center justify-center shadow-2xs">
                                 {q.questionNumber || q.number || qIdx + 1}
@@ -1439,8 +1899,42 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
                               </select>
                             </div>
 
-                            {/* Question Actions (Up, Down, Duplicate, Delete) */}
+                            {/* Question Actions (Up, Down, Duplicate, Delete, Ungroup, Move) */}
                             <div className="flex items-center space-x-1">
+                              {/* Ungroup button */}
+                              {grp.questions.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUngroupQuestions([q.id])}
+                                  className="px-2 py-0.5 text-[10px] font-bold text-slate-500 hover:text-purple-700 bg-white border border-slate-200 rounded hover:bg-purple-50 transition cursor-pointer"
+                                  title="Tách thành câu độc lập (Ungroup)"
+                                >
+                                  Tách
+                                </button>
+                              )}
+
+                              {/* Move to another group selector */}
+                              {activePart.questionGroups && activePart.questionGroups.length > 1 && (
+                                <select
+                                  value=""
+                                  onChange={(e) => {
+                                    if (e.target.value) {
+                                      handleMoveQuestionsToGroup([q.id], e.target.value);
+                                    }
+                                  }}
+                                  className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 text-slate-600 rounded outline-hidden hover:border-purple-300 cursor-pointer"
+                                  title="Chuyển câu hỏi này sang nhóm khác"
+                                >
+                                  <option value="" disabled>Chuyển nhóm...</option>
+                                  {activePart.questionGroups
+                                    .filter((otherG) => otherG.id !== grp.id)
+                                    .map((otherG, ogIdx) => (
+                                      <option key={otherG.id} value={otherG.id}>
+                                        {otherG.groupTitle || otherG.title || `Nhóm ${ogIdx + 1}`}
+                                      </option>
+                                    ))}
+                                </select>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleMoveQuestion(q.id, 'up')}

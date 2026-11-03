@@ -9,6 +9,9 @@ import {
   Trash2,
   RotateCcw,
   Sparkles,
+  Link2,
+  Save,
+  Ban,
 } from 'lucide-react';
 import { Portal } from './Portal';
 import {
@@ -16,6 +19,14 @@ import {
   type AudioUploadProgress,
   type AudioUploadStatus,
 } from '../lib/optimizedAudioUploader';
+
+export interface BulkAudioSectionTarget {
+  id: string;
+  title: string;
+  skill?: string;
+  partNumber?: number;
+  audioUrl?: string;
+}
 
 export interface BulkAudioItem {
   id: string;
@@ -27,12 +38,16 @@ export interface BulkAudioItem {
   speedBytesPerSec?: number;
   url?: string;
   error?: string;
+  assignedSectionId?: string;
 }
 
 interface BulkAudioUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   folder?: string;
+  testTitle?: string;
+  sections?: BulkAudioSectionTarget[];
+  onAssignAudio?: (assignments: Array<{ sectionId: string; audioUrl: string }>) => Promise<void> | void;
   onUploadSuccess?: (results: Array<{ file: File; url: string; name: string }>) => void;
 }
 
@@ -40,13 +55,23 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
   isOpen,
   onClose,
   folder = 'audio',
+  testTitle,
+  sections,
+  onAssignAudio,
   onUploadSuccess,
 }) => {
   const [queue, setQueue] = useState<BulkAudioItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSavingAssignments, setIsSavingAssignments] = useState(false);
+  const [assignmentNotice, setAssignmentNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   if (!isOpen) return null;
+
+  const listeningSections = (sections || []).filter(
+    (s) => !s.skill || s.skill === 'listening'
+  );
 
   const handleFilesSelected = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -55,7 +80,7 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
       file: f,
       name: f.name,
       size: f.size,
-      status: 'queued',
+      status: 'pending',
       progress: 0,
     }));
     setQueue((prev) => [...prev, ...newItems]);
@@ -66,47 +91,91 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
     setQueue((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const handleCancelItem = (id: string) => {
+    const ctrl = abortControllersRef.current.get(id);
+    if (ctrl) {
+      ctrl.abort();
+      abortControllersRef.current.delete(id);
+    }
+    setQueue((prev) =>
+      prev.map((it) =>
+        it.id === id
+          ? { ...it, status: 'cancelled', error: 'Đã hủy tải lên' }
+          : it
+      )
+    );
+  };
+
   const handleClearAll = () => {
     if (isProcessing) return;
     setQueue([]);
   };
 
   const uploadItem = async (item: BulkAudioItem): Promise<string> => {
-    setQueue((prev) =>
-      prev.map((it) =>
-        it.id === item.id ? { ...it, status: 'uploading', progress: 0, error: undefined } : it
-      )
-    );
-
-    const url = await uploadAudioOptimized(item.file, {
-      folder,
-      preferredFileName: item.name,
-      onProgress: (p: AudioUploadProgress) => {
-        setQueue((prev) =>
-          prev.map((it) =>
-            it.id === item.id
-              ? {
-                  ...it,
-                  status: p.status,
-                  progress: p.percentage,
-                  speedBytesPerSec: p.speedBytesPerSec,
-                  error: p.error,
-                }
-              : it
-          )
-        );
-      },
-    });
+    const controller = new AbortController();
+    abortControllersRef.current.set(item.id, controller);
 
     setQueue((prev) =>
       prev.map((it) =>
         it.id === item.id
-          ? { ...it, status: 'completed', progress: 100, url, error: undefined }
+          ? { ...it, status: 'uploading', error: undefined }
           : it
       )
     );
 
-    return url;
+    try {
+      const url = await uploadAudioOptimized(item.file, {
+        folder,
+        preferredFileName: item.name,
+        signal: controller.signal,
+        onProgress: (p: AudioUploadProgress) => {
+          setQueue((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    status: p.status,
+                    progress: Math.max(it.progress, p.percentage),
+                    speedBytesPerSec: p.speedBytesPerSec,
+                    error: p.error,
+                  }
+                : it
+            )
+          );
+        },
+      });
+
+      setQueue((prev) =>
+        prev.map((it) =>
+          it.id === item.id
+            ? { ...it, status: 'completed', progress: 100, url, error: undefined }
+            : it
+        )
+      );
+
+      return url;
+    } catch (err: any) {
+      if (controller.signal.aborted) {
+        setQueue((prev) =>
+          prev.map((it) =>
+            it.id === item.id
+              ? { ...it, status: 'cancelled', error: 'Đã hủy tải lên' }
+              : it
+          )
+        );
+      } else {
+        setQueue((prev) =>
+          prev.map((it) =>
+            it.id === item.id
+              ? { ...it, status: 'failed', error: err.message || 'Lỗi tải file' }
+              : it
+          )
+        );
+      }
+      throw err;
+    } finally {
+      abortControllersRef.current.delete(item.id);
+    }
   };
 
   const startBatchUpload = async (onlyFailed = false) => {
@@ -114,7 +183,9 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
     setIsProcessing(true);
 
     const candidates = queue.filter((it) =>
-      onlyFailed ? it.status === 'failed' : it.status === 'queued' || it.status === 'failed'
+      onlyFailed
+        ? it.status === 'failed' || it.status === 'cancelled'
+        : it.status === 'pending' || it.status === 'queued' || it.status === 'failed' || it.status === 'cancelled'
     );
 
     const concurrency = 3;
@@ -125,18 +196,8 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
         const item = candidates[nextIndex++];
         try {
           await uploadItem(item);
-        } catch (err: any) {
-          setQueue((prev) =>
-            prev.map((it) =>
-              it.id === item.id
-                ? {
-                    ...it,
-                    status: 'failed',
-                    error: err.message || 'Lỗi tải file',
-                  }
-                : it
-            )
-          );
+        } catch {
+          // Handled inside uploadItem
         }
       }
     };
@@ -147,6 +208,42 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
     await Promise.all(workers);
 
     setIsProcessing(false);
+  };
+
+  const handleAssignSection = (itemId: string, sectionId: string) => {
+    setQueue((prev) =>
+      prev.map((it) =>
+        it.id === itemId
+          ? { ...it, assignedSectionId: sectionId || undefined }
+          : it
+      )
+    );
+  };
+
+  const handleSaveAssignedAudios = async () => {
+    if (!onAssignAudio) return;
+    const assignments: Array<{ sectionId: string; audioUrl: string }> = [];
+    queue.forEach((it) => {
+      if (it.status === 'completed' && it.url && it.assignedSectionId) {
+        assignments.push({ sectionId: it.assignedSectionId, audioUrl: it.url });
+      }
+    });
+
+    if (assignments.length === 0) {
+      alert('Vui lòng chọn Section tương ứng cho ít nhất một file audio đã tải xong.');
+      return;
+    }
+
+    try {
+      setIsSavingAssignments(true);
+      await onAssignAudio(assignments);
+      setAssignmentNotice(`Đã lưu phân bổ ${assignments.length} file audio thành công!`);
+      setTimeout(() => setAssignmentNotice(null), 4000);
+    } catch (err: any) {
+      alert(`Lỗi khi lưu phân bổ Audio: ${err.message || 'Không thể cập nhật bài thi'}`);
+    } finally {
+      setIsSavingAssignments(false);
+    }
   };
 
   const completedItems = queue.filter((it) => it.status === 'completed' && it.url);
@@ -173,7 +270,7 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
   return (
     <Portal containerId="modal-root">
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl flex flex-col max-h-[90vh] overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl flex flex-col max-h-[92vh] overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-5 border-b border-slate-100">
             <div className="flex items-center gap-3">
@@ -182,22 +279,32 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900">
-                  Tải lên hàng loạt file Audio (Bulk Audio Upload)
+                  {testTitle ? `Quản lý Audio: ${testTitle}` : 'Tải lên hàng loạt file Audio (Bulk Audio Upload)'}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Hỗ trợ tải song song có điều khiển, kiểm tra trạng thái và tự động phục hồi kết nối
+                  {listeningSections.length > 0
+                    ? `Tính năng Post-import: Tải lên, nghe thử và gán trực tiếp audio vào ${listeningSections.length} section của bài thi`
+                    : 'Tải song song có điều khiển, thanh tiến trình đơn điệu liên tục và kiểm soát lỗi'}
                 </p>
               </div>
             </div>
             <button
               type="button"
-              disabled={isProcessing}
+              disabled={isProcessing || isSavingAssignments}
               onClick={onClose}
               className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition disabled:opacity-50"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* Assignment Notice */}
+          {assignmentNotice && (
+            <div className="mx-5 mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{assignmentNotice}</span>
+            </div>
+          )}
 
           {/* Content */}
           <div className="p-5 flex-1 overflow-y-auto space-y-4">
@@ -233,7 +340,7 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700 pb-1">
                   <span>
-                    Danh sách hàng đợi ({queue.length} file - {completedItems.length} thành công)
+                    Danh sách file ({queue.length} file - {completedItems.length} thành công)
                   </span>
                   {!isProcessing && (
                     <button
@@ -247,11 +354,11 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
                   )}
                 </div>
 
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                   {queue.map((item) => (
                     <div
                       key={item.id}
-                      className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col gap-2"
+                      className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col gap-2.5 shadow-2xs"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -266,47 +373,66 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
 
                         {/* Status Badge */}
                         <div className="flex items-center gap-2 shrink-0">
-                          {item.status === 'queued' && (
-                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-200 px-2 py-0.5 rounded">
-                              Đang chờ
+                          {(item.status === 'pending' || item.status === 'queued') && (
+                            <span className="text-[10px] font-semibold text-slate-600 bg-slate-200 px-2 py-0.5 rounded">
+                              Đang chờ (Pending)
                             </span>
                           )}
                           {item.status === 'uploading' && (
                             <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded flex items-center gap-1">
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              {item.progress}%
+                              Đang tải ({item.progress}%)
                             </span>
                           )}
                           {item.status === 'finalizing' && (
                             <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded flex items-center gap-1">
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              Đang hoàn tất...
+                              Đang lưu ({item.progress}%)
                             </span>
                           )}
                           {item.status === 'retrying' && (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                              Đang thử lại...
+                              Đang thử lại ({item.progress}%)
                             </span>
                           )}
                           {item.status === 'completed' && (
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" />
-                              Đã xong
+                              Đã hoàn thành
+                            </span>
+                          )}
+                          {item.status === 'cancelled' && (
+                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-200 px-2 py-0.5 rounded flex items-center gap-1">
+                              <Ban className="w-3 h-3 text-slate-400" />
+                              Đã hủy
                             </span>
                           )}
                           {item.status === 'failed' && (
                             <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" />
-                              Lỗi
+                              Thất bại
                             </span>
                           )}
 
-                          {!isProcessing && item.status !== 'uploading' && item.status !== 'finalizing' && (
+                          {/* Cancel In-Flight Upload */}
+                          {item.status === 'uploading' && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelItem(item.id)}
+                              className="text-slate-400 hover:text-rose-600 p-1 text-[10px] font-semibold flex items-center gap-0.5"
+                              title="Hủy tải lên file này"
+                            >
+                              <Ban className="w-3 h-3" />
+                              Hủy
+                            </button>
+                          )}
+
+                          {!isProcessing && item.status !== 'uploading' && (
                             <button
                               type="button"
                               onClick={() => handleRemoveItem(item.id)}
                               className="text-slate-400 hover:text-rose-600 p-1"
-                              title="Xóa khỏi hàng đợi"
+                              title="Xóa khỏi danh sách"
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -314,14 +440,14 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Progress Bar */}
+                      {/* Monotonic Progress Bar */}
                       {(item.status === 'uploading' ||
                         item.status === 'finalizing' ||
                         item.status === 'retrying') && (
                         <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                           <div
                             className="bg-purple-600 h-1.5 rounded-full transition-all duration-150"
-                            style={{ width: `${item.progress}%` }}
+                            style={{ width: `${Math.max(1, item.progress)}%` }}
                           />
                         </div>
                       )}
@@ -329,6 +455,31 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
                       {/* Speed & Error info */}
                       {item.error && (
                         <div className="text-[10px] text-rose-600 font-medium">{item.error}</div>
+                      )}
+
+                      {/* Post-Import Audio Preview & Section Assignment */}
+                      {item.status === 'completed' && item.url && listeningSections.length > 0 && (
+                        <div className="pt-2 border-t border-slate-200/80 flex flex-col sm:flex-row items-center gap-2">
+                          <div className="w-full sm:w-1/2">
+                            <audio controls src={item.url} className="w-full h-7 rounded" preload="none" />
+                          </div>
+                          <div className="w-full sm:w-1/2 flex items-center gap-2">
+                            <Link2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                            <select
+                              value={item.assignedSectionId || ''}
+                              onChange={(e) => handleAssignSection(item.id, e.target.value)}
+                              className="flex-1 px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-medium focus:ring-1 focus:ring-purple-500"
+                            >
+                              <option value="">-- Gán cho Section... --</option>
+                              {listeningSections.map((sec, secIdx) => (
+                                <option key={sec.id} value={sec.id}>
+                                  {sec.title || `Listening Section ${secIdx + 1}`}
+                                  {sec.audioUrl ? ' (Đã có audio)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
@@ -338,7 +489,7 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between p-4 border-t border-slate-100 bg-slate-50">
+          <div className="flex flex-wrap items-center justify-between p-4 border-t border-slate-100 bg-slate-50 gap-3">
             <div className="text-xs text-slate-500">
               {failedItems.length > 0 && (
                 <span className="text-rose-600 font-medium">
@@ -359,7 +510,7 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
                 </button>
               )}
 
-              {queue.some((it) => it.status === 'queued') && (
+              {queue.some((it) => it.status === 'pending' || it.status === 'queued') && (
                 <button
                   type="button"
                   disabled={isProcessing}
@@ -374,7 +525,28 @@ export const BulkAudioUploadModal: React.FC<BulkAudioUploadModalProps> = ({
                   ) : (
                     <>
                       <Sparkles className="w-3.5 h-3.5" />
-                      Bắt đầu tải lên ({queue.filter((it) => it.status === 'queued').length})
+                      Bắt đầu tải lên ({queue.filter((it) => it.status === 'pending' || it.status === 'queued').length})
+                    </>
+                  )}
+                </button>
+              )}
+
+              {listeningSections.length > 0 && onAssignAudio && completedItems.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isSavingAssignments || isProcessing}
+                  onClick={handleSaveAssignedAudios}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSavingAssignments ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Đang lưu phân bổ...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      Lưu phân bổ Audio
                     </>
                   )}
                 </button>

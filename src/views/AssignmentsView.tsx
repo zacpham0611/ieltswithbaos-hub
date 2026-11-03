@@ -40,7 +40,9 @@ import {
   type QuestionRenderGroup,
   COMPLETION_TYPES,
   BUTTON_TYPES,
+  cleanReadingText,
 } from '../lib/questionNormalizer';
+import { renderCleanMarkdown } from '../utils/textFormatter';
 import {
   calculateIeltsOverallBand,
   roundIeltsComponentScore,
@@ -3545,7 +3547,7 @@ export const AssignmentsView: React.FC = () => {
 
                               {group.instructions && (
                                 <p className="text-xs text-slate-700 font-medium italic leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 whitespace-pre-line">
-                                  {group.instructions}
+                                  {renderCleanMarkdown(group.instructions)}
                                 </p>
                               )}
 
@@ -3556,7 +3558,7 @@ export const AssignmentsView: React.FC = () => {
                                     {group.groupType === 'note_completion' ? 'Notes with Blanks' : 'Text / Summary with Blanks'}:
                                   </div>
                                   <div className="text-sm font-normal text-slate-800 leading-relaxed whitespace-pre-line">
-                                    {group.groupText.split(/(\[\d+\])/g).map((chunk, i) => {
+                                    {cleanReadingText(group.groupText).split(/(\[\d+\])/g).map((chunk, i) => {
                                       const match = chunk.match(/^\[(\d+)\]$/);
                                       if (match) {
                                         return (
@@ -3568,7 +3570,7 @@ export const AssignmentsView: React.FC = () => {
                                           </span>
                                         );
                                       }
-                                      return <span key={i}>{chunk}</span>;
+                                      return <span key={i}>{renderCleanMarkdown(chunk)}</span>;
                                     })}
                                   </div>
                                 </div>
@@ -3943,7 +3945,7 @@ export const AssignmentsView: React.FC = () => {
                                     </div>
                                   </div>
 
-                                  <p className="font-semibold text-slate-800 text-sm leading-relaxed whitespace-pre-line">{displayPrompt}</p>
+                                  <p className="font-semibold text-slate-800 text-sm leading-relaxed whitespace-pre-line">{renderCleanMarkdown(displayPrompt, idx + 1)}</p>
 
                                   {/* Word limit note if applicable */}
                                   {(instructionText || (maxWords && !group.wordLimit)) && (
