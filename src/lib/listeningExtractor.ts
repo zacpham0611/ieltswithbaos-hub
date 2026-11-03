@@ -7,6 +7,24 @@ import type {
 } from '../types/index.ts';
 
 /**
+ * Strips raw HTML entities, escaped characters, and SVG artifacts from listening text
+ */
+export function cleanListeningText(text?: string): string {
+  if (!text) return '';
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    .replace(/svgFlag/gi, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+}
+
+/**
  * Extracts questions, groups, and parts from raw listening test text (PDF / DOCX transcript / test papers).
  */
 export function parseListeningDocument(

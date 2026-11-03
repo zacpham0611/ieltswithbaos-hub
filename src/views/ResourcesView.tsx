@@ -38,12 +38,14 @@ import {
   ChevronDown,
   PenTool,
   Mic,
+  FileAudio,
 } from 'lucide-react';
 import { ListeningImportModal } from '../components/ListeningImportModal';
 import { WritingImportModal } from '../components/WritingImportModal';
 import { MergePassagesModal } from '../components/MergePassagesModal';
 import { ReadingResourceEditorModal } from '../components/ReadingResourceEditorModal';
 import { ListeningResourceEditorModal } from '../components/ListeningResourceEditorModal';
+import { BulkAudioUploadModal } from '../components/BulkAudioUploadModal';
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
 );
@@ -86,6 +88,7 @@ export const ResourcesView: React.FC = () => {
   const [activeFolderForAction, setActiveFolderForAction] = useState<MaterialFolder | null>(null);
   const [folderInputName, setFolderInputName] = useState('');
   const [folderTargetParentId, setFolderTargetParentId] = useState<string | null>(null);
+  const [folderDeleteCascade, setFolderDeleteCascade] = useState<boolean>(true);
 
   // Resource Move Modal State
   const [resourceToMove, setResourceToMove] = useState<Resource | null>(null);
@@ -103,6 +106,7 @@ export const ResourcesView: React.FC = () => {
   const [showSmartImportModal, setShowSmartImportModal] = useState(false);
   const [showListeningImportModal, setShowListeningImportModal] = useState(false);
   const [showWritingImportModal, setShowWritingImportModal] = useState(false);
+  const [showBulkAudioModal, setShowBulkAudioModal] = useState(false);
 
   // Merge 3 Passages into a Reading Test State
   const [selectedPassageIdsForMerge, setSelectedPassageIdsForMerge] = useState<string[]>([]);
@@ -302,18 +306,26 @@ export const ResourcesView: React.FC = () => {
     setActiveFolderForAction(null);
   };
 
-  const handleDeleteFolderSafe = async (folderId: string) => {
+  const handleDeleteFolderSafe = async (folderId: string, cascade = true) => {
     const target = folders.find((f) => f.id === folderId);
     if (!target) return;
     const descendants = getDescendantFolderIds(folderId, folders);
     const allTargetIds = new Set([folderId, ...descendants]);
 
-    // Unfile all resources belonging to target or its descendants (physical Supabase files are safe)
     const affectedResources = resources.filter(
       (r) => (r.folderId && allTargetIds.has(r.folderId)) || (r.folder && r.folder.toLowerCase() === target.name.toLowerCase())
     );
-    for (const res of affectedResources) {
-      await updateResource(res.id, { folder: undefined, folderId: null });
+
+    if (cascade) {
+      // Recursively delete all nested items and DB records
+      for (const res of affectedResources) {
+        await deleteResource(res.id);
+      }
+    } else {
+      // Unfile resources to root
+      for (const res of affectedResources) {
+        await updateResource(res.id, { folder: undefined, folderId: null });
+      }
     }
 
     const remainingFolders = folders.filter((f) => !allTargetIds.has(f.id));
@@ -2043,55 +2055,102 @@ export const ResourcesView: React.FC = () => {
         </Portal>
       )}
 
-      {/* SAFE DELETE FOLDER MODAL */}
-      {folderModalAction === 'delete' && activeFolderForAction && (
-        <Portal containerId="modal-root">
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-sm font-bold text-slate-900">Xóa thư mục an toàn</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Bạn có chắc chắn muốn xóa thư mục <strong className="text-slate-900">"{activeFolderForAction.name}"</strong>?
-                  </p>
-                </div>
-              </div>
+      {/* SAFE / CASCADE DELETE FOLDER MODAL */}
+      {folderModalAction === 'delete' && activeFolderForAction && (() => {
+        const descendants = getDescendantFolderIds(activeFolderForAction.id, folders);
+        const allTargetIds = new Set([activeFolderForAction.id, ...descendants]);
+        const affectedResources = resources.filter(
+          (r) => (r.folderId && allTargetIds.has(r.folderId)) || (r.folder && r.folder.toLowerCase() === activeFolderForAction.name.toLowerCase())
+        );
 
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
-                <div className="font-bold flex items-center gap-1.5">
-                  <span>🛡️ Bảo toàn tệp tin và dữ liệu bài thi:</span>
+        return (
+          <Portal containerId="modal-root">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-bold text-slate-900">Xóa thư mục</h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Bạn có chắc chắn muốn xóa thư mục <strong className="text-slate-900">&quot;{activeFolderForAction.name}&quot;</strong>?
+                    </p>
+                  </div>
                 </div>
-                <p className="text-[11px] leading-relaxed">
-                  Tất cả tài liệu bên trong thư mục này (và các thư mục con) sẽ tự động được <strong>chuyển ra Thư viện gốc (Root)</strong> mà không bị xóa bỏ. Tệp tin vật lý trên lưu trữ Supabase Storage hoàn toàn không bị ảnh hưởng.
-                </p>
-              </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFolderModalAction(null);
-                    setActiveFolderForAction(null);
-                  }}
-                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteFolderSafe(activeFolderForAction.id)}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
-                >
-                  Xác nhận xóa thư mục
-                </button>
+                <div className="p-3 bg-red-50 rounded-xl border border-red-200 text-xs text-red-900 space-y-2">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <span>⚠️ Thư mục và nội dung ảnh hưởng:</span>
+                  </div>
+                  <ul className="text-[11px] list-disc list-inside space-y-0.5 text-red-800">
+                    <li>Thư mục con bị xóa: <strong>{descendants.size}</strong> thư mục</li>
+                    <li>Tài liệu / bài thi bị ảnh hưởng: <strong>{affectedResources.length}</strong> mục</li>
+                  </ul>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl border border-red-200 bg-red-50/40 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="folderDeleteMode"
+                      checked={folderDeleteCascade}
+                      onChange={() => setFolderDeleteCascade(true)}
+                      className="mt-0.5 text-red-600 focus:ring-red-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-red-950 block">
+                        Xóa toàn bộ thư mục con và tài liệu (Cascade Delete)
+                      </span>
+                      <span className="text-[11px] text-red-800 block">
+                        Xóa đệ quy toàn bộ thư mục lồng nhau, tài liệu và các bản ghi CSDL liên quan.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="folderDeleteMode"
+                      checked={!folderDeleteCascade}
+                      onChange={() => setFolderDeleteCascade(false)}
+                      className="mt-0.5 text-slate-600 focus:ring-slate-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">
+                        Chỉ xóa thư mục, giữ lại tài liệu (Unfile to Root)
+                      </span>
+                      <span className="text-[11px] text-slate-600 block">
+                        Chuyển tất cả tài liệu bên trong ra Thư viện gốc mà không xóa dữ liệu.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFolderModalAction(null);
+                      setActiveFolderForAction(null);
+                    }}
+                    className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteFolderSafe(activeFolderForAction.id, folderDeleteCascade)}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                  >
+                    Xác nhận xóa
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        </Portal>
-      )}
+          </Portal>
+        );
+      })()}
 
       {/* MOVE MATERIAL MODAL */}
       {resourceToMove && (
@@ -2289,6 +2348,29 @@ export const ResourcesView: React.FC = () => {
                     </div>
                   </div>
                 </button>
+
+                {/* Bulk Audio Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSkillSelectModal(false);
+                    setShowBulkAudioModal(true);
+                  }}
+                  className="w-full text-left p-3.5 bg-white rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50/40 hover:shadow-sm transition-all flex items-start space-x-3.5 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform shadow-xs">
+                    <FileAudio className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-xs group-hover:text-purple-700">Tải lên hàng loạt Audio (Bulk Upload)</span>
+                      <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">Batch Upload</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Tải lên song song nhiều file audio với hàng đợi thông minh, theo dõi tiến độ từng file và tự động thử lại khi lỗi kết nối.
+                    </div>
+                  </div>
+                </button>
               </div>
 
               <div className="px-6 py-3 bg-white border-t border-slate-100 flex justify-end">
@@ -2335,6 +2417,15 @@ export const ResourcesView: React.FC = () => {
           onClose={() => setShowWritingImportModal(false)}
           targetFolderId={currentFolderId}
           targetFolderName={currentFolder ? currentFolder.name : undefined}
+        />
+      )}
+
+      {/* Bulk Audio Upload Modal */}
+      {showBulkAudioModal && (
+        <BulkAudioUploadModal
+          isOpen={showBulkAudioModal}
+          onClose={() => setShowBulkAudioModal(false)}
+          folder="audio"
         />
       )}
 

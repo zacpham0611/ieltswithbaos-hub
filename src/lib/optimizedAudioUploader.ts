@@ -1,10 +1,19 @@
 import { supabase, isSupabaseConfigured } from './supabase.ts';
 
+export type AudioUploadStatus =
+  | 'queued'
+  | 'uploading'
+  | 'processing'
+  | 'finalizing'
+  | 'completed'
+  | 'failed'
+  | 'retrying';
+
 export interface AudioUploadProgress {
   loaded: number;
   total: number;
   percentage: number;
-  status: 'uploading' | 'processing' | 'completed' | 'failed' | 'retrying';
+  status: AudioUploadStatus;
   speedBytesPerSec?: number;
   chunkIndex?: number;
   totalChunks?: number;
@@ -425,10 +434,17 @@ export async function uploadViaTusResumable(
     loaded: totalSize,
     total: totalSize,
     percentage: 100,
-    status: 'completed',
+    status: 'finalizing',
   });
 
   const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+
+  onProgress?.({
+    loaded: totalSize,
+    total: totalSize,
+    percentage: 100,
+    status: 'completed',
+  });
   return publicUrlData.publicUrl;
 }
 
@@ -504,10 +520,17 @@ export async function uploadViaStandardProgress(
             loaded: totalSize,
             total: totalSize,
             percentage: 100,
-            status: 'completed',
+            status: 'finalizing',
           });
 
           const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+
+          onProgress?.({
+            loaded: totalSize,
+            total: totalSize,
+            percentage: 100,
+            status: 'completed',
+          });
           return publicUrlData.publicUrl;
         }
 
@@ -543,9 +566,15 @@ export async function uploadViaStandardProgress(
           loaded: totalSize,
           total: totalSize,
           percentage: 100,
-          status: 'completed',
+          status: 'finalizing',
         });
         const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+        onProgress?.({
+          loaded: totalSize,
+          total: totalSize,
+          percentage: 100,
+          status: 'completed',
+        });
         return publicUrlData.publicUrl;
       }
 

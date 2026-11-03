@@ -1196,7 +1196,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               .from('regular_tests')
               .select('*')
               .in('course_id', approvedCourseIds)
-              .eq('status', 'published')
+              .in('status', ['live', 'scheduled', 'completed', 'closed'])
               .order('created_at', { ascending: false });
 
             if (rtData) {
@@ -3198,12 +3198,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // REGULAR TESTS & STRICT EXAM MODE ACTIONS
   // =============================================================================
 
+  // Helper for generating standard UUID v4 matching PostgreSQL UUID column requirements
+  const generateUUID = (): string => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  };
+
   const createRegularTest = async (testData: Partial<RegularTest>): Promise<RegularTest> => {
     if (!currentUser || currentUser.role !== 'teacher') {
       throw new Error('Only teachers can create regular tests');
     }
 
-    const testId = `test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const isUUID = (str?: string) =>
+      Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+    const testId = isUUID(testData.id) ? testData.id! : generateUUID();
     const preset = testData.strictPreset || 'standard';
     const strictSettings = testData.strictSettings || getStrictSettingsForPreset(preset);
 
@@ -3246,7 +3260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     try {
-      await supabase.from('regular_tests').insert({
+      const { error: insertError } = await supabase.from('regular_tests').insert({
         id: newTest.id,
         course_id: newTest.courseId,
         teacher_id: newTest.teacherId,
@@ -3270,8 +3284,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         release_settings: newTest.releaseSettings,
         sections: newTest.sections,
       });
-    } catch (err) {
-      console.warn('Regular test DB insert notice:', err);
+
+      if (insertError) {
+        console.error('Failed to create regular test in database:', insertError);
+        throw new Error(`Không thể lưu bài kiểm tra vào cơ sở dữ liệu: ${insertError.message}`);
+      }
+    } catch (err: any) {
+      console.error('Regular test creation error:', err);
+      throw err;
     }
 
     setRegularTests((prev) => [newTest, ...prev]);
@@ -3294,11 +3314,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     try {
-      const dbUpdates: any = { ...updates, updated_at: new Date().toISOString() };
-      if (updatedHash) dbUpdates.access_code_hash = updatedHash;
-      await supabase.from('regular_tests').update(dbUpdates).eq('id', id);
-    } catch (err) {
-      console.warn('Regular test DB update notice:', err);
+      const dbUpdates: any = { updated_at: new Date().toISOString() };
+      if (updates.title !== undefined) dbUpdates.title = updates.title;
+      if (updates.instructions !== undefined) dbUpdates.instructions = updates.instructions;
+      if (updates.courseId !== undefined) dbUpdates.course_id = updates.courseId;
+      if (updates.skills !== undefined) dbUpdates.skills = updates.skills;
+      if (updates.availabilityStart !== undefined) dbUpdates.availability_start = updates.availabilityStart || null;
+      if (updates.availabilityEnd !== undefined) dbUpdates.availability_end = updates.availabilityEnd || null;
+      if (updates.hardDeadline !== undefined) dbUpdates.hard_deadline = updates.hardDeadline || null;
+      if (updates.durationMinutes !== undefined) dbUpdates.duration_minutes = updates.durationMinutes;
+      if (updates.timingMode !== undefined) dbUpdates.timing_mode = updates.timingMode;
+      if (updates.sectionTimers !== undefined) dbUpdates.section_timers = updates.sectionTimers;
+      if (updates.eligibleStudentIds !== undefined) dbUpdates.eligible_student_ids = updates.eligibleStudentIds;
+      if (updates.maxAttempts !== undefined) dbUpdates.max_attempts = updates.maxAttempts;
+      if (updates.accessCodeEnabled !== undefined) dbUpdates.access_code_enabled = updates.accessCodeEnabled;
+      if (updatedHash !== undefined) dbUpdates.access_code_hash = updatedHash;
+      if (updates.strictPreset !== undefined) dbUpdates.strict_preset = updates.strictPreset;
+      if (updates.strictSettings !== undefined) dbUpdates.strict_settings = updates.strictSettings;
+      if (updates.status !== undefined) dbUpdates.status = updates.status;
+      if (updates.currentVersion !== undefined) dbUpdates.current_version = updates.currentVersion;
+      if (updates.releaseSettings !== undefined) dbUpdates.release_settings = updates.releaseSettings;
+      if (updates.sections !== undefined) dbUpdates.sections = updates.sections;
+
+      const { error: updateError } = await supabase.from('regular_tests').update(dbUpdates).eq('id', id);
+      if (updateError) {
+        console.error('Failed to update regular test in database:', updateError);
+        throw new Error(`Không thể cập nhật bài kiểm tra trong cơ sở dữ liệu: ${updateError.message}`);
+      }
+    } catch (err: any) {
+      console.error('Regular test update error:', err);
+      throw err;
     }
   };
 
@@ -3311,25 +3356,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const startTime = test.availabilityStart ? new Date(test.availabilityStart) : null;
     const newStatus: RegularTestStatus = startTime && startTime > now ? 'scheduled' : 'live';
 
-    // Create immutable version snapshot
+    // Create immutable version snapshot in regular_test_versions matching actual DB columns
     try {
-      await supabase.from('regular_test_versions').insert({
+      const { error: versionError } = await supabase.from('regular_test_versions').insert({
         test_id: id,
         version_number: nextVersion,
-        frozen_payload: {
+        sections: test.sections || [],
+        instructions: test.instructions || '',
+        config_snapshot: {
           title: test.title,
           instructions: test.instructions,
           skills: test.skills,
-          sections: test.sections,
           durationMinutes: test.durationMinutes,
           timingMode: test.timingMode,
           sectionTimers: test.sectionTimers,
           strictPreset: test.strictPreset,
           strictSettings: test.strictSettings,
         },
+        created_by: currentUser?.id,
       });
 
-      await supabase
+      if (versionError) {
+        console.warn('Regular test version snapshot warning:', versionError);
+      }
+
+      const { error: pubError } = await supabase
         .from('regular_tests')
         .update({
           status: newStatus,
@@ -3337,8 +3388,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           updated_at: new Date().toISOString(),
         })
         .eq('id', id);
-    } catch (err) {
-      console.warn('Publish test DB notice:', err);
+
+      if (pubError) {
+        console.error('Failed to publish regular test:', pubError);
+        throw new Error(`Không thể xuất bản bài kiểm tra: ${pubError.message}`);
+      }
+    } catch (err: any) {
+      console.error('Publish regular test error:', err);
+      throw err;
     }
 
     setRegularTests((prev) =>

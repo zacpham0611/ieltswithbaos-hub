@@ -23,6 +23,7 @@ import {
   findAssociatedPart3GroupsForCards as findSharedAssociatedPart3GroupsForCards,
   getSpeakingResourceDetails as getSharedSpeakingResourceDetails,
 } from '../../utils/speakingLinkage';
+import { LibraryFolderBrowser } from '../../components/LibraryFolderBrowser';
 import {
   ShieldCheck,
   Plus,
@@ -211,73 +212,13 @@ export const TeacherRegularTestsView: React.FC = () => {
     return { topics, cueCards, groups, questions };
   };
 
-  // Helper to find all Part 3 groups associated with given cue cards across the speaking library
+  // Helper to find Part 3 groups strictly linked to given cue cards across the speaking library
   const findAssociatedPart3GroupsForCards = (
     cards: Array<{ id?: string; topic: string }>,
-    currentResource?: any
+    currentResource?: any,
+    allRes?: any[]
   ): { matchedGroups: SpeakingPart3Group[]; companionResource: any | null } => {
-    if (!cards || cards.length === 0) return { matchedGroups: [], companionResource: null };
-
-    const poolWithResource: Array<{ group: SpeakingPart3Group; res: any }> = [];
-
-    // 1. Check current resource
-    if (currentResource) {
-      const details = getSpeakingResourceDetails(currentResource);
-      details.groups.forEach((g) => poolWithResource.push({ group: g, res: currentResource }));
-    }
-
-    // 2. Check all resources
-    const currentBaseName = currentResource?.title
-      ? currentResource.title.replace(/\s*-\s*Speaking Part \d.*$/i, '').trim().toLowerCase()
-      : '';
-    const currentDocName = (currentResource?.sourceDocumentName || '').trim().toLowerCase();
-
-    resources.forEach((r) => {
-      if (currentResource && r.id === currentResource.id) return;
-      const details = getSpeakingResourceDetails(r);
-      if (details.groups && details.groups.length > 0) {
-        details.groups.forEach((g) => poolWithResource.push({ group: g, res: r }));
-      }
-    });
-
-    const matched: SpeakingPart3Group[] = [];
-    let companionRes: any | null = null;
-
-    poolWithResource.forEach(({ group: g, res: r }) => {
-      const gTopic = (g.cueCardTopic || '').toLowerCase().trim();
-      const isCardMatch = cards.some((card) => {
-        const cardTopic = (card.topic || '').toLowerCase().trim();
-        const cardId = (card as any).id;
-        if (g.cueCardId && cardId && g.cueCardId === cardId) return true;
-        if (gTopic && cardTopic) {
-          if (
-            cardTopic.includes(gTopic.slice(0, 15)) ||
-            gTopic.includes(cardTopic.slice(0, 15)) ||
-            cardTopic === gTopic
-          ) {
-            return true;
-          }
-        }
-        return false;
-      });
-
-      const rBaseName = (r.title || '').replace(/\s*-\s*Speaking Part \d.*$/i, '').trim().toLowerCase();
-      const rDocName = (r.sourceDocumentName || '').trim().toLowerCase();
-      const isCompanionDoc =
-        (currentDocName && rDocName && currentDocName === rDocName) ||
-        (currentBaseName && rBaseName && currentBaseName === rBaseName);
-
-      if (isCardMatch || (isCompanionDoc && (!g.cueCardTopic || isCardMatch))) {
-        if (!matched.some((m) => m.id === g.id || (m.cueCardTopic === g.cueCardTopic && m.questions?.length === g.questions?.length))) {
-          matched.push(g);
-          if (!companionRes && r.id !== currentResource?.id) {
-            companionRes = r;
-          }
-        }
-      }
-    });
-
-    return { matchedGroups: matched, companionResource: companionRes };
+    return findSharedAssociatedPart3GroupsForCards(cards, currentResource, allRes || resources);
   };
 
   // Filtered Tests
@@ -427,6 +368,57 @@ export const TeacherRegularTestsView: React.FC = () => {
 
   const removeSection = (idx: number) => {
     setFormSections((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // 0. Listening Import from Materials Library
+  const handleSelectListeningFromLibrary = (res: any) => {
+    let parsed: any = res.listeningContent;
+    const rawContent: any = res.content;
+    if (!parsed && rawContent) {
+      if (typeof rawContent === 'object' && (rawContent.parts || rawContent.listeningContent)) {
+        parsed = rawContent.listeningContent || rawContent;
+      } else if (typeof rawContent === 'string') {
+        try {
+          const json = JSON.parse(rawContent);
+          if (json.parts || json.listeningContent) {
+            parsed = json.listeningContent || json;
+          }
+        } catch {
+          parsed = parseListeningDocument(rawContent, res.title);
+        }
+      }
+    }
+    if (!parsed || !parsed.parts || parsed.parts.length === 0) {
+      parsed = parseListeningDocument(
+        typeof res.content === 'string' && res.content.trim().length > 20
+          ? res.content
+          : res.description || res.title || '',
+        res.title
+      );
+    }
+    const newSec: RegularTestSection = {
+      id: `sec_listening_${Date.now()}`,
+      title: res.title,
+      skill: 'listening',
+      durationMinutes: 30,
+      audioUrl: res.audioUrl || res.url || parsed?.audioUrl || '',
+      listeningAudioUrl: res.audioUrl || res.url || parsed?.audioUrl || '',
+      listeningParts: parsed?.parts || [],
+      listeningQuestions:
+        parsed?.parts?.flatMap((p: any) =>
+          p.questions?.length
+            ? p.questions
+            : (p.questionGroups || []).flatMap((g: any) => g.questions || [])
+        ) || (parsed as any)?.questions || [],
+      listeningQuestionGroups:
+        parsed?.parts?.flatMap((p: any) => p.questionGroups || []) ||
+        (parsed as any)?.questionGroups || [],
+      questionGroups:
+        parsed?.parts?.flatMap((p: any) => p.questionGroups || []) ||
+        (parsed as any)?.questionGroups || [],
+    };
+    setFormSections((prev) => [newSec, ...prev.filter((s) => s.skill !== 'listening')]);
+    setShowListeningPicker(false);
   };
 
   // 1. Reading Import from Materials Library
@@ -845,7 +837,7 @@ export const TeacherRegularTestsView: React.FC = () => {
 
       // Automatically retrieve question groups associated with selected cue cards
       const matchedGroups: SpeakingPart3Group[] = [];
-      const associationResult = findAssociatedPart3GroupsForCards(chosenCards, selectedSpeakingResource);
+      const associationResult = findAssociatedPart3GroupsForCards(chosenCards, selectedSpeakingResource, resources);
       if (associationResult.matchedGroups.length > 0) {
         matchedGroups.push(...associationResult.matchedGroups);
       } else {
@@ -918,10 +910,16 @@ export const TeacherRegularTestsView: React.FC = () => {
       });
     } else if (speakingPickerPart === 'part3') {
       const existingPart2 = formSections.find((s) => s.skill === 'speaking' && s.speakingPart === 'part2');
+      const selectedCards = existingPart2?.speakingCueCards || (existingPart2?.speakingCueCard ? [existingPart2.speakingCueCard] : []);
+      const association = selectedCards.length > 0
+        ? findAssociatedPart3GroupsForCards(selectedCards, selectedSpeakingResource, resources)
+        : { matchedGroups: [] };
+      const linkedGroups = association.matchedGroups;
+      const sourceGroups = selectedCards.length > 0 && linkedGroups.length > 0 ? linkedGroups : details.groups;
 
       // Filter groups and questions selected by the teacher
       const finalGroups: SpeakingPart3Group[] = [];
-      details.groups.forEach((grp: any, gIdx: number) => {
+      sourceGroups.forEach((grp: any, gIdx: number) => {
         const isGroupSelected = Boolean(selectedPart3GroupIndices[gIdx]);
         const checkedQuestions = (grp.questions || []).filter((_: string, qIdx: number) => {
           const itemVal = selectedPart3QuestionGroupItems[`${gIdx}_${qIdx}`];
@@ -1952,7 +1950,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                     <Headphones className="w-5 h-5 text-emerald-400" />
                     <div>
                       <h3 className="font-bold text-sm">Chọn bài Listening từ Thư viện tài liệu</h3>
-                      <p className="text-[11px] text-slate-400">Chọn đề thi Listening có sẵn từ Thư viện</p>
+                      <p className="text-[11px] text-slate-400">Khám phá theo cây thư mục và chọn đề thi Listening</p>
                     </div>
                   </div>
                   <button
@@ -1963,103 +1961,12 @@ export const TeacherRegularTestsView: React.FC = () => {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-
-                <div className="p-4 border-b border-slate-100 bg-slate-50 shrink-0">
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Tìm kiếm tài liệu Listening theo tiêu đề, danh mục..."
-                      value={listeningPickerSearch}
-                      onChange={(e) => setListeningPickerSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-5 space-y-2.5">
-                  {filteredListeningResources.length === 0 ? (
-                    <div className="p-12 text-center text-slate-400 text-xs space-y-1">
-                      <Headphones className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                      <div>Không tìm thấy tài liệu Listening trong Thư viện.</div>
-                      <p className="text-[11px] text-slate-500">
-                        Bạn có thể sử dụng nút &quot;+ Cấu hình Listening&quot; để tạo đề nhanh với file audio và bộ câu hỏi.
-                      </p>
-                    </div>
-                  ) : (
-                    filteredListeningResources.map((res) => (
-                      <div
-                        key={res.id}
-                        className="p-3.5 bg-white rounded-xl border border-slate-200 hover:border-emerald-400 hover:shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <h5 className="font-bold text-slate-900 truncate">{res.title}</h5>
-                          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
-                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold uppercase text-[9px]">
-                              {res.category || 'Listening'}
-                            </span>
-                            {res.audioUrl && <span>• Audio available</span>}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            let parsed: any = res.listeningContent;
-                            const rawContent: any = res.content;
-                            if (!parsed && rawContent) {
-                              if (typeof rawContent === 'object' && (rawContent.parts || rawContent.listeningContent)) {
-                                parsed = rawContent.listeningContent || rawContent;
-                              } else if (typeof rawContent === 'string') {
-                                try {
-                                  const json = JSON.parse(rawContent);
-                                  if (json.parts || json.listeningContent) {
-                                    parsed = json.listeningContent || json;
-                                  }
-                                } catch {
-                                  parsed = parseListeningDocument(rawContent, res.title);
-                                }
-                              }
-                            }
-                            if (!parsed || !parsed.parts || parsed.parts.length === 0) {
-                              parsed = parseListeningDocument(
-                                typeof res.content === 'string' && res.content.trim().length > 20
-                                  ? res.content
-                                  : res.description || res.title || '',
-                                res.title
-                              );
-                            }
-                            const newSec: RegularTestSection = {
-                              id: `sec_listening_${Date.now()}`,
-                              title: res.title,
-                              skill: 'listening',
-                              durationMinutes: 30,
-                              audioUrl: res.audioUrl || res.url || parsed.audioUrl || '',
-                              listeningAudioUrl: res.audioUrl || res.url || parsed.audioUrl || '',
-                              listeningParts: parsed.parts || [],
-                              listeningQuestions:
-                                parsed.parts?.flatMap((p: any) =>
-                                  p.questions?.length
-                                    ? p.questions
-                                    : (p.questionGroups || []).flatMap((g: any) => g.questions || [])
-                                ) || (parsed as any).questions || [],
-                              listeningQuestionGroups:
-                                parsed.parts?.flatMap((p: any) => p.questionGroups || []) ||
-                                (parsed as any).questionGroups || [],
-                              questionGroups:
-                                parsed.parts?.flatMap((p: any) => p.questionGroups || []) ||
-                                (parsed as any).questionGroups || [],
-                            };
-                            setFormSections((prev) => [newSec, ...prev.filter((s) => s.skill !== 'listening')]);
-                            setShowListeningPicker(false);
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition whitespace-nowrap"
-                        >
-                          Chọn vào đề thi
-                        </button>
-                      </div>
-                    ))
-                  )}
+                <div className="flex-1 overflow-hidden p-5 flex flex-col min-h-[380px]">
+                  <LibraryFolderBrowser
+                    resources={resources.filter((r) => r.skill === 'listening')}
+                    onSelectResource={(res) => handleSelectListeningFromLibrary(res)}
+                    emptyMessage="Không tìm thấy tài liệu Listening trong thư mục này."
+                  />
                 </div>
               </div>
             </div>
@@ -2184,7 +2091,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                     <BookOpen className="w-5 h-5 text-blue-400" />
                     <div>
                       <h3 className="font-bold text-sm">Chọn bài Reading từ Thư viện tài liệu (Materials Library)</h3>
-                      <p className="text-[11px] text-slate-400">Xem trước hoặc nhập trực tiếp đề thi Reading</p>
+                      <p className="text-[11px] text-slate-400">Xem trước hoặc nhập trực tiếp đề thi Reading theo thư mục</p>
                     </div>
                   </div>
                   <button
@@ -2195,65 +2102,22 @@ export const TeacherRegularTestsView: React.FC = () => {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-
-                {/* Search Bar */}
-                <div className="p-4 border-b border-slate-100 bg-slate-50 shrink-0">
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Tìm kiếm tài liệu Reading theo tiêu đề, danh mục, từ khóa..."
-                      value={readingPickerSearch}
-                      onChange={(e) => setReadingPickerSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-5 space-y-2.5">
-                  {filteredReadingResources.length === 0 ? (
-                    <div className="p-12 text-center text-slate-400 text-xs space-y-1">
-                      <BookOpen className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                      <div>Không tìm thấy tài liệu Reading phù hợp.</div>
-                      <p className="text-[11px] text-slate-500">Hãy thêm tài liệu tại trang Materials Library hoặc thử từ khóa khác.</p>
-                    </div>
-                  ) : (
-                    filteredReadingResources.map((res) => (
-                      <div
-                        key={res.id}
-                        className="p-3.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                <div className="flex-1 overflow-hidden p-5 flex flex-col min-h-[380px]">
+                  <LibraryFolderBrowser
+                    resources={resources.filter((r) => r.skill === 'reading')}
+                    onSelectResource={(res) => handleImportReadingResource(res)}
+                    renderExtraActions={(res) => (
+                      <button
+                        type="button"
+                        onClick={() => handlePreviewLibraryResource(res)}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
                       >
-                        <div className="flex-1 pr-3 min-w-0">
-                          <div className="font-bold text-slate-800 text-xs truncate">
-                            {res.title}
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-semibold">{res.category || 'Reading Material'}</span>
-                            {res.tags && res.tags.length > 0 && <span>• {res.tags.join(', ')}</span>}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handlePreviewLibraryResource(res)}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs flex items-center gap-1 transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            Xem trước
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleImportReadingResource(res)}
-                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-2xs transition-colors"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            Chọn đề này
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                        <Eye className="w-3.5 h-3.5" />
+                        Xem trước
+                      </button>
+                    )}
+                    emptyMessage="Không tìm thấy tài liệu Reading phù hợp trong thư mục này."
+                  />
                 </div>
               </div>
             </div>
@@ -2633,89 +2497,17 @@ export const TeacherRegularTestsView: React.FC = () => {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-
-                <div className="p-4 border-b border-slate-200 bg-slate-50 shrink-0">
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Tìm kiếm theo tên đề bài Writing, Task 1, Task 2..."
-                      value={writingPickerSearch}
-                      onChange={(e) => setWritingPickerSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-xl text-xs bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="p-6 overflow-y-auto flex-1 space-y-3">
-                  {(() => {
-                    const writingResources = resources.filter((r) => {
-                      const isWriting = r.skill === 'writing' || (r as any).type === 'writing' || (r.title && r.title.toLowerCase().includes('writing'));
-                      if (!isWriting) return false;
-                      if (!writingPickerSearch.trim()) return true;
-                      const q = writingPickerSearch.toLowerCase();
-                      return (
-                        r.title.toLowerCase().includes(q) ||
-                        (r.description || '').toLowerCase().includes(q) ||
-                        (r.content || '').toLowerCase().includes(q)
-                      );
-                    });
-
-                    if (writingResources.length === 0) {
-                      return (
-                        <div className="p-10 text-center border-2 border-dashed border-slate-200 rounded-xl space-y-2">
-                          <PenTool className="w-8 h-8 text-slate-300 mx-auto" />
-                          <div className="text-xs font-semibold text-slate-600">Không tìm thấy tài liệu Writing nào trong Thư viện</div>
-                          <p className="text-[11px] text-slate-400">Vui lòng import thêm đề Writing vào Resources hoặc soạn thủ công.</p>
-                        </div>
-                      );
-                    }
-
-                    return writingResources.map((res) => {
-                      let promptPreview = res.description || res.title;
-                      let taskCat = 'Task 2';
-                      if (res.content) {
-                        try {
-                          const p = JSON.parse(res.content);
-                          if (p.prompt) promptPreview = p.prompt.slice(0, 140) + '...';
-                          if (p.taskType === 'task1') taskCat = 'Task 1';
-                        } catch {}
-                      }
-                      return (
-                        <div
-                          key={res.id}
-                          className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-all flex items-center justify-between gap-3"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase">
-                                {taskCat}
-                              </span>
-                              <h4 className="font-bold text-xs text-slate-800 truncate">{res.title}</h4>
-                            </div>
-                            <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">{promptPreview}</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleSelectWritingFromLibrary(res)}
-                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0 transition-colors shadow-2xs"
-                          >
-                            Chọn bài này
-                          </button>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-
-                <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setShowWritingPicker(false)}
-                    className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl"
-                  >
-                    Đóng
-                  </button>
+                <div className="flex-1 overflow-hidden p-5 flex flex-col min-h-[380px]">
+                  <LibraryFolderBrowser
+                    resources={resources.filter(
+                      (r) =>
+                        r.skill === 'writing' ||
+                        (r as any).type === 'writing' ||
+                        (r.title && r.title.toLowerCase().includes('writing'))
+                    )}
+                    onSelectResource={(res) => handleSelectWritingFromLibrary(res)}
+                    emptyMessage="Không tìm thấy tài liệu Writing nào trong thư mục này."
+                  />
                 </div>
               </div>
             </div>
@@ -3023,7 +2815,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                             <div className="space-y-2 max-h-60 overflow-y-auto">
                               {details.cueCards.map((card: any, cIdx: number) => {
                                 const isChecked = Boolean(selectedCueCardIndices[cIdx]);
-                                const linkedCheck = findAssociatedPart3GroupsForCards([card], selectedSpeakingResource);
+                                const linkedCheck = findAssociatedPart3GroupsForCards([card], selectedSpeakingResource, resources);
                                 const hasP3 =
                                   linkedCheck.matchedGroups.length > 0 ||
                                   details.groups.some(
@@ -3108,7 +2900,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                         
                         // If test has Part 2, find groups specifically linked to selected cue cards
                         const association = selectedCards.length > 0
-                          ? findAssociatedPart3GroupsForCards(selectedCards, selectedSpeakingResource)
+                          ? findAssociatedPart3GroupsForCards(selectedCards, selectedSpeakingResource, resources)
                           : { matchedGroups: [] };
                         const directlyLinked = details.groups.filter((g: any) =>
                           selectedCards.some((card: any) => {
@@ -3122,7 +2914,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                         );
                         const linkedGroups = directlyLinked.length > 0 ? directlyLinked : association.matchedGroups;
                         const displayGroups = selectedCards.length > 0
-                          ? (details.groups.length > 0 ? linkedGroups : (linkedGroups.length > 0 ? linkedGroups : details.groups))
+                          ? (linkedGroups.length > 0 ? linkedGroups : details.groups)
                           : details.groups;
 
                         return (

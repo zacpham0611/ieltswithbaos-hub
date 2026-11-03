@@ -53,6 +53,7 @@ import {
 import { parseListeningDocument } from '../lib/listeningExtractor';
 import { findAssociatedPart3GroupsForCards, getSpeakingResourceDetails } from '../utils/speakingLinkage';
 import { SpeakingAudioRecorder } from '../components/SpeakingAudioRecorder';
+import { LibraryFolderBrowser } from '../components/LibraryFolderBrowser';
 import {
   extractSpeakingAssignmentDetails,
   unpackSpeakingSubmission,
@@ -1541,9 +1542,11 @@ export const AssignmentsView: React.FC = () => {
     const cards = [{ id: cardId, topic: cueTopic.trim() }];
     const { matchedGroups } = findAssociatedPart3GroupsForCards(cards, sourceRes, resources);
 
+    // Strict 1-to-1 linkage rule: ONE Part 2 cue card must link to EXACTLY ONE Part 3 group
     if (matchedGroups.length > 0) {
-      setFormSpeakingPart3Groups(matchedGroups);
-      setFormSpeakingQuestions(matchedGroups.flatMap((g) => g.questions || []));
+      const singleGroup = matchedGroups.slice(0, 1);
+      setFormSpeakingPart3Groups(singleGroup);
+      setFormSpeakingQuestions(singleGroup[0]?.questions || []);
       return;
     }
 
@@ -1579,8 +1582,9 @@ export const AssignmentsView: React.FC = () => {
           uniqueMatched.push(g);
         }
       });
-      setFormSpeakingPart3Groups(uniqueMatched);
-      setFormSpeakingQuestions(uniqueMatched.flatMap((g) => g.questions || []));
+      const singleGroup = uniqueMatched.slice(0, 1);
+      setFormSpeakingPart3Groups(singleGroup);
+      setFormSpeakingQuestions(singleGroup[0]?.questions || []);
     }
   };
 
@@ -7835,65 +7839,13 @@ export const AssignmentsView: React.FC = () => {
                 </select>
               </div>
 
-              {/* Search Input */}
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search library resources by title, skill, or tag..."
-                  value={librarySearch}
-                  onChange={(e) => setLibrarySearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+              {/* Folder-First Library Browser */}
+              <div className="flex-1 overflow-hidden flex flex-col min-h-[360px]">
+                <LibraryFolderBrowser
+                  resources={resources}
+                  onSelectResource={(res) => handleOpenResourceAssignment(res)}
+                  emptyMessage="Chưa có tài liệu nào trong thư mục này. Bạn có thể nhập tài liệu qua Smart Import."
                 />
-              </div>
-
-              {/* Resources List */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
-                {resources
-                  .filter((r) => {
-                    if (!librarySearch) return true;
-                    const q = librarySearch.toLowerCase();
-                    return (
-                      r.title.toLowerCase().includes(q) ||
-                      (r.tags && r.tags.some((t) => t.toLowerCase().includes(q))) ||
-                      (r.skill && r.skill.toLowerCase().includes(q))
-                    );
-                  })
-                  .map((res) => (
-                    <div
-                      key={res.id}
-                      className="p-3.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/20 transition-all flex items-center justify-between"
-                    >
-                      <div className="space-y-0.5 max-w-[70%]">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm font-bold text-slate-900 truncate">{res.title}</span>
-                          {res.skill && (
-                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              {res.skill}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 truncate">
-                          {res.content ? `${res.content.slice(0, 100)}...` : res.url || 'Library study material'}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        disabled={isImportingFromLibrary}
-                        onClick={() => handleOpenResourceAssignment(res)}
-                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors shrink-0"
-                      >
-                        {isImportingFromLibrary ? 'Assigning...' : 'Assign to Course'}
-                      </button>
-                    </div>
-                  ))}
-
-                {resources.length === 0 && (
-                  <div className="text-center py-10 text-slate-400 text-xs">
-                    No materials found in your resource library yet. You can upload documents via Smart Import.
-                  </div>
-                )}
               </div>
             </div>
           </div>

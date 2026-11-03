@@ -84,13 +84,14 @@ export function getSpeakingResourceDetails(res: any): SpeakingResourceDetails {
 }
 
 /**
- * Searches across the speaking library and companion resources to retrieve all Part 3 groups
- * associated with given Part 2 cue cards. Matches by card ID, topic substring, or companion document naming.
+ * Searches across the speaking library and companion resources to retrieve the Part 3 groups
+ * associated with given Part 2 cue cards.
+ * STRICT 1-to-1 LINKAGE RULE: Each Part 2 cue card links to AT MOST ONE corresponding Part 3 question group.
  */
 export function findAssociatedPart3GroupsForCards(
   cards: Array<{ id?: string; topic: string }>,
   currentResource: any | null | undefined,
-  allResources: any[]
+  allResources?: any[]
 ): { matchedGroups: SpeakingPart3Group[]; companionResource: any | null } {
   if (!cards || cards.length === 0) {
     return { matchedGroups: [], companionResource: null };
@@ -105,11 +106,6 @@ export function findAssociatedPart3GroupsForCards(
   }
 
   // 2. All library resources
-  const currentBaseName = currentResource?.title
-    ? currentResource.title.replace(/\s*-\s*Speaking Part \d.*$/i, '').trim().toLowerCase()
-    : '';
-  const currentDocName = (currentResource?.sourceDocumentName || '').trim().toLowerCase();
-
   (allResources || []).forEach((r) => {
     if (currentResource && r.id === currentResource.id) return;
     const details = getSpeakingResourceDetails(r);
@@ -118,48 +114,63 @@ export function findAssociatedPart3GroupsForCards(
     }
   });
 
-  const matched: SpeakingPart3Group[] = [];
+  const matchedGroups: SpeakingPart3Group[] = [];
+  const matchedGroupIds = new Set<string>();
   let companionRes: any | null = null;
 
-  poolWithResource.forEach(({ group: g, res: r }) => {
-    const gTopic = (g.cueCardTopic || '').toLowerCase().trim();
-    const isCardMatch = cards.some((card) => {
-      const cardTopic = (card.topic || '').toLowerCase().trim();
-      const cardId = (card as any).id;
-      if (g.cueCardId && cardId && g.cueCardId === cardId) return true;
-      if (gTopic && cardTopic) {
-        if (
-          cardTopic.includes(gTopic.slice(0, 15)) ||
-          gTopic.includes(cardTopic.slice(0, 15)) ||
-          cardTopic === gTopic
-        ) {
-          return true;
+  // Enforce strict 1-to-1 linkage: evaluate each card individually to find its single best match
+  for (const card of cards) {
+    const cardId = (card as any).id;
+    const cardTopic = (card.topic || '').trim().toLowerCase();
+    const cleanCardTopic = cardTopic.replace(/^(describe|talk about|a|an|the)\s+/i, '').trim();
+
+    let bestMatch: { group: SpeakingPart3Group; res: any; score: number } | null = null;
+
+    for (const item of poolWithResource) {
+      const g = item.group;
+      const gId = g.id || `g_${g.cueCardTopic || ''}_${(g.questions || []).length}`;
+      if (matchedGroupIds.has(gId)) continue; // Already matched to another card
+
+      let score = 0;
+
+      // 1. Exact ID match (highest priority: score 100)
+      if (cardId && g.cueCardId && g.cueCardId === cardId) {
+        score = 100;
+      } else {
+        const gTopic = (g.cueCardTopic || '').trim().toLowerCase();
+        const cleanGTopic = gTopic.replace(/^(describe|talk about|a|an|the)\s+/i, '').trim();
+
+        if (gTopic && cardTopic) {
+          if (gTopic === cardTopic || cleanGTopic === cleanCardTopic) {
+            score = 90; // Exact topic match
+          } else if (
+            (cleanGTopic.length >= 4 && cleanCardTopic.includes(cleanGTopic)) ||
+            (cleanCardTopic.length >= 4 && cleanGTopic.includes(cleanCardTopic))
+          ) {
+            score = 70; // High substring match
+          } else if (
+            (cleanGTopic.length >= 4 && cleanCardTopic.slice(0, 15) === cleanGTopic.slice(0, 15)) ||
+            (cleanCardTopic.length >= 4 && cleanGTopic.slice(0, 15) === cleanCardTopic.slice(0, 15))
+          ) {
+            score = 50; // Prefix match
+          }
         }
       }
-      return false;
-    });
 
-    const rBaseName = (r.title || '').replace(/\s*-\s*Speaking Part \d.*$/i, '').trim().toLowerCase();
-    const rDocName = (r.sourceDocumentName || '').trim().toLowerCase();
-    const isCompanionDoc =
-      (currentDocName && rDocName && currentDocName === rDocName) ||
-      (currentBaseName && rBaseName && currentBaseName === rBaseName);
-
-    if (isCardMatch || (isCompanionDoc && (!g.cueCardTopic || isCardMatch))) {
-      if (
-        !matched.some(
-          (m) =>
-            m.id === g.id ||
-            (m.cueCardTopic === g.cueCardTopic && m.questions?.length === g.questions?.length)
-        )
-      ) {
-        matched.push(g);
-        if (!companionRes && r.id !== currentResource?.id) {
-          companionRes = r;
-        }
+      if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+        bestMatch = { group: g, res: item.res, score };
       }
     }
-  });
 
-  return { matchedGroups: matched, companionResource: companionRes };
+    if (bestMatch && bestMatch.score >= 50) {
+      const gId = bestMatch.group.id || `g_${bestMatch.group.cueCardTopic || ''}_${(bestMatch.group.questions || []).length}`;
+      matchedGroupIds.add(gId);
+      matchedGroups.push(bestMatch.group);
+      if (!companionRes && currentResource && bestMatch.res.id !== currentResource.id) {
+        companionRes = bestMatch.res;
+      }
+    }
+  }
+
+  return { matchedGroups, companionResource: companionRes };
 }
