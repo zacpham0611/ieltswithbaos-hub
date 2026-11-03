@@ -543,12 +543,22 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
   // Listening state and handlers
   const [activeListeningPartTab, setActiveListeningPartTab] = useState<number>(0);
-  const allListeningQuestions =
-    currentSection?.skill === 'listening'
-      ? currentSection.listeningQuestions && currentSection.listeningQuestions.length > 0
-        ? currentSection.listeningQuestions
-        : (currentSection.listeningParts || []).flatMap((p) => p.questions || [])
-      : [];
+  const allListeningQuestions = (() => {
+    if (currentSection?.skill !== 'listening') return [];
+    if (currentSection.listeningQuestions && currentSection.listeningQuestions.length > 0) {
+      return currentSection.listeningQuestions;
+    }
+    const fromParts = (currentSection.listeningParts || []).flatMap((p) => {
+      if (p.questions && p.questions.length > 0) return p.questions;
+      if (p.questionGroups && p.questionGroups.length > 0) return p.questionGroups.flatMap((g) => g.questions || []);
+      return [];
+    });
+    if (fromParts.length > 0) return fromParts;
+    const fromGroups = (currentSection.listeningQuestionGroups || currentSection.questionGroups || []).flatMap(
+      (g: any) => g.questions || []
+    );
+    return fromGroups;
+  })();
   const answeredListeningCount = allListeningQuestions.filter((q) => answers.listening?.[q.id]?.trim()).length;
 
   const handleListeningAnswerChange = (qId: string, val: string) => {
@@ -798,23 +808,80 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                     const isSectionLocked = (isPerSection && lockedSkills[currentSection?.skill || '']) || submitting;
                     const parts = currentSection.listeningParts || [];
                     const activePart = parts[activeListeningPartTab];
-                    const groupsToRender: ListeningQuestionGroup[] = (activePart?.questionGroups?.length
-                      ? activePart.questionGroups
-                      : currentSection.questionGroups?.length
-                      ? currentSection.questionGroups
-                      : [
-                          {
-                            id: `listen_group_${activeListeningPartTab}`,
-                            type: 'note_completion' as any,
-                            title: `Part ${activeListeningPartTab + 1} Questions`,
-                            instructions: 'Answer the questions as you listen. Write NO MORE THAN TWO WORDS AND/OR A NUMBER.',
-                            wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
-                            questions: (activePart?.questions || currentSection.listeningQuestions || []).slice(
-                              activeListeningPartTab * 10,
-                              (activeListeningPartTab + 1) * 10
-                            ),
-                          },
-                        ]) as ListeningQuestionGroup[];
+
+                    let groupsToRender: ListeningQuestionGroup[] = [];
+                    if (activePart?.questionGroups && activePart.questionGroups.length > 0) {
+                      groupsToRender = activePart.questionGroups;
+                    } else if (activePart?.questions && activePart.questions.length > 0) {
+                      // If activePart has its own scoped questions (typically 10), DO NOT slice by tab index!
+                      const scopedQuestions =
+                        activePart.questions.length > 20
+                          ? activePart.questions.slice(activeListeningPartTab * 10, (activeListeningPartTab + 1) * 10)
+                          : activePart.questions;
+
+                      groupsToRender = [
+                        {
+                          id: `listen_group_${activeListeningPartTab}`,
+                          type: 'note_completion' as any,
+                          title: activePart.title || `Part ${activeListeningPartTab + 1} Questions`,
+                          instructions: activePart.instructions || 'Answer the questions as you listen.',
+                          wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
+                          questions: scopedQuestions,
+                        },
+                      ];
+                    } else {
+                      // Check section-level question groups
+                      const secGroups: ListeningQuestionGroup[] =
+                        currentSection.listeningQuestionGroups?.length
+                          ? currentSection.listeningQuestionGroups
+                          : currentSection.questionGroups?.length
+                          ? (currentSection.questionGroups as any)
+                          : [];
+
+                      if (secGroups.length > 0) {
+                        // Try to filter groups matching this part
+                        const matchedGroups = secGroups.filter((g: any) => {
+                          if (g.partNumber === activeListeningPartTab + 1 || g.partIndex === activeListeningPartTab) {
+                            return true;
+                          }
+                          // Match by question number range (e.g. 1-10 for part 1, 11-20 for part 2)
+                          const minPartQ = activeListeningPartTab * 10 + 1;
+                          const maxPartQ = (activeListeningPartTab + 1) * 10;
+                          const gFirstQ = g.questions?.[0]?.questionNumber || g.questions?.[0]?.number;
+                          if (typeof gFirstQ === 'number' && gFirstQ >= minPartQ && gFirstQ <= maxPartQ) {
+                            return true;
+                          }
+                          return false;
+                        });
+
+                        if (matchedGroups.length > 0) {
+                          groupsToRender = matchedGroups;
+                        } else if (secGroups.length === 4 && secGroups[activeListeningPartTab]) {
+                          groupsToRender = [secGroups[activeListeningPartTab]];
+                        } else {
+                          groupsToRender = secGroups;
+                        }
+                      }
+                    }
+
+                    // Ultimate fallback to sliced section questions
+                    if (groupsToRender.length === 0) {
+                      const questionsPool =
+                        currentSection.listeningQuestions?.length
+                          ? currentSection.listeningQuestions
+                          : allListeningQuestions;
+                      const sliced = questionsPool.slice(activeListeningPartTab * 10, (activeListeningPartTab + 1) * 10);
+                      groupsToRender = [
+                        {
+                          id: `listen_group_${activeListeningPartTab}`,
+                          type: 'note_completion' as any,
+                          title: `Part ${activeListeningPartTab + 1} Questions`,
+                          instructions: 'Answer the questions as you listen.',
+                          wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
+                          questions: sliced.length > 0 ? sliced : questionsPool,
+                        },
+                      ];
+                    }
 
                     return groupsToRender.map((group) => (
                       <ListeningQuestionRenderer
@@ -861,9 +928,13 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         title: `Part ${pNum}`,
                         questions: allListeningQuestions.slice((pNum - 1) * 10, pNum * 10),
                       }))
-                  ).map((part, pIdx) => {
-                    const pQuestions = part.questions || [];
-                    const pAnsCount = pQuestions.filter((q) => answers.listening?.[q.id]?.trim()).length;
+                  ).map((part: any, pIdx) => {
+                    const pQuestions: any[] = (part.questions && part.questions.length > 0)
+                      ? part.questions
+                      : (part.questionGroups && part.questionGroups.length > 0)
+                      ? part.questionGroups.flatMap((g: any) => g.questions || [])
+                      : allListeningQuestions.slice(pIdx * 10, (pIdx + 1) * 10);
+                    const pAnsCount = pQuestions.filter((q: any) => answers.listening?.[q.id]?.trim()).length;
                     const isActive = activeListeningPartTab === pIdx;
 
                     return (
@@ -886,7 +957,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         </div>
 
                         <div className="grid grid-cols-5 gap-1.5">
-                          {pQuestions.map((q, qIndexInPart) => {
+                          {pQuestions.map((q: any, qIndexInPart: number) => {
                             const globalNum = (part as any).partNumber
                               ? ((part as any).partNumber - 1) * 10 + qIndexInPart + 1
                               : pIdx * 10 + qIndexInPart + 1;

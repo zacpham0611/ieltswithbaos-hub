@@ -1477,20 +1477,27 @@ export const AssignmentsView: React.FC = () => {
     if (!cueTopic || !cueTopic.trim()) return;
     const norm = cueTopic.toLowerCase().trim();
 
+    const extractP3 = (res: any): SpeakingPart3Group[] => {
+      let p3: SpeakingPart3Group[] = res.speakingPart3?.groups || res.speakingPart3Groups || [];
+      if (p3.length === 0 && res.content) {
+        if (typeof res.content === 'object' && res.content) {
+          p3 = res.content.groups || res.content.speakingPart3?.groups || [];
+        } else if (typeof res.content === 'string') {
+          try {
+            const parsed = JSON.parse(res.content);
+            p3 = parsed.groups || parsed.speakingPart3?.groups || [];
+          } catch {}
+        }
+      }
+      return p3;
+    };
+
     let pool: SpeakingPart3Group[] = [];
     if (sourceRes) {
-      let p3 = sourceRes.speakingPart3?.groups || [];
-      if (p3.length === 0 && sourceRes.content) {
-        try { p3 = JSON.parse(sourceRes.content).groups || []; } catch {}
-      }
-      pool.push(...p3);
+      pool.push(...extractP3(sourceRes));
     }
     resources.forEach((r) => {
-      let p3 = r.speakingPart3?.groups || [];
-      if (p3.length === 0 && r.content) {
-        try { p3 = JSON.parse(r.content).groups || []; } catch {}
-      }
-      pool.push(...p3);
+      pool.push(...extractP3(r));
     });
 
     const matched = pool.filter((g) => {
@@ -1505,8 +1512,14 @@ export const AssignmentsView: React.FC = () => {
     });
 
     if (matched.length > 0) {
-      setFormSpeakingPart3Groups(matched);
-      setFormSpeakingQuestions(matched.flatMap((g) => g.questions || []));
+      const uniqueMatched: SpeakingPart3Group[] = [];
+      matched.forEach((g) => {
+        if (!uniqueMatched.some((u) => u.id === g.id || (u.cueCardTopic === g.cueCardTopic && u.questions?.length === g.questions?.length))) {
+          uniqueMatched.push(g);
+        }
+      });
+      setFormSpeakingPart3Groups(uniqueMatched);
+      setFormSpeakingQuestions(uniqueMatched.flatMap((g) => g.questions || []));
     }
   };
 
@@ -1521,11 +1534,12 @@ export const AssignmentsView: React.FC = () => {
     const candidateCards: { topic: string; points: string[]; resourceTitle?: string }[] = [];
 
     const inspectResource = (r: any) => {
-      let cueCards: any[] = r.speakingPart2?.cueCards || [];
+      let cueCards: any[] = r.speakingPart2?.cueCards || r.speakingCueCards || [];
+      if (cueCards.length === 0 && r.speakingCueCard) cueCards = [r.speakingCueCard];
       if (cueCards.length === 0 && r.content) {
         try {
           const parsed = typeof r.content === 'string' ? JSON.parse(r.content) : r.content;
-          cueCards = parsed.cueCards || parsed.speakingPart2?.cueCards || [];
+          cueCards = parsed.cueCards || parsed.speakingPart2?.cueCards || (parsed.cueCard ? [parsed.cueCard] : []);
         } catch {}
       }
       cueCards.forEach((c: any) => {

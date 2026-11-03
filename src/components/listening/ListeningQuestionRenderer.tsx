@@ -302,8 +302,18 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
-  const firstQNum = questions[0]?.questionNumber || questions[0]?.number || 1;
-  const lastQNum = questions[questions.length - 1]?.questionNumber || questions[questions.length - 1]?.number || questions.length;
+  const safeQuestions = questions || [];
+  const firstQNum = safeQuestions[0]?.questionNumber || safeQuestions[0]?.number || 1;
+  const lastQNum = safeQuestions[safeQuestions.length - 1]?.questionNumber || safeQuestions[safeQuestions.length - 1]?.number || safeQuestions.length;
+
+  // Render question dynamically based on question's own type or fallback to group type
+  const renderQuestionItem = (q: ListeningQuestion) => {
+    const qType = q.type || type;
+    if (qType === 'multiple_choice') return renderMultipleChoice(q);
+    if (qType === 'multiple_select') return renderMultipleSelect(q);
+    if (qType === 'matching' || qType === 'plan_map_diagram_labelling') return renderMatchingOrLabelling(q);
+    return renderGapFillQuestion(q);
+  };
 
   return (
     <div className="space-y-4 mb-6">
@@ -349,17 +359,15 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         )}
       </div>
 
-      {/* Render Questions based on type */}
+      {/* Render Questions based on individual or group type */}
       <div className="space-y-3">
-        {type === 'multiple_choice' && questions.map(renderMultipleChoice)}
-        {type === 'multiple_select' && questions.map(renderMultipleSelect)}
-        {(type === 'matching' || type === 'plan_map_diagram_labelling') &&
-          questions.map(renderMatchingOrLabelling)}
-        {type !== 'multiple_choice' &&
-          type !== 'multiple_select' &&
-          type !== 'matching' &&
-          type !== 'plan_map_diagram_labelling' &&
-          questions.map(renderGapFillQuestion)}
+        {safeQuestions.length === 0 ? (
+          <div className="p-4 bg-white rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-500">
+            Không có câu hỏi trong phần này.
+          </div>
+        ) : (
+          safeQuestions.map(renderQuestionItem)
+        )}
       </div>
     </div>
   );

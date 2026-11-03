@@ -85,17 +85,27 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
 } {
   const sanitizedSections: RegularTestSection[] = (test.sections || []).map((sec, idx) => {
     if (sec.skill === 'listening') {
-      const sanitizedListeningQuestions = (sec.listeningQuestions || []).map((q) => {
-        const { correctAnswer, explanation, ...cleanQ } = q as any;
+      const sanitizeQ = (q: any) => {
+        const { correctAnswer, correctAnswers, explanation, citation, modelAnswer, ...cleanQ } = q as any;
         return cleanQ;
+      };
+      const sanitizeGroup = (g: any) => ({
+        ...g,
+        questions: (g.questions || []).map(sanitizeQ),
       });
+
+      const sanitizedListeningQuestions = (sec.listeningQuestions || []).map(sanitizeQ);
       const sanitizedParts = (sec.listeningParts || []).map((p) => ({
         ...p,
-        questions: (p.questions || []).map((q) => {
-          const { correctAnswer, explanation, ...cleanQ } = q as any;
-          return cleanQ;
-        }),
+        questions: (p.questions || []).map(sanitizeQ),
+        questionGroups: (p.questionGroups || []).map(sanitizeGroup),
       }));
+      const sanitizedListeningQuestionGroups = (
+        sec.listeningQuestionGroups ||
+        sec.questionGroups ||
+        []
+      ).map(sanitizeGroup);
+
       return {
         id: sec.id || `sec_listening_${idx}`,
         title: sec.title || `Listening Section ${idx + 1}`,
@@ -105,7 +115,8 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
         listeningAudioUrl: sec.listeningAudioUrl || sec.audioUrl,
         listeningParts: sanitizedParts,
         listeningQuestions: sanitizedListeningQuestions,
-        questionGroups: sec.questionGroups || [],
+        listeningQuestionGroups: sanitizedListeningQuestionGroups,
+        questionGroups: sanitizedListeningQuestionGroups,
       };
     } else if (sec.skill === 'reading') {
       const extracted = extractAllNormalizedQuestions(sec);
@@ -252,7 +263,22 @@ export function evaluateRegularTestAttempt(
 
   // Grade Listening if listening sections exist
   if (listeningSections.length > 0) {
-    const allListeningQuestions = listeningSections.flatMap((s) => s.listeningQuestions || (s.readingQuestions as any) || []);
+    const allListeningQuestions = listeningSections.flatMap((s) => {
+      if (s.listeningQuestions && s.listeningQuestions.length > 0) return s.listeningQuestions;
+      if (s.listeningParts && s.listeningParts.length > 0) {
+        const fromParts = s.listeningParts.flatMap((p) => {
+          if (p.questions && p.questions.length > 0) return p.questions;
+          if (p.questionGroups && p.questionGroups.length > 0) return p.questionGroups.flatMap((g) => g.questions || []);
+          return [];
+        });
+        if (fromParts.length > 0) return fromParts;
+      }
+      const groups = s.listeningQuestionGroups || s.questionGroups || [];
+      if (groups.length > 0) {
+        return groups.flatMap((g: any) => g.questions || []);
+      }
+      return (s.readingQuestions as any) || [];
+    });
     const studentListeningAnswers = attempt.answers?.listening || {};
 
     if (allListeningQuestions.length > 0) {

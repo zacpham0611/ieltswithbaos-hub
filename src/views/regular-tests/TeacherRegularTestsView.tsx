@@ -186,11 +186,94 @@ export const TeacherRegularTestsView: React.FC = () => {
     }
 
     const topics: SpeakingTopic[] = res.speakingPart1?.topics || parsedContent.topics || parsedContent.speakingPart1?.topics || [];
-    const cueCards: any[] = res.speakingPart2?.cueCards || parsedContent.cueCards || parsedContent.speakingPart2?.cueCards || [];
-    const groups: SpeakingPart3Group[] = res.speakingPart3?.groups || parsedContent.groups || parsedContent.speakingPart3?.groups || [];
-    const questions: string[] = res.speakingPart3?.questions || parsedContent.questions || parsedContent.speakingPart3?.questions || groups.flatMap((g: any) => g.questions || []);
+    let cueCards: any[] = res.speakingPart2?.cueCards || parsedContent.cueCards || parsedContent.speakingPart2?.cueCards || [];
+    if (cueCards.length === 0) {
+      if (res.speakingCueCards && Array.isArray(res.speakingCueCards) && res.speakingCueCards.length > 0) {
+        cueCards = res.speakingCueCards;
+      } else if (res.speakingCueCard) {
+        cueCards = [res.speakingCueCard];
+      } else if (parsedContent.cueCard) {
+        cueCards = [parsedContent.cueCard];
+      } else if (res.speakingTopic || parsedContent.topic) {
+        cueCards = [{
+          topic: res.speakingTopic || parsedContent.topic,
+          points: res.speakingPoints || parsedContent.points || ['What it is', 'Why it matters', 'How you feel about it'],
+        }];
+      }
+    }
+    const groups: SpeakingPart3Group[] = res.speakingPart3?.groups || parsedContent.groups || parsedContent.speakingPart3?.groups || res.speakingPart3Groups || [];
+    const questions: string[] = res.speakingPart3?.questions || parsedContent.questions || parsedContent.speakingPart3?.questions || res.speakingQuestions || groups.flatMap((g: any) => g.questions || []);
 
     return { topics, cueCards, groups, questions };
+  };
+
+  // Helper to find all Part 3 groups associated with given cue cards across the speaking library
+  const findAssociatedPart3GroupsForCards = (
+    cards: Array<{ id?: string; topic: string }>,
+    currentResource?: any
+  ): { matchedGroups: SpeakingPart3Group[]; companionResource: any | null } => {
+    if (!cards || cards.length === 0) return { matchedGroups: [], companionResource: null };
+
+    const poolWithResource: Array<{ group: SpeakingPart3Group; res: any }> = [];
+
+    // 1. Check current resource
+    if (currentResource) {
+      const details = getSpeakingResourceDetails(currentResource);
+      details.groups.forEach((g) => poolWithResource.push({ group: g, res: currentResource }));
+    }
+
+    // 2. Check all resources
+    const currentBaseName = currentResource?.title
+      ? currentResource.title.replace(/\s*-\s*Speaking Part \d.*$/i, '').trim().toLowerCase()
+      : '';
+    const currentDocName = (currentResource?.sourceDocumentName || '').trim().toLowerCase();
+
+    resources.forEach((r) => {
+      if (currentResource && r.id === currentResource.id) return;
+      const details = getSpeakingResourceDetails(r);
+      if (details.groups && details.groups.length > 0) {
+        details.groups.forEach((g) => poolWithResource.push({ group: g, res: r }));
+      }
+    });
+
+    const matched: SpeakingPart3Group[] = [];
+    let companionRes: any | null = null;
+
+    poolWithResource.forEach(({ group: g, res: r }) => {
+      const gTopic = (g.cueCardTopic || '').toLowerCase().trim();
+      const isCardMatch = cards.some((card) => {
+        const cardTopic = (card.topic || '').toLowerCase().trim();
+        const cardId = (card as any).id;
+        if (g.cueCardId && cardId && g.cueCardId === cardId) return true;
+        if (gTopic && cardTopic) {
+          if (
+            cardTopic.includes(gTopic.slice(0, 15)) ||
+            gTopic.includes(cardTopic.slice(0, 15)) ||
+            cardTopic === gTopic
+          ) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      const rBaseName = (r.title || '').replace(/\s*-\s*Speaking Part \d.*$/i, '').trim().toLowerCase();
+      const rDocName = (r.sourceDocumentName || '').trim().toLowerCase();
+      const isCompanionDoc =
+        (currentDocName && rDocName && currentDocName === rDocName) ||
+        (currentBaseName && rBaseName && currentBaseName === rBaseName);
+
+      if (isCardMatch || (isCompanionDoc && (!g.cueCardTopic || isCardMatch))) {
+        if (!matched.some((m) => m.id === g.id || (m.cueCardTopic === g.cueCardTopic && m.questions?.length === g.questions?.length))) {
+          matched.push(g);
+          if (!companionRes && r.id !== currentResource?.id) {
+            companionRes = r;
+          }
+        }
+      }
+    });
+
+    return { matchedGroups: matched, companionResource: companionRes };
   };
 
   // Filtered Tests
@@ -671,35 +754,35 @@ export const TeacherRegularTestsView: React.FC = () => {
       if (existingPart2?.resourceId) {
         linkedRes = resources.find((r) => r.id === existingPart2.resourceId) || null;
       }
-      if (linkedRes) {
-        setSelectedSpeakingResource(linkedRes);
-        const details = getSpeakingResourceDetails(linkedRes);
-        const selectedCards = existingPart2 ? (existingPart2.speakingCueCards || (existingPart2.speakingCueCard ? [existingPart2.speakingCueCard] : [])) : [];
-        const matchedGroups = details.groups.filter((g) => {
-          return selectedCards.some((card) => {
-            const cardTopic = (card.topic || '').toLowerCase();
-            const gTopic = (g.cueCardTopic || '').toLowerCase();
-            return (
-              (g.cueCardId && (card as any).id && g.cueCardId === (card as any).id) ||
-              (gTopic && cardTopic && (cardTopic.includes(gTopic.slice(0, 15)) || gTopic.includes(cardTopic.slice(0, 15))))
-            );
-          });
-        });
+      const selectedCards = existingPart2 ? (existingPart2.speakingCueCards || (existingPart2.speakingCueCard ? [existingPart2.speakingCueCard] : [])) : [];
+      const { matchedGroups, companionResource } = findAssociatedPart3GroupsForCards(selectedCards, linkedRes);
+      
+      const targetRes = companionResource || linkedRes || resources.find((r) => {
+        const d = getSpeakingResourceDetails(r);
+        return d.groups.length > 0 || d.questions.length > 0;
+      }) || null;
 
+      setSelectedSpeakingResource(targetRes);
+
+      if (targetRes) {
+        const details = getSpeakingResourceDetails(targetRes);
         const initGroupMap: Record<number, boolean> = {};
         const initQMap: Record<string, boolean> = {};
+
         details.groups.forEach((g, gIdx) => {
-          if (matchedGroups.includes(g)) {
+          const isMatched = matchedGroups.some(
+            (mg) => mg.id === g.id || (mg.cueCardTopic && g.cueCardTopic && mg.cueCardTopic.toLowerCase() === g.cueCardTopic.toLowerCase())
+          );
+          if (isMatched || matchedGroups.length === 0) {
             initGroupMap[gIdx] = true;
             (g.questions || []).forEach((_, qIdx) => {
               initQMap[`${gIdx}_${qIdx}`] = true;
             });
           }
         });
+
         setSelectedPart3GroupIndices(initGroupMap);
         setSelectedPart3QuestionGroupItems(initQMap);
-      } else {
-        setSelectedSpeakingResource(null);
       }
     } else {
       setSelectedSpeakingResource(null);
@@ -757,26 +840,30 @@ export const TeacherRegularTestsView: React.FC = () => {
         }));
 
       // Automatically retrieve question groups associated with selected cue cards
-      const p3Groups: SpeakingPart3Group[] = details.groups;
-
       const matchedGroups: SpeakingPart3Group[] = [];
-      chosenCards.forEach((card, idx) => {
-        const found =
-          p3Groups.find(
-            (g) =>
-              (g.cueCardTopic &&
-                (card.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
-                  g.cueCardTopic.toLowerCase().includes(card.topic.toLowerCase().slice(0, 15)))) ||
-              (g.cueCardId && g.cueCardId === (card as any).id)
-          );
-        if (found && found.questions && found.questions.length > 0) {
-          matchedGroups.push({
-            id: found.id || `p3_g_${idx + 1}`,
-            cueCardTopic: card.topic,
-            questions: found.questions,
-          });
-        }
-      });
+      const associationResult = findAssociatedPart3GroupsForCards(chosenCards, selectedSpeakingResource);
+      if (associationResult.matchedGroups.length > 0) {
+        matchedGroups.push(...associationResult.matchedGroups);
+      } else {
+        const p3Groups: SpeakingPart3Group[] = details.groups;
+        chosenCards.forEach((card, idx) => {
+          const found =
+            p3Groups.find(
+              (g) =>
+                (g.cueCardTopic &&
+                  (card.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
+                    g.cueCardTopic.toLowerCase().includes(card.topic.toLowerCase().slice(0, 15)))) ||
+                (g.cueCardId && g.cueCardId === (card as any).id)
+            );
+          if (found && found.questions && found.questions.length > 0) {
+            matchedGroups.push({
+              id: found.id || `p3_g_${idx + 1}`,
+              cueCardTopic: card.topic,
+              questions: found.questions,
+            });
+          }
+        });
+      }
 
       const newSec: RegularTestSection = {
         id: `sec_${Date.now()}_spk2`,
@@ -1912,7 +1999,30 @@ export const TeacherRegularTestsView: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            const parsed = res.listeningContent || parseListeningDocument(res.description || res.title || '', res.title);
+                            let parsed: any = res.listeningContent;
+                            const rawContent: any = res.content;
+                            if (!parsed && rawContent) {
+                              if (typeof rawContent === 'object' && (rawContent.parts || rawContent.listeningContent)) {
+                                parsed = rawContent.listeningContent || rawContent;
+                              } else if (typeof rawContent === 'string') {
+                                try {
+                                  const json = JSON.parse(rawContent);
+                                  if (json.parts || json.listeningContent) {
+                                    parsed = json.listeningContent || json;
+                                  }
+                                } catch {
+                                  parsed = parseListeningDocument(rawContent, res.title);
+                                }
+                              }
+                            }
+                            if (!parsed || !parsed.parts || parsed.parts.length === 0) {
+                              parsed = parseListeningDocument(
+                                typeof res.content === 'string' && res.content.trim().length > 20
+                                  ? res.content
+                                  : res.description || res.title || '',
+                                res.title
+                              );
+                            }
                             const newSec: RegularTestSection = {
                               id: `sec_listening_${Date.now()}`,
                               title: res.title,
@@ -1921,8 +2031,18 @@ export const TeacherRegularTestsView: React.FC = () => {
                               audioUrl: res.audioUrl || res.url || parsed.audioUrl || '',
                               listeningAudioUrl: res.audioUrl || res.url || parsed.audioUrl || '',
                               listeningParts: parsed.parts || [],
-                              listeningQuestions: parsed.parts?.flatMap((p) => p.questions || []) || [],
-                              listeningQuestionGroups: parsed.parts?.flatMap((p) => p.questionGroups || []) || [],
+                              listeningQuestions:
+                                parsed.parts?.flatMap((p: any) =>
+                                  p.questions?.length
+                                    ? p.questions
+                                    : (p.questionGroups || []).flatMap((g: any) => g.questions || [])
+                                ) || (parsed as any).questions || [],
+                              listeningQuestionGroups:
+                                parsed.parts?.flatMap((p: any) => p.questionGroups || []) ||
+                                (parsed as any).questionGroups || [],
+                              questionGroups:
+                                parsed.parts?.flatMap((p: any) => p.questionGroups || []) ||
+                                (parsed as any).questionGroups || [],
                             };
                             setFormSections((prev) => [newSec, ...prev.filter((s) => s.skill !== 'listening')]);
                             setShowListeningPicker(false);
@@ -2022,8 +2142,18 @@ export const TeacherRegularTestsView: React.FC = () => {
                         audioUrl: listeningAudioUrl,
                         listeningAudioUrl: listeningAudioUrl,
                         listeningParts: parsed.parts || [],
-                        listeningQuestions: parsed.parts?.flatMap((p) => p.questions || []) || [],
-                        listeningQuestionGroups: parsed.parts?.flatMap((p) => p.questionGroups || []) || [],
+                        listeningQuestions:
+                          parsed.parts?.flatMap((p: any) =>
+                            p.questions?.length
+                              ? p.questions
+                              : (p.questionGroups || []).flatMap((g: any) => g.questions || [])
+                          ) || (parsed as any).questions || [],
+                        listeningQuestionGroups:
+                          parsed.parts?.flatMap((p: any) => p.questionGroups || []) ||
+                          (parsed as any).questionGroups || [],
+                        questionGroups:
+                          parsed.parts?.flatMap((p: any) => p.questionGroups || []) ||
+                          (parsed as any).questionGroups || [],
                       };
                       setFormSections((prev) => [newSec, ...prev.filter((s) => s.skill !== 'listening')]);
                       setShowListeningModal(false);
@@ -2713,14 +2843,36 @@ export const TeacherRegularTestsView: React.FC = () => {
                       <p className="text-slate-600 font-medium">
                         Chọn một bộ tài liệu Speaking có sẵn trong Thư viện:
                       </p>
-                      {resources.filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking' || r.speakingPart).length === 0 ? (
+                      {resources.filter((r) =>
+                        r.skill === 'speaking' ||
+                        (r as any).type === 'speaking' ||
+                        Boolean(r.speakingPart || r.speakingPart1 || r.speakingPart2 || r.speakingPart3) ||
+                        (Array.isArray(r.tags) && r.tags.some((t: string) => t.toLowerCase().includes('speaking'))) ||
+                        (typeof r.content === 'string' &&
+                          (r.content.includes('"part1"') ||
+                            r.content.includes('"part2"') ||
+                            r.content.includes('"part3"') ||
+                            r.content.includes('cueCards') ||
+                            r.content.includes('speakingPart')))
+                      ).length === 0 ? (
                         <div className="p-8 text-center text-slate-400 text-xs">
                           Không có tài liệu Speaking nào trong Thư viện.
                         </div>
                       ) : (
                         <div className="space-y-2">
                           {resources
-                            .filter((r) => r.skill === 'speaking' || (r as any).type === 'speaking' || r.speakingPart)
+                            .filter((r) =>
+                              r.skill === 'speaking' ||
+                              (r as any).type === 'speaking' ||
+                              Boolean(r.speakingPart || r.speakingPart1 || r.speakingPart2 || r.speakingPart3) ||
+                              (Array.isArray(r.tags) && r.tags.some((t: string) => t.toLowerCase().includes('speaking'))) ||
+                              (typeof r.content === 'string' &&
+                                (r.content.includes('"part1"') ||
+                                  r.content.includes('"part2"') ||
+                                  r.content.includes('"part3"') ||
+                                  r.content.includes('cueCards') ||
+                                  r.content.includes('speakingPart')))
+                            )
                             .filter((r) => {
                               if (!speakingSearchQuery.trim()) return true;
                               const q = speakingSearchQuery.toLowerCase();
@@ -2865,7 +3017,10 @@ export const TeacherRegularTestsView: React.FC = () => {
                             <div className="space-y-2 max-h-60 overflow-y-auto">
                               {details.cueCards.map((card: any, cIdx: number) => {
                                 const isChecked = Boolean(selectedCueCardIndices[cIdx]);
-                                const hasP3 = details.groups.some(
+                                const linkedCheck = findAssociatedPart3GroupsForCards([card], selectedSpeakingResource);
+                                const hasP3 =
+                                  linkedCheck.matchedGroups.length > 0 ||
+                                  details.groups.some(
                                   (g: any) =>
                                     (g.cueCardTopic &&
                                       (card.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
@@ -2946,20 +3101,23 @@ export const TeacherRegularTestsView: React.FC = () => {
                         const selectedCards = existingPart2?.speakingCueCards || (existingPart2?.speakingCueCard ? [existingPart2.speakingCueCard] : []);
                         
                         // If test has Part 2, find groups specifically linked to selected cue cards
-                        const linkedGroups = selectedCards.length > 0
-                          ? details.groups.filter((g: any) =>
-                              selectedCards.some((card: any) => {
-                                const cardTopic = (card.topic || '').toLowerCase();
-                                const gTopic = (g.cueCardTopic || '').toLowerCase();
-                                return (
-                                  (g.cueCardId && (card as any).id && g.cueCardId === (card as any).id) ||
-                                  (gTopic && cardTopic && (cardTopic.includes(gTopic.slice(0, 15)) || gTopic.includes(cardTopic.slice(0, 15))))
-                                );
-                              })
-                            )
+                        const association = selectedCards.length > 0
+                          ? findAssociatedPart3GroupsForCards(selectedCards, selectedSpeakingResource)
+                          : { matchedGroups: [] };
+                        const directlyLinked = details.groups.filter((g: any) =>
+                          selectedCards.some((card: any) => {
+                            const cardTopic = (card.topic || '').toLowerCase();
+                            const gTopic = (g.cueCardTopic || '').toLowerCase();
+                            return (
+                              (g.cueCardId && (card as any).id && g.cueCardId === (card as any).id) ||
+                              (gTopic && cardTopic && (cardTopic.includes(gTopic.slice(0, 15)) || gTopic.includes(cardTopic.slice(0, 15))))
+                            );
+                          })
+                        );
+                        const linkedGroups = directlyLinked.length > 0 ? directlyLinked : association.matchedGroups;
+                        const displayGroups = selectedCards.length > 0
+                          ? (details.groups.length > 0 ? linkedGroups : (linkedGroups.length > 0 ? linkedGroups : details.groups))
                           : details.groups;
-
-                        const displayGroups = selectedCards.length > 0 ? linkedGroups : details.groups;
 
                         return (
                         <div className="space-y-3">
