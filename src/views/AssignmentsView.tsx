@@ -31,6 +31,7 @@ import {
 } from '../lib/assignmentGrader';
 import { PracticeListeningAudioPlayer } from '../components/listening/PracticeListeningAudioPlayer';
 import { ListeningQuestionRenderer } from '../components/listening/ListeningQuestionRenderer';
+import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../components/writing/WritingTask1VisualRenderer';
 import {
   extractAllNormalizedQuestions,
   resolveQuestionPrompt,
@@ -2265,8 +2266,22 @@ export const AssignmentsView: React.FC = () => {
 
           {currentSubmission.skill === 'writing' && (
             <div className="space-y-4">
-              {/* If Task 1 Academic diagram exists, show image alongside text */}
-              {parentAssignment?.task1ImageUrl && (
+              {/* If Task 1 Academic diagram exists, render exact visual type */}
+              {Boolean(parentAssignment?.writingTaskCategory?.includes('task1') || (parentAssignment as any)?.writingTaskType === 'task1') ? (
+                <div className="space-y-3">
+                  <WritingTask1VisualRenderer
+                    prompt={parentAssignment?.writingPrompt || ''}
+                    imageUrl={parentAssignment?.task1ImageUrl}
+                    chartType={(parentAssignment as any)?.chartType}
+                    minWords={parentAssignment?.writingMinWords || 150}
+                  />
+                  {stripMarkdownTableFromPrompt(parentAssignment?.writingPrompt || '').length > 0 && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-medium text-slate-800 leading-relaxed whitespace-pre-wrap">
+                      {stripMarkdownTableFromPrompt(parentAssignment?.writingPrompt || '')}
+                    </div>
+                  )}
+                </div>
+              ) : parentAssignment?.task1ImageUrl ? (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
@@ -2288,7 +2303,7 @@ export const AssignmentsView: React.FC = () => {
                     className="max-h-64 rounded-lg border border-slate-300 object-contain mx-auto bg-white"
                   />
                 </div>
-              )}
+              ) : null}
 
               <div className="flex items-center justify-between text-sm text-slate-600 bg-blue-50/70 p-3 rounded-lg border border-blue-200">
                 <span className="flex items-center space-x-1.5 text-blue-900 font-medium">
@@ -4372,34 +4387,52 @@ export const AssignmentsView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Task 1 Diagram Image */}
-              {activeAssignment.task1ImageUrl && (
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
-                      <ImageIcon className="w-4 h-4 text-blue-600" />
-                      <span>Task 1 Visual Diagram</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowZoomImageModal(true)}
-                      className="text-xs text-blue-600 font-semibold hover:underline flex items-center space-x-1"
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                      <span>Expand Image</span>
-                    </button>
-                  </div>
-                  <img
-                    src={activeAssignment.task1ImageUrl}
-                    alt="Task 1 Diagram"
-                    className="max-h-72 rounded-lg border border-slate-300 object-contain mx-auto bg-white"
+              {/* Task 1 Diagram & Visual Elements */}
+              {Boolean(activeAssignment.writingTaskCategory?.includes('task1') || (activeAssignment as any).writingTaskType === 'task1') ? (
+                <div className="space-y-4">
+                  <WritingTask1VisualRenderer
+                    prompt={activeAssignment.writingPrompt || ''}
+                    imageUrl={activeAssignment.task1ImageUrl}
+                    chartType={(activeAssignment as any).chartType}
+                    minWords={targetWords}
                   />
+                  {stripMarkdownTableFromPrompt(activeAssignment.writingPrompt || '').length > 0 && (
+                    <div className="p-4 bg-amber-50/40 rounded-xl border border-amber-200 text-sm font-medium text-slate-900 leading-relaxed whitespace-pre-wrap">
+                      {stripMarkdownTableFromPrompt(activeAssignment.writingPrompt || '')}
+                    </div>
+                  )}
                 </div>
-              )}
+              ) : (
+                <>
+                  {activeAssignment.task1ImageUrl && (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-700 uppercase flex items-center space-x-1.5">
+                          <ImageIcon className="w-4 h-4 text-blue-600" />
+                          <span>Task 1 Visual Diagram</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowZoomImageModal(true)}
+                          className="text-xs text-blue-600 font-semibold hover:underline flex items-center space-x-1"
+                        >
+                          <ZoomIn className="w-3.5 h-3.5" />
+                          <span>Expand Image</span>
+                        </button>
+                      </div>
+                      <img
+                        src={activeAssignment.task1ImageUrl}
+                        alt="Task 1 Diagram"
+                        className="max-h-72 rounded-lg border border-slate-300 object-contain mx-auto bg-white"
+                      />
+                    </div>
+                  )}
 
-              <div className="p-4 bg-amber-50/40 rounded-xl border border-amber-200 text-sm font-medium text-slate-900 leading-relaxed whitespace-pre-wrap">
-                {activeAssignment.writingPrompt || 'No writing prompt specified.'}
-              </div>
+                  <div className="p-4 bg-amber-50/40 rounded-xl border border-amber-200 text-sm font-medium text-slate-900 leading-relaxed whitespace-pre-wrap">
+                    {activeAssignment.writingPrompt || 'No writing prompt specified.'}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Multi-mode Navigation Tabs */}

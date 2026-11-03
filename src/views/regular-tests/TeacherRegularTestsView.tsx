@@ -60,6 +60,7 @@ import {
 } from 'lucide-react';
 import { parseFormattedPrompt } from '../../lib/regularTestManager';
 import { extractWritingFromFile, type ExtractedWritingTask } from '../../lib/writingDocumentExtractor';
+import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../../components/writing/WritingTask1VisualRenderer';
 
 export const TeacherRegularTestsView: React.FC = () => {
   const {
@@ -131,6 +132,7 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [writingPrompt, setWritingPrompt] = useState<string>('');
   const [writingMinWords, setWritingMinWords] = useState<number>(250);
   const [writingImageUrl, setWritingImageUrl] = useState<string>('');
+  const [writingChartType, setWritingChartType] = useState<string>('Bar Chart');
   const [writingModelAnswer, setWritingModelAnswer] = useState<string>('');
   const [writingSectionDuration, setWritingSectionDuration] = useState<number>(40);
   const writingPromptRef = React.useRef<HTMLTextAreaElement>(null);
@@ -171,6 +173,8 @@ export const TeacherRegularTestsView: React.FC = () => {
   const [selectedCueCardIndices, setSelectedCueCardIndices] = useState<Record<number, boolean>>({});
   const [includeAssociatedPart3, setIncludeAssociatedPart3] = useState<boolean>(false);
   const [selectedPart3QuestionIndices, setSelectedPart3QuestionIndices] = useState<Record<number, boolean>>({});
+  const [selectedPart3GroupIndices, setSelectedPart3GroupIndices] = useState<Record<number, boolean>>({});
+  const [selectedPart3QuestionGroupItems, setSelectedPart3QuestionGroupItems] = useState<Record<string, boolean>>({});
 
   const getSpeakingResourceDetails = (res: any) => {
     if (!res) return { topics: [] as SpeakingTopic[], cueCards: [] as any[], groups: [] as SpeakingPart3Group[], questions: [] as string[] };
@@ -482,6 +486,7 @@ export const TeacherRegularTestsView: React.FC = () => {
       setWritingPrompt(existingSec.writingPrompt || '');
       setWritingMinWords(existingSec.writingMinWords || (existingSec.writingTaskType === 'task1' ? 150 : 250));
       setWritingImageUrl(existingSec.task1ImageUrl || '');
+      setWritingChartType((existingSec as any).chartType || 'Bar Chart');
       setWritingModelAnswer(existingSec.modelAnswer || '');
       setWritingSectionDuration(existingSec.durationMinutes || (existingSec.writingTaskType === 'task1' ? 20 : 40));
     } else {
@@ -490,6 +495,7 @@ export const TeacherRegularTestsView: React.FC = () => {
       setWritingPrompt('');
       setWritingMinWords(250);
       setWritingImageUrl('');
+      setWritingChartType('Bar Chart');
       setWritingModelAnswer('');
       setWritingSectionDuration(40);
     }
@@ -519,6 +525,7 @@ export const TeacherRegularTestsView: React.FC = () => {
                 writingPrompt: writingPrompt.trim(),
                 writingMinWords,
                 task1ImageUrl: isTask1 ? writingImageUrl.trim() : undefined,
+                chartType: isTask1 ? writingChartType : undefined,
                 modelAnswer: writingModelAnswer.trim() || undefined,
                 durationMinutes: writingSectionDuration,
               }
@@ -535,6 +542,7 @@ export const TeacherRegularTestsView: React.FC = () => {
         writingPrompt: writingPrompt.trim(),
         writingMinWords,
         task1ImageUrl: isTask1 ? writingImageUrl.trim() : undefined,
+        chartType: isTask1 ? writingChartType : undefined,
         modelAnswer: writingModelAnswer.trim() || undefined,
         durationMinutes: writingSectionDuration,
       };
@@ -648,13 +656,54 @@ export const TeacherRegularTestsView: React.FC = () => {
   // 3. Speaking Independent Selection
   const openSpeakingPicker = (part: 'part1' | 'part2' | 'part3') => {
     setSpeakingPickerPart(part);
-    setSelectedSpeakingResource(null);
     setSelectedPart1TopicIds({});
     setPart1TopicCount(3);
     setSelectedCueCardIndex(0);
     setSelectedCueCardIndices({});
     setIncludeAssociatedPart3(false);
     setSelectedPart3QuestionIndices({});
+    setSelectedPart3GroupIndices({});
+    setSelectedPart3QuestionGroupItems({});
+
+    if (part === 'part3') {
+      const existingPart2 = formSections.find((s) => s.skill === 'speaking' && s.speakingPart === 'part2');
+      let linkedRes = null;
+      if (existingPart2?.resourceId) {
+        linkedRes = resources.find((r) => r.id === existingPart2.resourceId) || null;
+      }
+      if (linkedRes) {
+        setSelectedSpeakingResource(linkedRes);
+        const details = getSpeakingResourceDetails(linkedRes);
+        const selectedCards = existingPart2 ? (existingPart2.speakingCueCards || (existingPart2.speakingCueCard ? [existingPart2.speakingCueCard] : [])) : [];
+        const matchedGroups = details.groups.filter((g) => {
+          return selectedCards.some((card) => {
+            const cardTopic = (card.topic || '').toLowerCase();
+            const gTopic = (g.cueCardTopic || '').toLowerCase();
+            return (
+              (g.cueCardId && (card as any).id && g.cueCardId === (card as any).id) ||
+              (gTopic && cardTopic && (cardTopic.includes(gTopic.slice(0, 15)) || gTopic.includes(cardTopic.slice(0, 15))))
+            );
+          });
+        });
+
+        const initGroupMap: Record<number, boolean> = {};
+        const initQMap: Record<string, boolean> = {};
+        details.groups.forEach((g, gIdx) => {
+          if (matchedGroups.includes(g)) {
+            initGroupMap[gIdx] = true;
+            (g.questions || []).forEach((_, qIdx) => {
+              initQMap[`${gIdx}_${qIdx}`] = true;
+            });
+          }
+        });
+        setSelectedPart3GroupIndices(initGroupMap);
+        setSelectedPart3QuestionGroupItems(initQMap);
+      } else {
+        setSelectedSpeakingResource(null);
+      }
+    } else {
+      setSelectedSpeakingResource(null);
+    }
   };
 
   const handleConfirmSpeakingSection = () => {
@@ -746,62 +795,96 @@ export const TeacherRegularTestsView: React.FC = () => {
         durationMinutes: 4 * Math.max(1, chosenCards.length),
       };
 
-      setFormSections((prev) => [...prev, newSec]);
+      setFormSections((prev) => {
+        const withoutP2 = prev.filter((s) => !(s.skill === 'speaking' && s.speakingPart === 'part2'));
+        const nextList = [...withoutP2, newSec];
 
-      // Add associated Part 3 discussion section ONLY if explicitly opted in
-      if (includeAssociatedPart3 && matchedGroups.length > 0) {
-        const allP3Questions = matchedGroups.flatMap((g) => g.questions);
-        const p3Sec: RegularTestSection = {
-          id: `sec_${Date.now() + 1}_spk3`,
-          skill: 'speaking',
-          title: `Speaking Part 3 (Associated with Part 2)`,
-          resourceId: selectedSpeakingResource.id,
-          speakingPart: 'part3',
-          speakingQuestions: allP3Questions,
-          speakingPart3Groups: matchedGroups,
-          durationMinutes: 5,
-        };
-        setFormSections((prev) => [...prev, p3Sec]);
-      }
+        // When Part 2 changes: clear stale Part 3 selections or update to new associated Part 3 groups
+        const existingP3 = prev.find((s) => s.skill === 'speaking' && s.speakingPart === 'part3');
+
+        if (existingP3 || includeAssociatedPart3) {
+          if (matchedGroups.length > 0) {
+            const allP3Questions = matchedGroups.flatMap((g) => g.questions);
+            const updatedP3: RegularTestSection = {
+              id: existingP3?.id || `sec_${Date.now() + 1}_spk3`,
+              skill: 'speaking',
+              title: `Speaking Part 3 (Associated with Part 2)`,
+              resourceId: selectedSpeakingResource.id,
+              speakingPart: 'part3',
+              speakingQuestions: allP3Questions,
+              speakingPart3Groups: matchedGroups,
+              associatedPart2Id: newSec.id,
+              durationMinutes: 5,
+            };
+            const withoutP3 = nextList.filter((s) => !(s.skill === 'speaking' && s.speakingPart === 'part3'));
+            return [...withoutP3, updatedP3];
+          } else if (existingP3) {
+            // New Part 2 has NO associated Part 3 groups -> remove stale Part 3 so unrelated questions never linger!
+            return nextList.filter((s) => !(s.skill === 'speaking' && s.speakingPart === 'part3'));
+          }
+        }
+        return nextList;
+      });
     } else if (speakingPickerPart === 'part3') {
-      const questions: string[] = details.questions;
-      const groups: SpeakingPart3Group[] = details.groups;
+      const existingPart2 = formSections.find((s) => s.skill === 'speaking' && s.speakingPart === 'part2');
 
-      const selectedIdxs = Object.keys(selectedPart3QuestionIndices)
+      // Filter groups selected by the teacher
+      const finalGroups: SpeakingPart3Group[] = [];
+      details.groups.forEach((grp: any, gIdx: number) => {
+        if (selectedPart3GroupIndices[gIdx]) {
+          const checkedQuestions = (grp.questions || []).filter((_: string, qIdx: number) =>
+            selectedPart3QuestionGroupItems[`${gIdx}_${qIdx}`] !== false
+          );
+          if (checkedQuestions.length > 0) {
+            finalGroups.push({
+              id: grp.id || `p3_grp_${gIdx + 1}`,
+              cueCardTopic: grp.cueCardTopic || existingPart2?.speakingTopic || selectedSpeakingResource.title,
+              cueCardId: grp.cueCardId || (existingPart2?.speakingCueCard as any)?.id,
+              questions: checkedQuestions,
+            });
+          }
+        }
+      });
+
+      // Handle standalone questions if resource has no groups
+      const standaloneQuestions = Object.keys(selectedPart3QuestionIndices)
         .map(Number)
-        .filter((i) => selectedPart3QuestionIndices[i]);
+        .filter((i) => selectedPart3QuestionIndices[i])
+        .map((i) => details.questions[i])
+        .filter(Boolean);
 
-      const finalQuestions =
-        selectedIdxs.length > 0
-          ? selectedIdxs.map((i) => questions[i]).filter(Boolean)
-          : questions;
+      if (finalGroups.length === 0 && standaloneQuestions.length > 0) {
+        finalGroups.push({
+          id: 'p3_standalone_grp',
+          cueCardTopic: existingPart2?.speakingTopic || selectedSpeakingResource.title,
+          questions: standaloneQuestions,
+        });
+      }
 
-      const filteredGroups = groups
-        .map((g) => ({
-          ...g,
-          questions: g.questions.filter((q) => finalQuestions.includes(q)),
-        }))
-        .filter((g) => g.questions.length > 0);
+      if (finalGroups.length === 0) {
+        alert('Vui lòng chọn ít nhất 1 nhóm câu hỏi hoặc câu hỏi Part 3.');
+        return;
+      }
 
-      const finalGroups =
-        filteredGroups.length > 0
-          ? filteredGroups
-          : finalQuestions.length > 0
-          ? [{ id: 'p3_custom_grp', cueCardTopic: selectedSpeakingResource.title, questions: finalQuestions }]
-          : [];
-
+      const allQuestions = finalGroups.flatMap((g) => g.questions);
       const newSec: RegularTestSection = {
         id: `sec_${Date.now()}_spk3`,
         skill: 'speaking',
-        title: `Speaking Part 3: ${selectedSpeakingResource.title}`,
+        title: existingPart2
+          ? `Speaking Part 3 (Associated with: ${existingPart2.speakingTopic || existingPart2.speakingCueCard?.topic || 'Part 2'})`
+          : `Speaking Part 3: ${selectedSpeakingResource.title}`,
         resourceId: selectedSpeakingResource.id,
         speakingPart: 'part3',
-        speakingQuestions: finalQuestions,
+        speakingQuestions: allQuestions,
         speakingPart3Groups: finalGroups,
+        associatedPart2Id: existingPart2?.id,
         durationMinutes: 5,
       };
 
-      setFormSections((prev) => [...prev, newSec]);
+      setFormSections((prev) => {
+        const withoutP3 = prev.filter((s) => !(s.skill === 'speaking' && s.speakingPart === 'part3'));
+        return [...withoutP3, newSec];
+      });
     }
 
     if (!formSkills.includes('speaking')) {
@@ -1497,7 +1580,14 @@ export const TeacherRegularTestsView: React.FC = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setFormSections((prev) => prev.filter((s) => s.id !== sec.id))}
+                                  onClick={() =>
+                                    setFormSections((prev) => {
+                                      if (sec.speakingPart === 'part2') {
+                                        return prev.filter((s) => s.id !== sec.id && (s as any).associatedPart2Id !== sec.id);
+                                      }
+                                      return prev.filter((s) => s.id !== sec.id);
+                                    })
+                                  }
                                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                                   title="Xóa bài đọc này"
                                 >
@@ -1600,7 +1690,12 @@ export const TeacherRegularTestsView: React.FC = () => {
                                 </div>
                                 <div className="text-[10px] text-slate-400 mt-1 pl-7 flex items-center gap-3">
                                   <span>Tối thiểu {sec.writingMinWords || (sec.writingTaskType === 'task1' ? 150 : 250)} từ</span>
-                                  {sec.task1ImageUrl && <span className="text-indigo-600 font-semibold">• Có hình ảnh biểu đồ</span>}
+                                  {sec.writingTaskType === 'task1' && (sec as any).chartType && (
+                                    <span className="text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                                      📊 {(sec as any).chartType}
+                                    </span>
+                                  )}
+                                  {sec.task1ImageUrl && <span className="text-indigo-600 font-semibold">• Có hình ảnh</span>}
                                 </div>
                               </div>
 
@@ -1615,7 +1710,14 @@ export const TeacherRegularTestsView: React.FC = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setFormSections((prev) => prev.filter((s) => s.id !== sec.id))}
+                                  onClick={() =>
+                                    setFormSections((prev) => {
+                                      if (sec.speakingPart === 'part2') {
+                                        return prev.filter((s) => s.id !== sec.id && (s as any).associatedPart2Id !== sec.id);
+                                      }
+                                      return prev.filter((s) => s.id !== sec.id);
+                                    })
+                                  }
                                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                                   title="Xóa task này"
                                 >
@@ -1706,13 +1808,25 @@ export const TeacherRegularTestsView: React.FC = () => {
                                   <span>Chỉ ghi âm 1 lần duy nhất</span>
                                   {sec.speakingTopics && <span>• {sec.speakingTopics.length} chủ đề</span>}
                                   {sec.speakingQuestions && <span>• {sec.speakingQuestions.length} câu hỏi</span>}
+                                  {sec.speakingPart === 'part3' && (sec as any).associatedPart2Id && (
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                                      🔗 Liên kết Part 2
+                                    </span>
+                                  )}
                                 </div>
                               </div>
 
                               <div className="flex items-center gap-2 pl-7 md:pl-0 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() => setFormSections((prev) => prev.filter((s) => s.id !== sec.id))}
+                                  onClick={() =>
+                                    setFormSections((prev) => {
+                                      if (sec.speakingPart === 'part2') {
+                                        return prev.filter((s) => s.id !== sec.id && (s as any).associatedPart2Id !== sec.id);
+                                      }
+                                      return prev.filter((s) => s.id !== sec.id);
+                                    })
+                                  }
                                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                                   title="Xóa phần Speaking này"
                                 >
@@ -2218,24 +2332,52 @@ export const TeacherRegularTestsView: React.FC = () => {
                   </div>
 
                   {writingTaskCategory === 'task1_academic' && (
-                    <div className="space-y-2 p-3 bg-indigo-50/50 rounded-xl border border-indigo-200">
-                      <label className="block font-bold text-indigo-950">Hình ảnh biểu đồ / Bản đồ Task 1 (Image URL)</label>
-                      <input
-                        type="text"
-                        placeholder="Dán URL hình ảnh biểu đồ (https://... hoặc data:image/...)"
-                        value={writingImageUrl}
-                        onChange={(e) => setWritingImageUrl(e.target.value)}
-                        className="w-full p-2 border border-indigo-300 rounded-lg text-xs bg-white outline-hidden"
-                      />
-                      {writingImageUrl && (
-                        <div className="rounded-lg border border-indigo-200 overflow-hidden bg-white p-2">
-                          <img
-                            src={writingImageUrl}
-                            alt="Task 1 preview"
-                            className="max-h-48 object-contain mx-auto rounded"
+                    <div className="space-y-3 p-4 bg-indigo-50/50 rounded-xl border border-indigo-200">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-bold text-indigo-950 text-xs mb-1">
+                            Dạng biểu đồ trực quan (Chart / Visual Type)
+                          </label>
+                          <select
+                            value={writingChartType}
+                            onChange={(e) => setWritingChartType(e.target.value)}
+                            className="w-full p-2 border border-indigo-300 rounded-lg text-xs bg-white text-slate-800 font-semibold focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value="Line Graph">Line Graph (Biểu đồ đường)</option>
+                            <option value="Bar Chart">Bar Chart (Biểu đồ cột)</option>
+                            <option value="Pie Chart">Pie Chart (Biểu đồ tròn)</option>
+                            <option value="Table">Table (Bảng biểu số liệu)</option>
+                            <option value="Process / Diagram">Process / Diagram (Sơ đồ quy trình)</option>
+                            <option value="Map">Map (Bản đồ biến đổi)</option>
+                            <option value="Mixed Charts">Mixed Charts (Biểu đồ kết hợp)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block font-bold text-indigo-950 text-xs mb-1">
+                            Hình ảnh biểu đồ Task 1 (Image URL - tùy chọn)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Dán URL hình ảnh biểu đồ (https://... hoặc data:image/...)"
+                            value={writingImageUrl}
+                            onChange={(e) => setWritingImageUrl(e.target.value)}
+                            className="w-full p-2 border border-indigo-300 rounded-lg text-xs bg-white outline-hidden"
                           />
                         </div>
-                      )}
+                      </div>
+
+                      {/* Live Visual Preview of Chart / Table / Diagram */}
+                      <div className="space-y-1.5 pt-2 border-t border-indigo-200/60">
+                        <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider block">
+                          Xem trước hiển thị trực quan theo dạng đã chọn:
+                        </span>
+                        <WritingTask1VisualRenderer
+                          prompt={writingPrompt}
+                          imageUrl={writingImageUrl}
+                          chartType={writingChartType}
+                          minWords={writingMinWords}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -2799,69 +2941,170 @@ export const TeacherRegularTestsView: React.FC = () => {
                       )}
 
                       {/* PART 3 SELECTION */}
-                      {speakingPickerPart === 'part3' && (
+                      {speakingPickerPart === 'part3' && (() => {
+                        const existingPart2 = formSections.find((s) => s.skill === 'speaking' && s.speakingPart === 'part2');
+                        const selectedCards = existingPart2?.speakingCueCards || (existingPart2?.speakingCueCard ? [existingPart2.speakingCueCard] : []);
+                        
+                        // If test has Part 2, find groups specifically linked to selected cue cards
+                        const linkedGroups = selectedCards.length > 0
+                          ? details.groups.filter((g: any) =>
+                              selectedCards.some((card: any) => {
+                                const cardTopic = (card.topic || '').toLowerCase();
+                                const gTopic = (g.cueCardTopic || '').toLowerCase();
+                                return (
+                                  (g.cueCardId && (card as any).id && g.cueCardId === (card as any).id) ||
+                                  (gTopic && cardTopic && (cardTopic.includes(gTopic.slice(0, 15)) || gTopic.includes(cardTopic.slice(0, 15))))
+                                );
+                              })
+                            )
+                          : details.groups;
+
+                        const displayGroups = selectedCards.length > 0 ? linkedGroups : details.groups;
+
+                        return (
                         <div className="space-y-3">
-                          <label className="font-bold text-slate-800 block">
-                            Nhóm câu hỏi thảo luận chuyên sâu Part 3:
-                          </label>
-                          <div className="space-y-2 max-h-60 overflow-y-auto">
-                            {details.groups.length > 0 ? (
-                              details.groups.map((grp: any, gIdx: number) => (
-                                <div key={gIdx} className="p-3 bg-purple-50/40 rounded-xl border border-purple-200 space-y-1.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="font-bold text-purple-950 text-xs block">
-                                      {grp.cueCardTopic ? `Chủ đề liên kết: ${grp.cueCardTopic}` : `Nhóm ${gIdx + 1}`}
-                                    </span>
-                                    {grp.cueCardTopic ? (
-                                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded shrink-0">
-                                        🔗 Liên kết Part 2
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded shrink-0">
-                                        Độc lập
-                                      </span>
-                                    )}
-                                  </div>
-                                  <ul className="list-disc list-inside text-[11px] text-slate-700 pl-1 space-y-1">
-                                    {(grp.questions || []).map((q: string, qIdx: number) => (
-                                      <li key={qIdx}>{q}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ))
-                            ) : details.questions.length > 0 ? (
-                              details.questions.map((q: string, qIdx: number) => (
-                                <label
-                                  key={qIdx}
-                                  className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition-all ${
-                                    selectedPart3QuestionIndices[qIdx]
-                                      ? 'bg-purple-50/50 border-purple-400'
-                                      : 'bg-white border-slate-200 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(selectedPart3QuestionIndices[qIdx])}
-                                    onChange={(e) =>
-                                      setSelectedPart3QuestionIndices((prev) => ({
-                                        ...prev,
-                                        [qIdx]: e.target.checked,
-                                      }))
-                                    }
-                                    className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
-                                  />
-                                  <span className="text-slate-800 font-medium">{q}</span>
-                                </label>
-                              ))
-                            ) : (
-                              <div className="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                                Không tìm thấy câu hỏi Part 3 trong tài liệu này.
-                              </div>
-                            )}
+                          <div className="flex items-center justify-between">
+                            <label className="font-bold text-slate-800 block text-xs">
+                              Nhóm câu hỏi thảo luận chuyên sâu Part 3:
+                            </label>
+                            <span className="text-[11px] text-purple-700 font-bold">
+                              {Object.values(selectedPart3GroupIndices).filter(Boolean).length} nhóm đã chọn
+                            </span>
                           </div>
+
+                          {/* Linkage status notice */}
+                          {selectedCards.length > 0 && (
+                            <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-xs flex items-center justify-between gap-2">
+                              <span className="font-semibold text-purple-900 flex items-center gap-1.5">
+                                <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
+                                <span>Liên kết với Part 2: <strong>{selectedCards.map((c: any) => c.topic).join(', ')}</strong></span>
+                              </span>
+                              <span className="text-[10px] font-bold text-purple-700 bg-white px-2 py-0.5 rounded border border-purple-200 shrink-0">
+                                {linkedGroups.length} nhóm khớp
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Empty state when Part 2 selected has NO linked Part 3 groups */}
+                          {selectedCards.length > 0 && linkedGroups.length === 0 ? (
+                            <div className="p-6 text-center bg-amber-50 rounded-xl border border-dashed border-amber-300 space-y-2">
+                              <AlertCircle className="w-6 h-6 text-amber-600 mx-auto" />
+                              <div className="text-xs font-bold text-amber-900">
+                                Không tìm thấy câu hỏi Part 3 liên kết với Cue Card Part 2 đã chọn
+                              </div>
+                              <p className="text-[11px] text-amber-700 max-w-md mx-auto leading-relaxed">
+                                Cue Card <strong>&quot;{selectedCards[0]?.topic}&quot;</strong> chưa có nhóm câu hỏi Part 3 tương ứng trong tài liệu này. Hệ thống không tự động chọn câu hỏi không liên quan để đảm bảo chất lượng bài thi.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                              {displayGroups.length > 0 ? (
+                                displayGroups.map((grp: any, gIdx: number) => {
+                                  const isGroupChecked = Boolean(selectedPart3GroupIndices[gIdx]);
+
+                                  return (
+                                    <div
+                                      key={gIdx}
+                                      className={`p-3.5 rounded-xl border transition-all space-y-2.5 ${
+                                        isGroupChecked
+                                          ? 'bg-purple-50/60 border-purple-400 ring-1 ring-purple-200'
+                                          : 'bg-white border-slate-200 hover:border-slate-300'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <label className="flex items-center gap-2 cursor-pointer font-bold text-purple-950 text-xs">
+                                          <input
+                                            type="checkbox"
+                                            checked={isGroupChecked}
+                                            onChange={(e) => {
+                                              const checked = e.target.checked;
+                                              setSelectedPart3GroupIndices((prev) => ({ ...prev, [gIdx]: checked }));
+                                              setSelectedPart3QuestionGroupItems((prev) => {
+                                                const next = { ...prev };
+                                                (grp.questions || []).forEach((_: string, qIdx: number) => {
+                                                  next[`${gIdx}_${qIdx}`] = checked;
+                                                });
+                                                return next;
+                                              });
+                                            }}
+                                            className="w-4 h-4 text-purple-600 rounded-sm"
+                                          />
+                                          <span>{grp.cueCardTopic ? `Chủ đề: ${grp.cueCardTopic}` : `Nhóm câu hỏi ${gIdx + 1}`}</span>
+                                        </label>
+                                        {grp.cueCardTopic ? (
+                                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded shrink-0">
+                                            🔗 Liên kết Part 2
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded shrink-0">
+                                            Độc lập
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="space-y-1.5 pl-6 border-l-2 border-purple-200 ml-2">
+                                        {(grp.questions || []).map((q: string, qIdx: number) => {
+                                          const isQChecked = selectedPart3QuestionGroupItems[`${gIdx}_${qIdx}`] !== false;
+
+                                          return (
+                                            <label
+                                              key={qIdx}
+                                              className="flex items-start gap-2 cursor-pointer text-[11px] text-slate-800 hover:text-purple-900"
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={isGroupChecked && isQChecked}
+                                                disabled={!isGroupChecked}
+                                                onChange={(e) => {
+                                                  setSelectedPart3QuestionGroupItems((prev) => ({
+                                                    ...prev,
+                                                    [`${gIdx}_${qIdx}`]: e.target.checked,
+                                                  }));
+                                                }}
+                                                className="w-3.5 h-3.5 text-purple-600 rounded-sm mt-0.5 shrink-0"
+                                              />
+                                              <span>{q}</span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              ) : details.questions.length > 0 ? (
+                                details.questions.map((q: string, qIdx: number) => (
+                                  <label
+                                    key={qIdx}
+                                    className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition-all ${
+                                      selectedPart3QuestionIndices[qIdx]
+                                        ? 'bg-purple-50/50 border-purple-400'
+                                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(selectedPart3QuestionIndices[qIdx])}
+                                      onChange={(e) =>
+                                        setSelectedPart3QuestionIndices((prev) => ({
+                                          ...prev,
+                                          [qIdx]: e.target.checked,
+                                        }))
+                                      }
+                                      className="w-4 h-4 text-purple-600 rounded-sm mt-0.5"
+                                    />
+                                    <span className="text-slate-800 font-medium text-xs">{q}</span>
+                                  </label>
+                                ))
+                              ) : (
+                                <div className="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                  Không tìm thấy câu hỏi Part 3 trong tài liệu này.
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                        );
+                      })()}</div>
                     );
                   })()}
                 </div>

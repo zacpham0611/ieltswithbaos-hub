@@ -428,6 +428,7 @@ export interface Assignment {
   writingPrompt?: string;
   writingMinWords?: number;
   task1ImageUrl?: string;
+  chartType?: string;
   modelAnswer?: string;
   modelAnswerReleaseCondition?: 'immediate' | 'after_submission' | 'after_graded' | 'never';
   // Speaking Specific
@@ -759,6 +760,7 @@ export interface RegularTestSection {
   writingPrompt?: string;
   writingMinWords?: number;
   task1ImageUrl?: string;
+  chartType?: string;
   modelAnswer?: string;
   // Speaking Payload
   speakingPart?: 'part1' | 'part2' | 'part3' | 'full' | 'combined';
@@ -771,6 +773,7 @@ export interface RegularTestSection {
   speakingPoints?: string[];
   speakingQuestions?: string[];
   speakingPart3Groups?: SpeakingPart3Group[];
+  associatedPart2Id?: string;
   // Listening Payload
   listeningAudioUrl?: string;
   listeningAudioDurationSeconds?: number;

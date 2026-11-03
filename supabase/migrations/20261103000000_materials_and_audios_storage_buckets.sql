@@ -69,29 +69,33 @@ DROP POLICY IF EXISTS "Public read access for materials" ON storage.objects;
 DROP POLICY IF EXISTS "Authenticated users can upload materials" ON storage.objects;
 DROP POLICY IF EXISTS "Authenticated users can update materials" ON storage.objects;
 DROP POLICY IF EXISTS "Authenticated users can delete materials" ON storage.objects;
+DROP POLICY IF EXISTS "Users can upload materials" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update materials" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete materials" ON storage.objects;
 
 CREATE POLICY "Public read access for materials"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'materials');
 
-CREATE POLICY "Authenticated users can upload materials"
+CREATE POLICY "Users can upload materials"
 ON storage.objects FOR INSERT
-TO authenticated
+TO public
 WITH CHECK (bucket_id = 'materials');
 
-CREATE POLICY "Authenticated users can update materials"
+CREATE POLICY "Users can update materials"
 ON storage.objects FOR UPDATE
-TO authenticated
+TO public
 USING (bucket_id = 'materials');
 
-CREATE POLICY "Authenticated users can delete materials"
+CREATE POLICY "Users can delete materials"
 ON storage.objects FOR DELETE
-TO authenticated
+TO public
 USING (bucket_id = 'materials');
 
 -- 4. Storage RLS Policies for speaking_audios
 DROP POLICY IF EXISTS "Public read access for speaking audios" ON storage.objects;
 DROP POLICY IF EXISTS "Users can upload speaking audios" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update speaking audios" ON storage.objects;
 
 CREATE POLICY "Public read access for speaking audios"
 ON storage.objects FOR SELECT
@@ -99,5 +103,10 @@ USING (bucket_id = 'speaking_audios');
 
 CREATE POLICY "Users can upload speaking audios"
 ON storage.objects FOR INSERT
-TO authenticated
+TO public
 WITH CHECK (bucket_id = 'speaking_audios');
+
+CREATE POLICY "Users can update speaking audios"
+ON storage.objects FOR UPDATE
+TO public
+USING (bucket_id = 'speaking_audios');

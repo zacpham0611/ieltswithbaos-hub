@@ -239,7 +239,7 @@ RETURNS TEXT
 LANGUAGE sql
 IMMUTABLE
 AS $$
-  SELECT encode(digest(p_salt || ':' || trim(upper(p_code)), 'sha256'), 'hex');
+  SELECT encode(extensions.digest(p_salt || ':' || trim(upper(p_code)), 'sha256'), 'hex');
 $$;
 
 -- 6.2 Transactional Start Attempt Function

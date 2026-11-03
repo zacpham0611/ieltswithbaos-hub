@@ -1,12 +1,18 @@
 import { supabase, isSupabaseConfigured } from './supabase.ts';
 
-export const blobToBase64 = (b: Blob): Promise<string> =>
-  new Promise((resolve, reject) => {
+export const blobToBase64 = async (b: Blob): Promise<string> => {
+  if (typeof FileReader === 'undefined') {
+    const arrayBuffer = await b.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    return `data:${b.type || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
+  }
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => resolve(reader.result as string);
     reader.onerror = (err) => reject(err);
     reader.readAsDataURL(b);
   });
+};
 
 /**
  * Uploads a media file (audio, image, document) to Supabase Storage with bucket auto-creation

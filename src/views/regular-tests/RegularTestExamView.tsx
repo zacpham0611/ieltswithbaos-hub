@@ -29,6 +29,7 @@ import {
 import { SpeakingSectionWorkspace } from './SpeakingSectionWorkspace';
 import { ExamListeningAudioPlayer } from '../../components/listening/ExamListeningAudioPlayer';
 import { ListeningQuestionRenderer } from '../../components/listening/ListeningQuestionRenderer';
+import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../../components/writing/WritingTask1VisualRenderer';
 
 interface RegularTestExamViewProps {
   test: RegularTest;
@@ -1404,27 +1405,49 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                 </span>
               </div>
 
-              {currentSection.task1ImageUrl && (
-                <div className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-                  <img
-                    src={currentSection.task1ImageUrl}
-                    alt="Task graphic"
-                    className="w-full object-contain max-h-72 bg-slate-50"
+              {currentSection.writingTaskType === 'task1' ? (
+                <div className="space-y-4">
+                  <WritingTask1VisualRenderer
+                    prompt={currentSection.writingPrompt || ''}
+                    imageUrl={currentSection.task1ImageUrl}
+                    chartType={(currentSection as any).chartType}
+                    minWords={currentSection.writingMinWords || 150}
                   />
+                  {stripMarkdownTableFromPrompt(currentSection.writingPrompt || '').length > 0 && (
+                    <div className="text-sm md:text-base text-slate-800 leading-relaxed whitespace-pre-wrap font-sans p-3 bg-slate-50/70 rounded-xl border border-slate-200">
+                      {parseFormattedPrompt(stripMarkdownTableFromPrompt(currentSection.writingPrompt || '')).map((s, idx) => {
+                        if (s.bold) return <strong key={idx} className="font-bold text-slate-900">{s.text}</strong>;
+                        if (s.italic) return <em key={idx} className="italic text-slate-800">{s.text}</em>;
+                        return <span key={idx}>{s.text}</span>;
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
+              ) : (
+                <>
+                  {currentSection.task1ImageUrl && (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                      <img
+                        src={currentSection.task1ImageUrl}
+                        alt="Task graphic"
+                        className="w-full object-contain max-h-72 bg-slate-50"
+                      />
+                    </div>
+                  )}
 
-              <div className="text-sm md:text-base text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">
-                {currentSection.writingPrompt ? (
-                  parseFormattedPrompt(currentSection.writingPrompt).map((s, idx) => {
-                    if (s.bold) return <strong key={idx} className="font-bold text-slate-900">{s.text}</strong>;
-                    if (s.italic) return <em key={idx} className="italic text-slate-800">{s.text}</em>;
-                    return <span key={idx}>{s.text}</span>;
-                  })
-                ) : (
-                  'No writing prompt specified.'
-                )}
-              </div>
+                  <div className="text-sm md:text-base text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">
+                    {currentSection.writingPrompt ? (
+                      parseFormattedPrompt(currentSection.writingPrompt).map((s, idx) => {
+                        if (s.bold) return <strong key={idx} className="font-bold text-slate-900">{s.text}</strong>;
+                        if (s.italic) return <em key={idx} className="italic text-slate-800">{s.text}</em>;
+                        return <span key={idx}>{s.text}</span>;
+                      })
+                    ) : (
+                      'No writing prompt specified.'
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Right: Writing Area with Word Count & Spellcheck Off */}
