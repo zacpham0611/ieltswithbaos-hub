@@ -50,6 +50,8 @@ import {
   generateCorrectedEssay,
   normalizeAnnotations,
 } from '../lib/writingCorrection';
+import { parseListeningDocument } from '../lib/listeningExtractor';
+import { findAssociatedPart3GroupsForCards, getSpeakingResourceDetails } from '../utils/speakingLinkage';
 import { SpeakingAudioRecorder } from '../components/SpeakingAudioRecorder';
 import {
   extractSpeakingAssignmentDetails,
@@ -1111,6 +1113,65 @@ export const AssignmentsView: React.FC = () => {
         return;
       }
 
+      // 2b. Handle Listening Resource Assignment
+      if (
+        targetSkill === 'listening' ||
+        resource.skill === 'listening' ||
+        (resource as any).type === 'audio' ||
+        (resource as any).type === 'listening' ||
+        Boolean(resource.listeningContent)
+      ) {
+        let parsed: any = resource.listeningContent;
+        if (!parsed && resource.content) {
+          if (typeof resource.content === 'object') {
+            parsed = resource.content.listeningContent || resource.content;
+          } else if (typeof resource.content === 'string') {
+            try {
+              const json = JSON.parse(resource.content);
+              parsed = json.listeningContent || json;
+            } catch {
+              parsed = parseListeningDocument(resource.content, resource.title);
+            }
+          }
+        }
+        if (!parsed || !parsed.parts || parsed.parts.length === 0) {
+          parsed = parseListeningDocument(resource.content || resource.title, resource.title);
+        }
+
+        const audioUrl = resource.audioUrl || resource.url || parsed.audioUrl;
+        const finalParts = parsed.parts || [];
+        const allQuestions = finalParts.flatMap((p: any) =>
+          p.questions?.length ? p.questions : (p.questionGroups || []).flatMap((g: any) => g.questions || [])
+        );
+        const allGroups = finalParts.flatMap((p: any) => p.questionGroups || []);
+
+        await createAssignment({
+          courseId: libraryCourseId,
+          title,
+          instructions:
+            instructions ||
+            `Bài tập IELTS Listening gồm ${finalParts.length} phần thi (${allQuestions.length} câu hỏi). Hãy nghe và hoàn thành toàn bộ câu hỏi.`,
+          skill: 'listening',
+          objectives: 'Luyện tập kỹ năng IELTS Listening theo cấu trúc chuẩn quốc tế.',
+          dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+          status: 'published',
+          audioUrl,
+          listeningAudioUrl: audioUrl,
+          listeningContent: parsed,
+          listeningParts: finalParts,
+          listeningQuestions: allQuestions,
+          listeningQuestionGroups: allGroups,
+          questions: allQuestions,
+          readingQuestions: allQuestions,
+          questionGroups: allGroups,
+          resourceId: resource.id,
+          sourceDocumentName: resource.title,
+        });
+        setShowImportLibraryModal(false);
+        alert('Tài liệu Listening đã được giao thành công cho khóa học!');
+        return;
+      }
+
       // 3. If readingQuestions is empty and this is reading, parse document structure from text
       if (readingQuestions.length === 0 && targetSkill === 'reading' && readingPassage) {
         const docStruct = parseDocumentStructure(readingPassage, title);
@@ -1473,23 +1534,22 @@ export const AssignmentsView: React.FC = () => {
   };
 
   // Auto-link Part 3 questions when Part 2 topic changes
-  const linkPart3ForCueTopic = (cueTopic: string, sourceRes?: any) => {
+  const linkPart3ForCueTopic = (cueTopic: string, sourceRes?: any, cardId?: string) => {
     if (!cueTopic || !cueTopic.trim()) return;
-    const norm = cueTopic.toLowerCase().trim();
 
+    const cards = [{ id: cardId, topic: cueTopic.trim() }];
+    const { matchedGroups } = findAssociatedPart3GroupsForCards(cards, sourceRes, resources);
+
+    if (matchedGroups.length > 0) {
+      setFormSpeakingPart3Groups(matchedGroups);
+      setFormSpeakingQuestions(matchedGroups.flatMap((g) => g.questions || []));
+      return;
+    }
+
+    const norm = cueTopic.toLowerCase().trim();
     const extractP3 = (res: any): SpeakingPart3Group[] => {
-      let p3: SpeakingPart3Group[] = res.speakingPart3?.groups || res.speakingPart3Groups || [];
-      if (p3.length === 0 && res.content) {
-        if (typeof res.content === 'object' && res.content) {
-          p3 = res.content.groups || res.content.speakingPart3?.groups || [];
-        } else if (typeof res.content === 'string') {
-          try {
-            const parsed = JSON.parse(res.content);
-            p3 = parsed.groups || parsed.speakingPart3?.groups || [];
-          } catch {}
-        }
-      }
-      return p3;
+      const details = getSpeakingResourceDetails(res);
+      return details.groups;
     };
 
     let pool: SpeakingPart3Group[] = [];
@@ -5573,8 +5633,18 @@ export const AssignmentsView: React.FC = () => {
             {/* Questions Canvas */}
             <div className="space-y-6">
               {(() => {
-                const parts = activeAssignment.listeningParts || [];
-                const activePart = parts[activePassageTab];
+                const parts = (activeAssignment.listeningParts && activeAssignment.listeningParts.length > 0)
+                  ? activeAssignment.listeningParts
+                  : (activeAssignment.listeningContent?.parts && activeAssignment.listeningContent.parts.length > 0)
+                  ? activeAssignment.listeningContent.parts
+                  : [];
+                const activePart = parts[activePassageTab] || (parts.length > 0 ? parts[0] : undefined);
+                const rawQuestions = activePart?.questions || [];
+                const scopedQuestions =
+                  rawQuestions.length > 20
+                    ? rawQuestions.slice(activePassageTab * 10, (activePassageTab + 1) * 10)
+                    : rawQuestions;
+
                 const activeGroups: ListeningQuestionGroup[] =
                   activePart?.questionGroups?.length
                     ? activePart.questionGroups
@@ -5585,7 +5655,7 @@ export const AssignmentsView: React.FC = () => {
                           title: `Part ${activePassageTab + 1} Questions`,
                           instructions: 'Answer the questions as you listen. Write NO MORE THAN TWO WORDS AND/OR A NUMBER.',
                           wordLimit: 'NO MORE THAN TWO WORDS AND/OR A NUMBER',
-                          questions: (activePart?.questions || []).slice(activePassageTab * 10, (activePassageTab + 1) * 10),
+                          questions: scopedQuestions,
                         },
                       ];
 
@@ -7225,18 +7295,11 @@ export const AssignmentsView: React.FC = () => {
                                 setFormSpeakingPoints(card?.points?.join('\n') || '');
 
                                 // Automatically attach associated Part 3 groups
-                                const matchedP3Groups = part3Groups.filter((g: any) =>
-                                  selected.some(
-                                    (c: any) =>
-                                      (g.cueCardTopic &&
-                                        (c.topic.toLowerCase().includes(g.cueCardTopic.toLowerCase().slice(0, 15)) ||
-                                          g.cueCardTopic.toLowerCase().includes(c.topic.toLowerCase().slice(0, 15)))) ||
-                                      (g.cueCardId && g.cueCardId === c.id)
-                                  )
-                                );
-                                if (matchedP3Groups.length > 0) {
-                                  setFormSpeakingPart3Groups(matchedP3Groups);
-                                  setFormSpeakingQuestions(matchedP3Groups.flatMap((g: any) => g.questions));
+                                const cardsToMatch = selected.length > 0 ? selected : (card ? [card] : []);
+                                const { matchedGroups } = findAssociatedPart3GroupsForCards(cardsToMatch, res, resources);
+                                if (matchedGroups.length > 0) {
+                                  setFormSpeakingPart3Groups(matchedGroups);
+                                  setFormSpeakingQuestions(matchedGroups.flatMap((g: any) => g.questions));
                                 }
                               } else if (resPart === 'part3') {
                                 const selected = part3Groups.filter(

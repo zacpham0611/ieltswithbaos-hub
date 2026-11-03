@@ -20,6 +20,10 @@ import { extractAllNormalizedQuestions } from '../../lib/questionNormalizer';
 import { parseDocumentStructure } from '../../lib/documentExtractor';
 import { parseListeningDocument } from '../../lib/listeningExtractor';
 import {
+  findAssociatedPart3GroupsForCards as findSharedAssociatedPart3GroupsForCards,
+  getSpeakingResourceDetails as getSharedSpeakingResourceDetails,
+} from '../../utils/speakingLinkage';
+import {
   ShieldCheck,
   Plus,
   Search,
@@ -915,21 +919,23 @@ export const TeacherRegularTestsView: React.FC = () => {
     } else if (speakingPickerPart === 'part3') {
       const existingPart2 = formSections.find((s) => s.skill === 'speaking' && s.speakingPart === 'part2');
 
-      // Filter groups selected by the teacher
+      // Filter groups and questions selected by the teacher
       const finalGroups: SpeakingPart3Group[] = [];
       details.groups.forEach((grp: any, gIdx: number) => {
-        if (selectedPart3GroupIndices[gIdx]) {
-          const checkedQuestions = (grp.questions || []).filter((_: string, qIdx: number) =>
-            selectedPart3QuestionGroupItems[`${gIdx}_${qIdx}`] !== false
-          );
-          if (checkedQuestions.length > 0) {
-            finalGroups.push({
-              id: grp.id || `p3_grp_${gIdx + 1}`,
-              cueCardTopic: grp.cueCardTopic || existingPart2?.speakingTopic || selectedSpeakingResource.title,
-              cueCardId: grp.cueCardId || (existingPart2?.speakingCueCard as any)?.id,
-              questions: checkedQuestions,
-            });
-          }
+        const isGroupSelected = Boolean(selectedPart3GroupIndices[gIdx]);
+        const checkedQuestions = (grp.questions || []).filter((_: string, qIdx: number) => {
+          const itemVal = selectedPart3QuestionGroupItems[`${gIdx}_${qIdx}`];
+          if (itemVal === true) return true;
+          if (itemVal === false) return false;
+          return isGroupSelected;
+        });
+        if (checkedQuestions.length > 0) {
+          finalGroups.push({
+            id: grp.id || `p3_grp_${gIdx + 1}`,
+            cueCardTopic: grp.cueCardTopic || existingPart2?.speakingTopic || selectedSpeakingResource.title,
+            cueCardId: grp.cueCardId || (existingPart2?.speakingCueCard as any)?.id,
+            questions: checkedQuestions,
+          });
         }
       });
 
@@ -3125,9 +3131,37 @@ export const TeacherRegularTestsView: React.FC = () => {
                             <label className="font-bold text-slate-800 block text-xs">
                               Nhóm câu hỏi thảo luận chuyên sâu Part 3:
                             </label>
-                            <span className="text-[11px] text-purple-700 font-bold">
-                              {Object.values(selectedPart3GroupIndices).filter(Boolean).length} nhóm đã chọn
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextGroups: Record<number, boolean> = {};
+                                  const nextItems: Record<string, boolean> = {};
+                                  displayGroups.forEach((g: any, gIdx: number) => {
+                                    nextGroups[gIdx] = true;
+                                    (g.questions || []).forEach((_: string, qIdx: number) => {
+                                      nextItems[`${gIdx}_${qIdx}`] = true;
+                                    });
+                                  });
+                                  setSelectedPart3GroupIndices(nextGroups);
+                                  setSelectedPart3QuestionGroupItems(nextItems);
+                                }}
+                                className="text-[11px] font-bold text-purple-700 hover:text-purple-900 underline cursor-pointer"
+                              >
+                                Chọn tất cả
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPart3GroupIndices({});
+                                  setSelectedPart3QuestionGroupItems({});
+                                }}
+                                className="text-[11px] font-medium text-slate-500 hover:text-slate-800 cursor-pointer"
+                              >
+                                Bỏ chọn tất cả
+                              </button>
+                            </div>
                           </div>
 
                           {/* Linkage status notice */}
@@ -3202,26 +3236,39 @@ export const TeacherRegularTestsView: React.FC = () => {
 
                                       <div className="space-y-1.5 pl-6 border-l-2 border-purple-200 ml-2">
                                         {(grp.questions || []).map((q: string, qIdx: number) => {
-                                          const isQChecked = selectedPart3QuestionGroupItems[`${gIdx}_${qIdx}`] !== false;
+                                          const rawVal = selectedPart3QuestionGroupItems[`${gIdx}_${qIdx}`];
+                                          const isQChecked = rawVal === true ? true : (rawVal === false ? false : isGroupChecked);
 
                                           return (
                                             <label
                                               key={qIdx}
-                                              className="flex items-start gap-2 cursor-pointer text-[11px] text-slate-800 hover:text-purple-900"
+                                              className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer text-[11px] transition-all border ${
+                                                isQChecked
+                                                  ? 'bg-purple-100/70 border-purple-300 text-purple-950 font-medium'
+                                                  : 'bg-white/60 border-slate-100 text-slate-500 hover:bg-slate-50'
+                                              }`}
                                             >
                                               <input
                                                 type="checkbox"
-                                                checked={isGroupChecked && isQChecked}
-                                                disabled={!isGroupChecked}
+                                                checked={isQChecked}
                                                 onChange={(e) => {
+                                                  const checked = e.target.checked;
                                                   setSelectedPart3QuestionGroupItems((prev) => ({
                                                     ...prev,
-                                                    [`${gIdx}_${qIdx}`]: e.target.checked,
+                                                    [`${gIdx}_${qIdx}`]: checked,
                                                   }));
+                                                  if (checked && !isGroupChecked) {
+                                                    setSelectedPart3GroupIndices((prev) => ({ ...prev, [gIdx]: true }));
+                                                  }
                                                 }}
                                                 className="w-3.5 h-3.5 text-purple-600 rounded-sm mt-0.5 shrink-0"
                                               />
-                                              <span>{q}</span>
+                                              <span className="flex-1 leading-snug">{q}</span>
+                                              {isQChecked && (
+                                                <span className="text-[9px] font-bold text-purple-700 bg-white/80 px-1.5 py-0.2 rounded border border-purple-200 shrink-0">
+                                                  Đã chọn
+                                                </span>
+                                              )}
                                             </label>
                                           );
                                         })}

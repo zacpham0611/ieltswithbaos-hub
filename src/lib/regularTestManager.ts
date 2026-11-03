@@ -168,9 +168,11 @@ export function sanitizeExamDataForStudent(test: RegularTest): {
         speakingTopics: sec.speakingTopics,
         speakingTopicCount: sec.speakingTopicCount,
         speakingCueCard: sec.speakingCueCard,
+        speakingCueCards: sec.speakingCueCards,
         speakingTopic: sec.speakingTopic,
         speakingPoints: sec.speakingPoints,
         speakingQuestions: sec.speakingQuestions,
+        speakingPart3Groups: sec.speakingPart3Groups,
       };
     } else {
       return {

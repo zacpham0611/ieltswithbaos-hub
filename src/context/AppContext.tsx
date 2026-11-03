@@ -464,6 +464,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     speakingPart3Groups: a.speaking_part3_groups || metadata.speakingPart3Groups,
                     speakingTopicCount: a.speaking_topic_count || metadata.speakingTopicCount,
                     selectedSpeakingExerciseIds: a.selected_speaking_exercise_ids || metadata.selectedSpeakingExerciseIds,
+                    listeningContent: a.listening_content || metadata.listeningContent,
+                    listeningParts: a.listening_parts || metadata.listeningParts || metadata.listeningContent?.parts,
+                    listeningAudioUrl: a.listening_audio_url || metadata.listeningAudioUrl || a.audio_url || metadata.audioUrl,
+                    listeningAudioDurationSeconds: a.listening_audio_duration_seconds || metadata.listeningAudioDurationSeconds,
+                    listeningAudioMode: a.listening_audio_mode || metadata.listeningAudioMode,
+                    listeningQuestions: a.listening_questions || metadata.listeningQuestions || metadata.listeningContent?.questions || (a.skill === 'listening' ? cleanQuestions : undefined),
+                    listeningQuestionGroups: a.listening_question_groups || metadata.listeningQuestionGroups || metadata.listeningContent?.questionGroups || (a.skill === 'listening' ? questionGroups : undefined),
+                    listeningAllowReplay: a.listening_allow_replay ?? metadata.listeningAllowReplay,
+                    listeningAllowSpeed: a.listening_allow_speed ?? metadata.listeningAllowSpeed,
+                    audioUrl: a.audio_url || metadata.audioUrl || a.listening_audio_url || metadata.listeningAudioUrl,
+                    questions: a.skill === 'listening' ? (cleanQuestions?.length ? cleanQuestions : metadata.questions) : a.questions,
                   };
                 })
               );
@@ -759,8 +770,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }))
           );
         }
+
+        // Regular Tests for Teacher
+        try {
+          const { data: rtData } = await supabase
+            .from('regular_tests')
+            .select('*')
+            .eq('teacher_id', currentUser.id)
+            .order('created_at', { ascending: false });
+
+          if (rtData) {
+            setRegularTests(
+              rtData.map((t: any) => ({
+                id: t.id,
+                courseId: t.course_id,
+                courseName: currentCourses.find((c: any) => c.id === t.course_id)?.name || 'Course',
+                teacherId: t.teacher_id,
+                teacherName: currentUser.name,
+                title: t.title,
+                instructions: t.instructions,
+                skills: t.skills || [],
+                availabilityStart: t.availability_start,
+                availabilityEnd: t.availability_end,
+                hardDeadline: t.hard_deadline,
+                durationMinutes: t.duration_minutes,
+                timingMode: t.timing_mode,
+                sectionTimers: t.section_timers || {},
+                eligibleStudentIds: t.eligible_student_ids || [],
+                maxAttempts: t.max_attempts || 1,
+                accessCodeEnabled: Boolean(t.access_code_enabled),
+                accessCodeHash: t.access_code_hash,
+                strictPreset: t.strict_preset,
+                strictSettings: t.strict_settings,
+                status: t.status,
+                currentVersion: t.current_version || 1,
+                releaseSettings: t.release_settings,
+                sections: t.sections || [],
+                createdAt: t.created_at?.split('T')[0] || '',
+                updatedAt: t.updated_at?.split('T')[0] || '',
+              }))
+            );
+          }
+        } catch (rtErr) {
+          console.warn('DB regular_tests fetch notice for teacher:', rtErr);
+        }
       } else {
         // STUDENT DATA FETCHING
+        const approvedCourseIds: string[] = [];
+        const loadedCourses: Course[] = [];
+
         // 1. My Enrollments
         const { data: enrollmentsData } = await supabase
           .from('enrollments')
@@ -770,8 +828,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (enrollmentsData) {
           const reqs: EnrollmentRequest[] = [];
           const members: CourseMember[] = [];
-          const approvedCourseIds: string[] = [];
-          const loadedCourses: Course[] = [];
 
           enrollmentsData.forEach((e: any) => {
             const c = e.courses;
@@ -914,6 +970,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   })),
                 }));
 
+                const rawListeningParts = a.listening_parts || metadata.listeningParts || metadata.listeningContent?.parts || [];
+                const sanitizedListeningParts = rawListeningParts.map((part: any) => ({
+                  ...part,
+                  questions: (part.questions || []).map((q: any) => {
+                    if (canSeeAnswers) return q;
+                    const { correctAnswer, explanation, ...safeQ } = q;
+                    return { ...safeQ, correctAnswer: '', explanation: '' };
+                  }),
+                  questionGroups: (part.questionGroups || []).map((g: any) => ({
+                    ...g,
+                    questions: (g.questions || []).map((q: any) => {
+                      if (canSeeAnswers) return q;
+                      const { correctAnswer, explanation, ...safeQ } = q;
+                      return { ...safeQ, correctAnswer: '', explanation: '' };
+                    }),
+                  })),
+                }));
+
                 return {
                   id: a.id,
                   courseId: a.course_id,
@@ -947,6 +1021,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   speakingPart3Groups: a.speaking_part3_groups || metadata.speakingPart3Groups,
                   speakingTopicCount: a.speaking_topic_count || metadata.speakingTopicCount,
                   selectedSpeakingExerciseIds: a.selected_speaking_exercise_ids || metadata.selectedSpeakingExerciseIds,
+                  listeningContent: metadata.listeningContent ? {
+                    ...metadata.listeningContent,
+                    parts: sanitizedListeningParts,
+                  } : undefined,
+                  listeningParts: sanitizedListeningParts,
+                  listeningAudioUrl: a.listening_audio_url || metadata.listeningAudioUrl || a.audio_url || metadata.audioUrl,
+                  listeningAudioDurationSeconds: a.listening_audio_duration_seconds || metadata.listeningAudioDurationSeconds,
+                  listeningAudioMode: a.listening_audio_mode || metadata.listeningAudioMode,
+                  listeningQuestions: a.skill === 'listening' ? sanitizedQuestions : undefined,
+                  listeningQuestionGroups: a.skill === 'listening' ? sanitizedGroups : undefined,
+                  listeningAllowReplay: a.listening_allow_replay ?? metadata.listeningAllowReplay,
+                  listeningAllowSpeed: a.listening_allow_speed ?? metadata.listeningAllowSpeed,
+                  audioUrl: a.audio_url || metadata.audioUrl || a.listening_audio_url || metadata.listeningAudioUrl,
+                  questions: a.skill === 'listening' ? sanitizedQuestions : a.questions,
                 };
               })
             );
@@ -1099,6 +1187,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               qrCodeUrl: s.bank_info?.qrCodeUrl || s.qr_code_url,
             }))
           );
+        }
+
+        // Student Regular Tests
+        if (approvedCourseIds.length > 0) {
+          try {
+            const { data: rtData } = await supabase
+              .from('regular_tests')
+              .select('*')
+              .in('course_id', approvedCourseIds)
+              .eq('status', 'published')
+              .order('created_at', { ascending: false });
+
+            if (rtData) {
+              setRegularTests(
+                rtData.map((t: any) => ({
+                  id: t.id,
+                  courseId: t.course_id,
+                  courseName: loadedCourses.find((c: any) => c.id === t.course_id)?.name || 'Course',
+                  teacherId: t.teacher_id,
+                  teacherName: 'Teacher',
+                  title: t.title,
+                  instructions: t.instructions,
+                  skills: t.skills || [],
+                  availabilityStart: t.availability_start,
+                  availabilityEnd: t.availability_end,
+                  hardDeadline: t.hard_deadline,
+                  durationMinutes: t.duration_minutes,
+                  timingMode: t.timing_mode,
+                  sectionTimers: t.section_timers || {},
+                  eligibleStudentIds: t.eligible_student_ids || [],
+                  maxAttempts: t.max_attempts || 1,
+                  accessCodeEnabled: Boolean(t.access_code_enabled),
+                  accessCodeHash: t.access_code_hash,
+                  strictPreset: t.strict_preset,
+                  strictSettings: t.strict_settings,
+                  status: t.status,
+                  currentVersion: t.current_version || 1,
+                  releaseSettings: t.release_settings,
+                  sections: t.sections || [],
+                  createdAt: t.created_at?.split('T')[0] || '',
+                  updatedAt: t.updated_at?.split('T')[0] || '',
+                }))
+              );
+            }
+          } catch (rtErr) {
+            console.warn('DB regular_tests fetch notice for student:', rtErr);
+          }
         }
       }
 
@@ -2037,6 +2172,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         speakingPart3Groups: assignmentData.speakingPart3Groups,
         speakingTopicCount: assignmentData.speakingTopicCount,
         selectedSpeakingExerciseIds: assignmentData.selectedSpeakingExerciseIds,
+        listeningContent: (assignmentData as any).listeningContent,
+        listeningParts: (assignmentData as any).listeningParts || (assignmentData as any).listeningContent?.parts,
+        listeningAudioUrl: (assignmentData as any).listeningAudioUrl || (assignmentData as any).audioUrl,
+        listeningAudioDurationSeconds: (assignmentData as any).listeningAudioDurationSeconds,
+        listeningAudioMode: (assignmentData as any).listeningAudioMode,
+        listeningQuestions: (assignmentData as any).listeningQuestions || (assignmentData as any).questions || assignmentData.readingQuestions,
+        listeningQuestionGroups: (assignmentData as any).listeningQuestionGroups || assignmentData.questionGroups,
+        listeningAllowReplay: (assignmentData as any).listeningAllowReplay,
+        listeningAllowSpeed: (assignmentData as any).listeningAllowSpeed,
+        audioUrl: (assignmentData as any).audioUrl || (assignmentData as any).listeningAudioUrl,
+        questions: (assignmentData as any).questions,
       },
     };
 
@@ -2146,6 +2292,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         speakingPart3Groups: updates.speakingPart3Groups !== undefined ? updates.speakingPart3Groups : existing.speakingPart3Groups,
         speakingTopicCount: updates.speakingTopicCount !== undefined ? updates.speakingTopicCount : existing.speakingTopicCount,
         selectedSpeakingExerciseIds: updates.selectedSpeakingExerciseIds !== undefined ? updates.selectedSpeakingExerciseIds : existing.selectedSpeakingExerciseIds,
+        listeningContent: updates.listeningContent !== undefined ? updates.listeningContent : (existing as any).listeningContent,
+        listeningParts: updates.listeningParts !== undefined ? updates.listeningParts : (existing as any).listeningParts,
+        listeningAudioUrl: updates.listeningAudioUrl !== undefined ? updates.listeningAudioUrl : ((existing as any).listeningAudioUrl || (existing as any).audioUrl),
+        listeningAudioDurationSeconds: updates.listeningAudioDurationSeconds !== undefined ? updates.listeningAudioDurationSeconds : (existing as any).listeningAudioDurationSeconds,
+        listeningAudioMode: updates.listeningAudioMode !== undefined ? updates.listeningAudioMode : (existing as any).listeningAudioMode,
+        listeningQuestions: updates.listeningQuestions !== undefined ? updates.listeningQuestions : (existing as any).listeningQuestions,
+        listeningQuestionGroups: updates.listeningQuestionGroups !== undefined ? updates.listeningQuestionGroups : (existing as any).listeningQuestionGroups,
+        listeningAllowReplay: updates.listeningAllowReplay !== undefined ? updates.listeningAllowReplay : (existing as any).listeningAllowReplay,
+        listeningAllowSpeed: updates.listeningAllowSpeed !== undefined ? updates.listeningAllowSpeed : (existing as any).listeningAllowSpeed,
+        audioUrl: updates.audioUrl !== undefined ? updates.audioUrl : ((existing as any).audioUrl || (existing as any).listeningAudioUrl),
+        questions: updates.questions !== undefined ? updates.questions : (existing as any).questions,
       },
     };
 

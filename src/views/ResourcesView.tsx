@@ -43,6 +43,7 @@ import { ListeningImportModal } from '../components/ListeningImportModal';
 import { WritingImportModal } from '../components/WritingImportModal';
 import { MergePassagesModal } from '../components/MergePassagesModal';
 import { ReadingResourceEditorModal } from '../components/ReadingResourceEditorModal';
+import { ListeningResourceEditorModal } from '../components/ListeningResourceEditorModal';
 const SmartDocumentImportModal = React.lazy(() =>
   import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
 );
@@ -109,6 +110,9 @@ export const ResourcesView: React.FC = () => {
 
   // Edit Reading Resource State
   const [readingResourceToEdit, setReadingResourceToEdit] = useState<Resource | null>(null);
+
+  // Edit Listening Resource State
+  const [listeningResourceToEdit, setListeningResourceToEdit] = useState<Resource | null>(null);
 
   const togglePassageSelection = (id: string) => {
     setSelectedPassageIdsForMerge((prev) => {
@@ -905,6 +909,12 @@ export const ResourcesView: React.FC = () => {
                           const isReadingResource =
                             res.skill === 'reading' ||
                             Boolean(res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
+                          const isListeningResource =
+                            res.skill === 'listening' ||
+                            (res as any).type === 'audio' ||
+                            (res as any).type === 'listening' ||
+                            Boolean(res.listeningContent) ||
+                            Boolean(res.content && (res.content.includes('listeningContent') || res.content.includes('"parts"')));
                           const isSelectedForMerge = selectedPassageIdsForMerge.includes(res.id);
 
                           return (
@@ -990,6 +1000,17 @@ export const ResourcesView: React.FC = () => {
                                     >
                                       <PenTool className="w-3 h-3 text-blue-600" />
                                       <span>Sửa nội dung</span>
+                                    </button>
+                                  )}
+                                  {isTeacher && isListeningResource && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setListeningResourceToEdit(res)}
+                                      className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-[11px] font-semibold border border-emerald-200 flex items-center space-x-1 transition-colors"
+                                      title="Xem chi tiết, câu hỏi & cấu hình file nghe"
+                                    >
+                                      <Headphones className="w-3 h-3 text-emerald-600" />
+                                      <span>Chi tiết & Câu hỏi</span>
                                     </button>
                                   )}
                                   {isAiReadingTest && res.content && (
@@ -1095,6 +1116,12 @@ export const ResourcesView: React.FC = () => {
                       const isReadingResource =
                         res.skill === 'reading' ||
                         Boolean(res.content && (res.content.includes('readingPassage') || res.content.includes('passages')));
+                      const isListeningResource =
+                        res.skill === 'listening' ||
+                        (res as any).type === 'audio' ||
+                        (res as any).type === 'listening' ||
+                        Boolean(res.listeningContent) ||
+                        Boolean(res.content && (res.content.includes('listeningContent') || res.content.includes('"parts"')));
                       const isSelectedForMerge = selectedPassageIdsForMerge.includes(res.id);
 
                       return (
@@ -1180,6 +1207,17 @@ export const ResourcesView: React.FC = () => {
                                 >
                                   <PenTool className="w-3 h-3 text-blue-600" />
                                   <span>Sửa nội dung</span>
+                                </button>
+                              )}
+                              {isTeacher && isListeningResource && (
+                                <button
+                                  type="button"
+                                  onClick={() => setListeningResourceToEdit(res)}
+                                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-[11px] font-semibold border border-emerald-200 flex items-center space-x-1 transition-colors"
+                                  title="Xem chi tiết, câu hỏi & cấu hình file nghe"
+                                >
+                                  <Headphones className="w-3 h-3 text-emerald-600" />
+                                  <span>Chi tiết & Câu hỏi</span>
                                 </button>
                               )}
                               {isAiReadingTest && res.content && (
@@ -2326,6 +2364,20 @@ export const ResourcesView: React.FC = () => {
           folders={folders}
           onSaveSuccess={() => {
             setReadingResourceToEdit(null);
+          }}
+          updateResource={updateResource}
+        />
+      )}
+
+      {/* Feature 3: Interactive Listening Resource Editor Modal */}
+      {listeningResourceToEdit && (
+        <ListeningResourceEditorModal
+          isOpen={Boolean(listeningResourceToEdit)}
+          onClose={() => setListeningResourceToEdit(null)}
+          resource={listeningResourceToEdit}
+          folders={folders}
+          onSaveSuccess={() => {
+            setListeningResourceToEdit(null);
           }}
           updateResource={updateResource}
         />
