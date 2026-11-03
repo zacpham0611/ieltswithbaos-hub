@@ -1,4 +1,7 @@
 import { supabase, isSupabaseConfigured } from './supabase.ts';
+import { uploadAudioOptimized, type AudioUploadProgress } from './optimizedAudioUploader.ts';
+
+export type { AudioUploadProgress };
 
 export const blobToBase64 = async (b: Blob): Promise<string> => {
   if (typeof FileReader === 'undefined') {
@@ -21,15 +24,26 @@ export const blobToBase64 = async (b: Blob): Promise<string> => {
 export async function uploadMediaFile(
   fileOrBlob: Blob | File,
   folder: 'audio' | 'images' | 'documents' = 'audio',
-  preferredFileName?: string
+  preferredFileName?: string,
+  options?: { onProgress?: (p: AudioUploadProgress) => void; signal?: AbortSignal }
 ): Promise<string> {
+  // If uploading audio, utilize the optimized, resumable and cached audio uploader
+  if (folder === 'audio') {
+    return uploadAudioOptimized(fileOrBlob, {
+      folder: 'audio',
+      preferredFileName,
+      onProgress: options?.onProgress,
+      signal: options?.signal,
+    });
+  }
+
   const timestamp = Date.now();
   let ext = 'bin';
   const type = fileOrBlob.type || '';
   const size = fileOrBlob.size || 0;
 
-  // File size validation: 50MB for audio, 20MB for images/docs
-  const maxSize = folder === 'audio' ? 50 * 1024 * 1024 : 20 * 1024 * 1024;
+  // File size validation: 20MB for images/docs
+  const maxSize = 20 * 1024 * 1024;
   if (size > maxSize) {
     throw new Error(
       `Kích thước file vượt quá giới hạn cho phép (tối đa ${Math.round(maxSize / (1024 * 1024))}MB).`
@@ -96,9 +110,7 @@ export async function uploadMediaFile(
   }
 
   // Candidate storage buckets in order of preference
-  const candidateBuckets = folder === 'audio' 
-    ? ['materials', 'speaking_audios', 'teacher_assets']
-    : ['materials', 'teacher_assets'];
+  const candidateBuckets = ['materials', 'teacher_assets'];
 
   let lastUploadError: string | null = null;
 

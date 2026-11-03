@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabase.ts';
+import { uploadAudioOptimized, type AudioUploadProgress } from './optimizedAudioUploader.ts';
 import type {
   Assignment,
   SpeakingTopic,
@@ -197,68 +198,19 @@ export function packSpeakingSubmission(data: {
  */
 export async function uploadSpeakingAudio(
   fileOrBlob: Blob | File,
-  metadata: { assignmentId: string; studentId: string; questionId?: string }
+  metadata: { assignmentId: string; studentId: string; questionId?: string },
+  options?: { onProgress?: (p: AudioUploadProgress) => void; signal?: AbortSignal }
 ): Promise<string> {
-  const timestamp = Date.now();
   const safeQId = (metadata.questionId || 'part2').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const extension = fileOrBlob.type.includes('wav')
-    ? 'wav'
-    : fileOrBlob.type.includes('mp4')
-    ? 'mp4'
-    : fileOrBlob.type.includes('ogg')
-    ? 'ogg'
-    : fileOrBlob.type.includes('mp3') || fileOrBlob.type.includes('mpeg')
-    ? 'mp3'
-    : 'webm';
+  const preferredFileName = `${metadata.studentId}_${safeQId}`;
 
-  const filePath = `speaking/${metadata.assignmentId}/${metadata.studentId}_${safeQId}_${timestamp}.${extension}`;
-
-  const blobToBase64 = (b: Blob): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = (err) => reject(err);
-      reader.readAsDataURL(b);
-    });
-
-  if (!isSupabaseConfigured) {
-    return blobToBase64(fileOrBlob);
-  }
-
-  try {
-    const bucketName = 'speaking_audios';
-    let uploadRes = await supabase.storage.from(bucketName).upload(filePath, fileOrBlob, {
-      upsert: true,
-      contentType: fileOrBlob.type || 'audio/webm',
-    });
-
-    if (uploadRes.error && uploadRes.error.message?.toLowerCase().includes('bucket not found')) {
-      try {
-        await supabase.storage.createBucket(bucketName, {
-          public: true,
-          fileSizeLimit: 25 * 1024 * 1024, // 25MB limit for speaking
-        });
-
-        uploadRes = await supabase.storage.from(bucketName).upload(filePath, fileOrBlob, {
-          upsert: true,
-          contentType: fileOrBlob.type || 'audio/webm',
-        });
-      } catch (createErr) {
-        console.warn('Auto-create speaking_audios bucket error:', createErr);
-      }
-    }
-
-    if (!uploadRes.error) {
-      const { data: publicUrlData } = supabase.storage.from(bucketName).getPublicUrl(filePath);
-      return publicUrlData.publicUrl;
-    } else {
-      console.warn('Storage upload error, utilizing fallback:', uploadRes.error.message);
-    }
-  } catch (storageErr) {
-    console.warn('Speaking audio storage exception, utilizing fallback:', storageErr);
-  }
-
-  return blobToBase64(fileOrBlob);
+  return uploadAudioOptimized(fileOrBlob, {
+    folder: 'speaking',
+    preferredFileName: `speaking_${metadata.assignmentId}_${preferredFileName}`,
+    bucket: 'speaking_audios',
+    onProgress: options?.onProgress,
+    signal: options?.signal,
+  });
 }
 
 /**

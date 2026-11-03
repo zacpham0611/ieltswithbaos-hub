@@ -61,6 +61,7 @@ import {
   transcribeAndTranslateAudio,
   downloadSpeakingAudio,
 } from '../lib/speakingService';
+import { uploadMultipleAudioFiles } from '../lib/optimizedAudioUploader';
 import {
   FileCheck2,
   Clock,
@@ -1916,15 +1917,33 @@ export const AssignmentsView: React.FC = () => {
       const responses: SpeakingQuestionResponse[] = [];
       let totalDuration = 0;
 
+      const items = audioKeys.map((key) => {
+        const audio = studentSpeakingAudios[key];
+        const extension = audio.blob.type.includes('mp3') ? 'mp3' : 'webm';
+        const fileName = `speaking_${activeAssignment.id}_${key}_${Date.now()}.${extension}`;
+        return {
+          fileOrBlob: audio.blob,
+          options: {
+            bucket: 'speaking_audios',
+            folder: 'speaking',
+            fileName,
+            contentType: audio.blob.type || 'audio/webm',
+          },
+        };
+      });
+
+      const uploadedUrls = await uploadMultipleAudioFiles(
+        items,
+        3,
+        (completedCount, totalCount) => {
+          setSpeakingSubmittingStep(`Đang tải lên bản ghi âm (${completedCount}/${totalCount})...`);
+        }
+      );
+
       for (let i = 0; i < audioKeys.length; i++) {
         const key = audioKeys[i];
         const audio = studentSpeakingAudios[key];
-        setSpeakingSubmittingStep(`Đang tải lên bản ghi âm (${i + 1}/${audioKeys.length})...`);
-        const audioUrl = await uploadSpeakingAudio(audio.blob, {
-          assignmentId: activeAssignment.id,
-          studentId: currentUser.id,
-          questionId: key,
-        });
+        const audioUrl = uploadedUrls[i];
 
         responses.push({
           questionId: key,

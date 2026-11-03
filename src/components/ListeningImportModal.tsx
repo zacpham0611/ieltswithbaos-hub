@@ -15,11 +15,13 @@ import {
   ArrowRight,
   HelpCircle,
   Volume2,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { processDocumentFile } from '../lib/documentExtractor';
 import { parseListeningDocument } from '../lib/listeningExtractor';
 import { uploadMediaFile } from '../lib/mediaStorage';
+import type { AudioUploadProgress } from '../lib/optimizedAudioUploader';
 import { Portal } from './Portal';
 import type { ListeningTestContent, ListeningPart, ListeningQuestion } from '../types/index.ts';
 
@@ -58,6 +60,8 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
   const [overallAudioName, setOverallAudioName] = useState<string>('');
   const [partAudios, setPartAudios] = useState<Record<number, { url: string; name: string }>>({});
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [audioUploadProgress, setAudioUploadProgress] = useState<AudioUploadProgress | null>(null);
+  const [lastFailedAudio, setLastFailedAudio] = useState<{ file: File; isPart: boolean; partNum?: number } | null>(null);
 
   // Resource / Assignment metadata
   const [targetTitle, setTargetTitle] = useState('');
@@ -116,57 +120,71 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
     }
   };
 
-  // Handle Test-wide Audio Upload
-  const handleUploadOverallAudio = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const executeAudioUpload = async (file: File, isPart: boolean, partNum?: number) => {
     setIsUploadingAudio(true);
+    setAudioUploadProgress({
+      loaded: 0,
+      total: file.size,
+      percentage: 0,
+      speedBytesPerSec: 0,
+      status: 'uploading',
+    });
     setErrorMsg(null);
+    setLastFailedAudio(null);
+
     try {
-      const url = await uploadMediaFile(file, 'audio', `listening_${Date.now()}_${file.name}`);
-      setOverallAudioUrl(url);
-      setOverallAudioName(file.name);
-      if (content) {
-        setContent({ ...content, audioUrl: url });
+      const fileName = isPart && partNum
+        ? `listening_part${partNum}_${file.name}`
+        : `listening_${Date.now()}_${file.name}`;
+
+      const url = await uploadMediaFile(file, 'audio', fileName, {
+        onProgress: (p) => setAudioUploadProgress(p),
+      });
+
+      if (isPart && partNum) {
+        setPartAudios((prev) => ({
+          ...prev,
+          [partNum]: { url, name: file.name },
+        }));
+
+        if (content) {
+          const updatedParts = content.parts.map((p) =>
+            p.partNumber === partNum ? { ...p, audioUrl: url } : p
+          );
+          setContent({ ...content, parts: updatedParts });
+        }
+      } else {
+        setOverallAudioUrl(url);
+        setOverallAudioName(file.name);
+        if (content) {
+          setContent({ ...content, audioUrl: url });
+        }
       }
+      setAudioUploadProgress(null);
     } catch (err: any) {
       console.error('Audio upload error:', err);
       setErrorMsg(`Lỗi tải lên audio: ${err.message}`);
+      setLastFailedAudio({ file, isPart, partNum });
     } finally {
       setIsUploadingAudio(false);
+      setCurrentUploadingPartNum(null);
       if (audioInputRef.current) audioInputRef.current.value = '';
+      if (partAudioInputRef.current) partAudioInputRef.current.value = '';
     }
+  };
+
+  // Handle Test-wide Audio Upload
+  const handleUploadOverallAudio = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || isUploadingAudio) return;
+    await executeAudioUpload(file, false);
   };
 
   // Handle Per-part Audio Upload
   const handleUploadPartAudio = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || currentUploadingPartNum === null) return;
-
-    setIsUploadingAudio(true);
-    setErrorMsg(null);
-    try {
-      const url = await uploadMediaFile(file, 'audio', `listening_part${currentUploadingPartNum}_${file.name}`);
-      setPartAudios((prev) => ({
-        ...prev,
-        [currentUploadingPartNum]: { url, name: file.name },
-      }));
-
-      if (content) {
-        const updatedParts = content.parts.map((p) =>
-          p.partNumber === currentUploadingPartNum ? { ...p, audioUrl: url } : p
-        );
-        setContent({ ...content, parts: updatedParts });
-      }
-    } catch (err: any) {
-      console.error('Part audio upload error:', err);
-      setErrorMsg(`Lỗi tải lên audio Section: ${err.message}`);
-    } finally {
-      setIsUploadingAudio(false);
-      setCurrentUploadingPartNum(null);
-      if (partAudioInputRef.current) partAudioInputRef.current.value = '';
-    }
+    if (!file || currentUploadingPartNum === null || isUploadingAudio) return;
+    await executeAudioUpload(file, true, currentUploadingPartNum);
   };
 
   const handleUpdateQuestionAnswer = (partIdx: number, qIdx: number, newAnswer: string) => {
@@ -536,6 +554,57 @@ export const ListeningImportModal: React.FC<ListeningImportModalProps> = ({
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Audio Upload Realtime Progress */}
+                {isUploadingAudio && audioUploadProgress && (
+                  <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-purple-900 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
+                        {audioUploadProgress.status === 'processing'
+                          ? 'Đang hoàn tất lưu trữ Supabase Storage...'
+                          : audioUploadProgress.status === 'retrying'
+                          ? 'Đang tự động thử lại kết nối...'
+                          : 'Đang tải lên Supabase Storage...'}
+                      </span>
+                      <span className="font-mono">{audioUploadProgress.percentage}%</span>
+                    </div>
+                    <div className="w-full bg-purple-100 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-purple-600 h-2 rounded-full transition-all duration-200"
+                        style={{ width: `${audioUploadProgress.percentage}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-purple-600 font-mono">
+                      <span>
+                        {(audioUploadProgress.loaded / (1024 * 1024)).toFixed(1)} MB / {(audioUploadProgress.total / (1024 * 1024)).toFixed(1)} MB
+                      </span>
+                      {(audioUploadProgress.speedBytesPerSec ?? 0) > 0 && (
+                        <span>{((audioUploadProgress.speedBytesPerSec ?? 0) / 1024).toFixed(0)} KB/s</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Audio Upload Retry Banner */}
+                {lastFailedAudio && !isUploadingAudio && (
+                  <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 flex items-center justify-between gap-3">
+                    <div className="text-xs text-rose-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                      <span>
+                        Tải lên thất bại: <strong className="font-semibold">{lastFailedAudio.file.name}</strong>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => executeAudioUpload(lastFailedAudio.file, lastFailedAudio.isPart, lastFailedAudio.partNum)}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors shrink-0"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Thử lại ngay</span>
+                    </button>
                   </div>
                 )}
               </div>

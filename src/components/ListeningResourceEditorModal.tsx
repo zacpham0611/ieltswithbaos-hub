@@ -15,8 +15,12 @@ import {
   Play,
   Layers,
   ChevronRight,
+  Upload,
+  Loader2,
 } from 'lucide-react';
 import { parseListeningDocument } from '../lib/listeningExtractor';
+import { uploadMediaFile } from '../lib/mediaStorage';
+import type { AudioUploadProgress } from '../lib/optimizedAudioUploader';
 
 interface ListeningResourceEditorModalProps {
   isOpen: boolean;
@@ -45,6 +49,38 @@ export const ListeningResourceEditorModal: React.FC<ListeningResourceEditorModal
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<AudioUploadProgress | null>(null);
+  const audioInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || isUploadingAudio) return;
+
+    setIsUploadingAudio(true);
+    setUploadProgress({
+      loaded: 0,
+      total: file.size,
+      percentage: 0,
+      speedBytesPerSec: 0,
+      status: 'uploading',
+    });
+    setErrorMessage('');
+
+    try {
+      const url = await uploadMediaFile(file, 'audio', `listening_${Date.now()}_${file.name}`, {
+        onProgress: (p) => setUploadProgress(p),
+      });
+      setAudioUrl(url);
+      setUploadProgress(null);
+    } catch (err: any) {
+      console.error('Audio upload error:', err);
+      setErrorMessage(`Lỗi tải lên audio: ${err.message}`);
+    } finally {
+      setIsUploadingAudio(false);
+      if (audioInputRef.current) audioInputRef.current.value = '';
+    }
+  };
 
   // Initialize parts from resource
   useEffect(() => {
@@ -283,10 +319,28 @@ export const ListeningResourceEditorModal: React.FC<ListeningResourceEditorModal
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                <Music className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Link file Audio chung (URL / Supabase Storage)</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <Music className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Link file Audio chung (URL / Supabase Storage)</span>
+                </label>
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac"
+                  className="hidden"
+                  onChange={handleAudioUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => audioInputRef.current?.click()}
+                  disabled={isUploadingAudio}
+                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isUploadingAudio ? 'Đang tải...' : 'Tải file audio lên'}</span>
+                </button>
+              </div>
               <input
                 type="text"
                 value={audioUrl}
@@ -294,6 +348,35 @@ export const ListeningResourceEditorModal: React.FC<ListeningResourceEditorModal
                 placeholder="https://.../audio.mp3"
                 className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-lg outline-hidden focus:ring-2 focus:ring-emerald-500"
               />
+              {isUploadingAudio && uploadProgress && (
+                <div className="mt-2 p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-emerald-900 font-medium">
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                      {uploadProgress.status === 'processing'
+                        ? 'Đang hoàn tất xử lý...'
+                        : uploadProgress.status === 'retrying'
+                        ? 'Đang tự động kết nối lại...'
+                        : 'Đang tải lên Supabase Storage...'}
+                    </span>
+                    <span className="font-mono">{uploadProgress.percentage}%</span>
+                  </div>
+                  <div className="w-full bg-emerald-100 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-emerald-600 h-1.5 rounded-full transition-all duration-200"
+                      style={{ width: `${uploadProgress.percentage}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-emerald-700 font-mono">
+                    <span>
+                      {(uploadProgress.loaded / (1024 * 1024)).toFixed(1)} MB / {(uploadProgress.total / (1024 * 1024)).toFixed(1)} MB
+                    </span>
+                    {(uploadProgress.speedBytesPerSec ?? 0) > 0 && (
+                      <span>{((uploadProgress.speedBytesPerSec ?? 0) / 1024).toFixed(0)} KB/s</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
