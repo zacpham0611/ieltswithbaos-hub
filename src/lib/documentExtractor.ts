@@ -1323,6 +1323,11 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
 
       // Add to candidateTests list (per passage)
       const warnings: string[] = [];
+      pGroups.forEach((g: any) => {
+        if (g.warnings && Array.isArray(g.warnings)) {
+          warnings.push(...g.warnings);
+        }
+      });
       const missingKeys = pQs
         .filter((q) => !q.correctAnswer)
         .map((q) => q.id.replace('q_', ''));
@@ -1451,6 +1456,7 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
 function isLikelySubsectionHeading(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed || trimmed.length < 3 || trimmed.length > 70) return false;
+  if (/^(?:\[\-\-\- Page \d+ \-\-\-\]|(?:T\s*e\s*s\s*t|Practice\s+Test)\s*\d+[\s\.\:\-]*)$/i.test(trimmed)) return false;
   if (trimmed.endsWith('.') || trimmed.endsWith(':') || trimmed.endsWith(';') || trimmed.endsWith(',')) return false;
   if (trimmed.includes('\n')) return false;
   if (/^(?:the\s+drive\s+to|the\s+role\s+of|the\s+nature\s+of|part\s+\d+|section\s+\d+)/i.test(trimmed)) return true;
@@ -1510,6 +1516,7 @@ export function formatPassageParagraphs(
     for (let i = 0; i < effectiveLines.length; i++) {
       const rawLine = effectiveLines[i].trim();
       if (!rawLine) continue;
+      if (/^(?:\[\-\-\- Page \d+ \-\-\-\]|(?:T\s*e\s*s\s*t|Practice\s+Test)\s*\d+[\s\.\:\-]*)$/i.test(rawLine)) continue;
 
       // Check standalone label (e.g. "A" or "Paragraph A" on its own line)
       const standaloneMatch = rawLine.match(standaloneLabelRegex);
@@ -1592,6 +1599,9 @@ export function formatPassageParagraphs(
       flushCurrent();
       continue;
     }
+    if (/^(?:\[\-\-\- Page \d+ \-\-\-\]|(?:T\s*e\s*s\s*t|Practice\s+Test)\s*\d+[\s\.\:\-]*)$/i.test(rawLine)) {
+      continue;
+    }
 
     if (isLikelySubsectionHeading(rawLine)) {
       flushCurrent();
@@ -1649,8 +1659,7 @@ function parseSinglePassage(
     .map((l) => l.trim())
     .filter((l) => {
       if (!l) return false;
-      if (/^\[\-\-\- Page \d+ \-\-\-\]$/i.test(l)) return false;
-      if (/^(?:T\s*est|Practice\s+Test)\s+\d+$/i.test(l)) return false;
+      if (/^(?:\[\-\-\- Page \d+ \-\-\-\]|(?:T\s*e\s*s\s*t|Practice\s+Test)\s*\d+[\s\.\:\-]*)$/i.test(l)) return false;
       return true;
     });
   if (pLines.length === 0) {
@@ -1680,7 +1689,8 @@ function parseSinglePassage(
         /^(?:READING\s+PASSAGE\s+\d+|PASSAGE\s+\d+|SECTION\s+\d+)(?:\s*[\:\-\–]\s*(.+))?$/i
       );
       if (explicitHeaderMatch && explicitHeaderMatch[1]) {
-        const candidate = explicitHeaderMatch[1].trim();
+        let candidate = explicitHeaderMatch[1].trim();
+        candidate = candidate.replace(/^(?:TEST|PRACTICE\s+TEST)\s+\d+[\s\:\-\–]+/i, '').trim();
         if (!/^(?:you\s+should\s+spend|questions?\s+\d+|based\s+on|on\s+pages?)/i.test(candidate)) {
           explicitTitle = candidate;
         }
@@ -1716,8 +1726,10 @@ function parseSinglePassage(
     contentStartIndex = 1;
   }
 
-  // Clean passageTitle if contaminated by trailing punctuation, page numbers, or instructions
+  // Clean passageTitle if contaminated by trailing punctuation, page numbers, instructions, or Test [X] labels
   passageTitle = passageTitle
+    .replace(/^(?:TEST|PRACTICE\s+TEST)\s+\d+[\s\:\-\–]+/i, '')
+    .replace(/\s+(?:TEST|PRACTICE\s+TEST)\s+\d+$/i, '')
     .replace(/^[\:\-\–\.\s]+/, '')
     .replace(/[\:\-\–\.\s]+$/, '')
     .trim();
@@ -1735,8 +1747,14 @@ function parseSinglePassage(
     pLines[contentStartIndex].length < 120 &&
     !/^(?:questions?|\d+[\.\:\)]|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi|read\s+the|you\s+should|in\s+boxes|true|false|not\s+given)/i.test(pLines[contentStartIndex])
   ) {
-    passageTitle = pLines[contentStartIndex];
-    contentStartIndex++;
+    let candidate = pLines[contentStartIndex]
+      .replace(/^(?:TEST|PRACTICE\s+TEST)\s+\d+[\s\:\-\–]+/i, '')
+      .replace(/\s+(?:TEST|PRACTICE\s+TEST)\s+\d+$/i, '')
+      .trim();
+    if (candidate.length >= 3) {
+      passageTitle = candidate;
+      contentStartIndex++;
+    }
   }
 
   // 1.5. Detect if passage has its own localized answer key block at end of passage
@@ -2291,6 +2309,33 @@ function parseSinglePassage(
       });
     }
 
+    // Validate question range completeness (e.g. "Questions 14-18" expects 5 questions)
+    const rangeMatch = gRange.title.match(/(?:q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s*)(\d{1,2})\s*(?:[\-\–—]|to)\s*(\d{1,2})/i);
+    const groupWarnings: string[] = [];
+    if (rangeMatch) {
+      const startNum = parseInt(rangeMatch[1], 10);
+      const endNum = parseInt(rangeMatch[2], 10);
+      if (endNum >= startNum && endNum <= 40) {
+        const expectedCount = endNum - startNum + 1;
+        const extractedNums = new Set(
+          groupQuestions.map((q) => parseInt(q.id.replace('q_', ''), 10)).filter((n) => !isNaN(n))
+        );
+        const missingNums: number[] = [];
+        for (let n = startNum; n <= endNum; n++) {
+          if (!extractedNums.has(n)) {
+            missingNums.push(n);
+          }
+        }
+        if (missingNums.length > 0) {
+          const warnMsg = `Group "${gRange.title}": Expected ${expectedCount} questions (Q${startNum}–Q${endNum}), extracted ${groupQuestions.length}. Missing question(s): ${missingNums.map((n) => `Q${n}`).join(', ')}.`;
+          groupWarnings.push(warnMsg);
+          groupQuestions.forEach((q) => {
+            q.needsReview = true;
+          });
+        }
+      }
+    }
+
     const qGroup: QuestionGroup = {
       id: `qgroup_${passageIndex}_${gIdx + 1}`,
       groupTitle: gRange.title,
@@ -2301,6 +2346,7 @@ function parseSinglePassage(
       headingsList: headingsList.length > 0 ? headingsList : undefined,
       featuresList: featuresList.length > 0 ? featuresList : undefined,
       optionsBox: optionsBox.length > 0 ? optionsBox : undefined,
+      warnings: groupWarnings.length > 0 ? groupWarnings : undefined,
       questions: groupQuestions,
     };
 
@@ -2371,7 +2417,11 @@ function finalizeQuestion(
   }
 
   const confidence: 'high' | 'needs_teacher_review' = key ? 'high' : 'needs_teacher_review';
-  const requiresReview = !key || confidence === 'needs_teacher_review';
+  const requiresReview =
+    !key ||
+    confidence === 'needs_teacher_review' ||
+    Boolean(q.needsReview) ||
+    (qType === 'short_answer' && !/(?:no\s+more\s+than|short\s+answer|answer\s+the\s+questions)/i.test(instructionContext));
 
   let explanation = q.explanation;
   if (!explanation) {

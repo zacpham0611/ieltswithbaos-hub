@@ -79,7 +79,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   targetFolderId,
   targetFolderName,
 }) => {
-  const { currentUser, courses, createAssignment, addResource } = useApp();
+  const { currentUser, courses, createAssignment, addResource, resources } = useApp();
   const { t } = useI18n();
 
   // Wizard Navigation
@@ -98,6 +98,14 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
   const [editedPassage, setEditedPassage] = useState('');
   const [previewTab, setPreviewTab] = useState<'structured' | 'raw'>('structured');
   const [selectedCandidateTestId, setSelectedCandidateTestId] = useState<string | 'combined'>('combined');
+
+  // Manual 3-Passage Merging State
+  const [selectedCandidateIdsForMerge, setSelectedCandidateIdsForMerge] = useState<string[]>([]);
+  const [isMergeConfigOpen, setIsMergeConfigOpen] = useState(false);
+  const [mergeTestTitle, setMergeTestTitle] = useState('');
+  const [mergeTargetFolderId, setMergeTargetFolderId] = useState<string | null>(targetFolderId || null);
+  const [orderedMergeCandidateIds, setOrderedMergeCandidateIds] = useState<string[]>([]);
+  const [isSubmittingMerge, setIsSubmittingMerge] = useState(false);
 
   // Hierarchical Tree View State
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null);
@@ -470,6 +478,149 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     setUploadedFiles([...uploadedFiles]);
   };
 
+  const handleTogglePassageSelection = (candidateId: string) => {
+    setSelectedCandidateIdsForMerge((prev) => {
+      if (prev.includes(candidateId)) {
+        return prev.filter((id) => id !== candidateId);
+      }
+      if (prev.length >= 3) {
+        alert('Chỉ có thể chọn chính xác 3 Passage để gộp thành một Reading Test.');
+        return prev;
+      }
+      return [...prev, candidateId];
+    });
+  };
+
+  const handleOpenMergeConfig = () => {
+    if (selectedCandidateIdsForMerge.length !== 3) return;
+    setOrderedMergeCandidateIds([...selectedCandidateIdsForMerge]);
+    const defaultTitle = activeDoc
+      ? `${activeDoc.name.replace(/\.[^/.]+$/, '')} - Reading Test`
+      : `IELTS Reading Full Test - ${new Date().toLocaleDateString('vi-VN')}`;
+    setMergeTestTitle(defaultTitle);
+    setMergeTargetFolderId(targetFolderId || null);
+    setIsMergeConfigOpen(true);
+  };
+
+  const handleConfirmMergePassages = async () => {
+    if (!activeDoc || !activeDoc.detectedStructure?.candidateTests) return;
+    if (orderedMergeCandidateIds.length !== 3) {
+      alert('Cần chọn chính xác 3 Passage để gộp thành Test hoàn chỉnh.');
+      return;
+    }
+    if (!mergeTestTitle.trim()) {
+      alert('Vui lòng nhập tên cho bài Reading Test.');
+      return;
+    }
+
+    setIsSubmittingMerge(true);
+    try {
+      const candidateMap = new Map(
+        activeDoc.detectedStructure.candidateTests.map((ct) => [ct.id, ct])
+      );
+      const orderedPassages = orderedMergeCandidateIds
+        .map((id) => candidateMap.get(id))
+        .filter(Boolean) as any[];
+
+      if (orderedPassages.length !== 3) {
+        throw new Error('Không tìm thấy đủ 3 Passage đã chọn.');
+      }
+
+      const fullTestPassages = orderedPassages.map((ct, idx) => ({
+        id: `passage_${idx + 1}`,
+        passageIndex: idx + 1,
+        title: ct.title || `Passage ${idx + 1}`,
+        content: ct.passageText,
+        htmlContent: ct.htmlContent,
+        instructions: ct.instructions,
+        questionGroups: ct.questionGroups || [],
+        questions: ct.questions || [],
+        labeledParagraphs: ct.labeledParagraphs || [],
+      }));
+
+      const allCombinedQs = fullTestPassages.flatMap((p) => p.questions || []);
+      const allCombinedGroups = fullTestPassages.flatMap((p) => p.questionGroups || []);
+
+      let targetFolderNameStr: string | undefined = undefined;
+      if (mergeTargetFolderId) {
+        try {
+          const savedFolders = JSON.parse(localStorage.getItem('ielts_material_folders') || '[]');
+          const found = savedFolders.find((f: any) => f.id === mergeTargetFolderId);
+          if (found) targetFolderNameStr = found.name;
+        } catch {}
+      }
+
+      const fullTestPayload = {
+        title: mergeTestTitle.trim(),
+        skill: 'reading',
+        readingPassage: fullTestPassages[0]?.content || '',
+        content: fullTestPassages[0]?.content || '',
+        passages: fullTestPassages,
+        questionGroups: allCombinedGroups,
+        questions: allCombinedQs,
+        readingTestType: 'academic',
+        metadata: {
+          sourceDocumentName: activeDoc.name,
+          isMergedTest: true,
+          sourceCandidateIds: orderedMergeCandidateIds,
+          passageCount: 3,
+          questionCount: allCombinedQs.length,
+          createdAt: new Date().toISOString(),
+        },
+      };
+
+      const newRes = await addResource({
+        title: mergeTestTitle.trim(),
+        type: 'doc',
+        content: JSON.stringify(fullTestPayload),
+        tags: [],
+        skill: 'reading',
+        folder: targetFolderNameStr || targetFolderName,
+        folderId: mergeTargetFolderId || null,
+        isPublished: true,
+      });
+
+      const remainingCandidates = activeDoc.detectedStructure.candidateTests.filter(
+        (ct) => !orderedMergeCandidateIds.includes(ct.id)
+      );
+      activeDoc.detectedStructure.candidateTests = remainingCandidates;
+      if (remainingCandidates.length === 0) {
+        (activeDoc.detectedStructure as any).candidateTests = undefined;
+      }
+
+      const newParsedTest = {
+        id: `test_merged_${Date.now()}`,
+        testIndex: (activeDoc.detectedStructure.tests?.length || 0) + 1,
+        title: mergeTestTitle.trim(),
+        passages: fullTestPassages,
+        allQuestions: allCombinedQs,
+        questionCount: allCombinedQs.length,
+      };
+      activeDoc.detectedStructure.tests = [
+        ...(activeDoc.detectedStructure.tests || []),
+        newParsedTest,
+      ];
+
+      setSelectedTestId(newParsedTest.id);
+      setSelectedPassageId(fullTestPassages[0].id);
+      setEditedTitle(fullTestPassages[0].title);
+      setEditedPassage(fullTestPassages[0].content);
+      setEditableQuestions(fullTestPassages[0].questions || []);
+      setExpandedTestIds((prev) => ({ ...prev, [newParsedTest.id]: true }));
+      setSelectedCandidateIdsForMerge([]);
+      setIsMergeConfigOpen(false);
+      setUploadedFiles([...uploadedFiles]);
+
+      alert(`Gộp thành công 3 Passage thành Reading Test mới: "${mergeTestTitle.trim()}"! Đã lưu trực tiếp vào Thư viện tài nguyên.`);
+      onResourceCreated?.();
+    } catch (err: any) {
+      console.error('Lỗi khi gộp 3 passages:', err);
+      alert(`Lỗi khi gộp: ${err.message || 'Vui lòng thử lại.'}`);
+    } finally {
+      setIsSubmittingMerge(false);
+    }
+  };
+
   const handleToggleExpandTest = (testId: string) => {
     setExpandedTestIds((prev) => ({ ...prev, [testId]: !prev[testId] }));
   };
@@ -589,7 +740,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             title: testTitleToSave,
             type: 'doc',
             content: JSON.stringify(structuredPayload),
-            tags: ['smart-import', 'reading', 'full-test', testTitleToSave],
+            tags: [],
             skill: 'reading',
             folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'IELTS Full Tests',
             folderId: targetFolderId || null,
@@ -615,7 +766,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             title: testTitleToSave,
             type: 'doc',
             content: JSON.stringify(structuredPayload),
-            tags: ['smart-import', 'reading'],
+            tags: [],
             skill: 'reading',
             folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Imported Tests',
             folderId: targetFolderId || null,
@@ -700,7 +851,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         title: titleToSave,
         type: 'doc',
         content: JSON.stringify(structuredPayload),
-        tags: ['smart-import', assignSkill || 'reading', 'interactive-test'],
+        tags: [],
         skill: assignSkill || 'reading',
         folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Imported Library Tests',
         folderId: targetFolderId || null,
@@ -824,7 +975,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         type: 'doc',
         url: dataUrl,
         content: editedRawText.slice(0, 5000),
-        tags: ['converted-docx', assignSkill, 'smart-import'],
+        tags: [],
         skill: assignSkill,
         folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Converted Documents',
         folderId: targetFolderId || null,
@@ -976,7 +1127,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         title: `${libraryMaterialName.trim() || editedTitle || activeDoc.name} (Source Document)`,
         type: activeDoc.type === 'pdf' ? 'pdf' : activeDoc.type === 'docx' ? 'doc' : 'note',
         content: editedRawText,
-        tags: ['original-source', assignSkill, 'smart-import'],
+        tags: [],
         skill: assignSkill,
         folder: targetFolderName !== undefined ? (targetFolderName || undefined) : 'Imported Materials',
         folderId: targetFolderId || null,
@@ -1072,6 +1223,23 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     };
     setReviewedQuestions((prev) => [...prev, newQ]);
   };
+
+  const availableFolders: { id: string; name: string }[] = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem('ielts_material_folders') || '[]');
+    if (Array.isArray(saved)) {
+      saved.forEach((f: any) => {
+        if (f.id && f.name) availableFolders.push({ id: f.id, name: f.name });
+      });
+    }
+  } catch {}
+  if (resources) {
+    resources.forEach((r) => {
+      if (r.folder && !availableFolders.some((f) => f.name === r.folder)) {
+        availableFolders.push({ id: r.folderId || r.folder, name: r.folder });
+      }
+    });
+  }
 
   return (
     <Portal>
@@ -2175,122 +2343,145 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                       </div>
                     );
                   })()}
-                  {activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 1 && (() => {
-                    const groupingAnalysis = analyzePassageGrouping(activeDoc.detectedStructure.candidateTests);
-                    const totalAnswersCount = Object.keys(activeDoc.detectedStructure.detectedAnswerKey || {}).length;
+                  {activeDoc.detectedStructure?.candidateTests && activeDoc.detectedStructure.candidateTests.length > 0 && (() => {
+                    const candidateTests = activeDoc.detectedStructure.candidateTests;
+                    const isExactThreeSelected = selectedCandidateIdsForMerge.length === 3;
 
                     return (
-                      <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 space-y-2.5 shrink-0">
-                        {/* Header: Title, Answer Key Badge & Main Action */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                            <span className="text-xs font-bold text-blue-900 flex items-center space-x-1.5">
-                              <Layers className="w-3.5 h-3.5 text-blue-600" />
-                              <span>Detected {activeDoc.detectedStructure.candidateTests.length} Reading Passages</span>
+                      <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3 shrink-0 shadow-2xs">
+                        {/* Top Bar: Selection Count & Merge Action */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
+                          <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
+                            <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                              <BookOpen className="w-4 h-4 text-blue-600" />
+                              <span>Passages nhận diện ({candidateTests.length})</span>
                             </span>
-                            {totalAnswersCount > 0 && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
-                                <Check className="w-3 h-3 text-emerald-600" />
-                                <span>Answer Key: {totalAnswersCount} Qs mapped</span>
-                              </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center space-x-1 ${
+                              isExactThreeSelected
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : selectedCandidateIdsForMerge.length > 0
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}>
+                              <span>{selectedCandidateIdsForMerge.length} / 3 Passages selected</span>
+                            </span>
+                            {candidateTests.length >= 3 && selectedCandidateIdsForMerge.length === 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedCandidateIdsForMerge(candidateTests.slice(0, 3).map((ct) => ct.id))}
+                                className="text-[11px] text-blue-600 hover:text-blue-800 hover:underline font-medium ml-1"
+                              >
+                                Chọn 3 Passage đầu
+                              </button>
+                            )}
+                            {selectedCandidateIdsForMerge.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedCandidateIdsForMerge([])}
+                                className="text-[11px] text-slate-500 hover:text-slate-800 hover:underline font-medium ml-1"
+                              >
+                                Bỏ chọn tất cả
+                              </button>
                             )}
                           </div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {groupingAnalysis.groups.map((grp) => (
-                              <button
-                                key={grp.groupId}
-                                type="button"
-                                onClick={() => handleGroupSuggestedSequence(grp.candidateIds, grp.suggestedTitle)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1 ${
-                                  grp.isValidSequence
-                                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                                }`}
-                              >
-                                <span>Gộp {grp.suggestedTitle}</span>
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={handleGroupCandidateTestsIntoFullTest}
-                              className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
-                            >
-                              Gộp tất cả ({activeDoc.detectedStructure.candidateTests.length} Passages)
-                            </button>
-                          </div>
+
+                          <button
+                            type="button"
+                            disabled={!isExactThreeSelected}
+                            onClick={handleOpenMergeConfig}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs ${
+                              isExactThreeSelected
+                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white cursor-pointer ring-2 ring-blue-300 ring-offset-1'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
+                            }`}
+                            title={isExactThreeSelected ? 'Gộp 3 Passages đã chọn thành một Reading Test mới' : 'Vui lòng chọn đúng 3 Passages để gộp'}
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Merge Selected Passages ({selectedCandidateIdsForMerge.length}/3)</span>
+                          </button>
                         </div>
 
-                        {/* Suggested Grouping Status Notification */}
-                        {groupingAnalysis.groups.length > 0 && (
-                          <div className="flex flex-wrap gap-2 text-xs">
-                            {groupingAnalysis.groups.map((grp) => (
-                              <div
-                                key={grp.groupId}
-                                className={`px-2.5 py-1 rounded-lg border flex items-center space-x-1.5 text-[11px] ${
-                                  grp.isValidSequence
-                                    ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                                    : 'bg-amber-50 text-amber-900 border-amber-200'
-                                }`}
-                              >
-                                {grp.isValidSequence ? (
-                                  <Check className="w-3 h-3 text-emerald-600 shrink-0" />
-                                ) : (
-                                  <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
-                                )}
-                                <span className="font-semibold">
-                                  {grp.suggestedTitle}: {grp.isValidSequence ? 'Chuỗi tuần tự hợp lệ (Passages 1 → 2 → 3)' : grp.warnings.join(' · ')}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        {/* Candidate Passages Grid / Scrollable List */}
+                        <div className="flex flex-wrap items-center gap-2 max-h-48 overflow-y-auto pr-1">
+                          {candidateTests.map((ct, idx) => {
+                            const isSelectedForMerge = selectedCandidateIdsForMerge.includes(ct.id);
+                            const isCurrentActivePreview = selectedCandidateTestId === ct.id;
+                            const hasWarnings = ct.warnings && ct.warnings.length > 0;
 
-                        {/* Passage Navigation & Reordering Pills */}
-                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                          {activeDoc.detectedStructure.candidateTests.map((ct, idx) => (
-                            <div key={ct.id} className="flex items-center">
-                              <button
-                                type="button"
+                            return (
+                              <div
+                                key={ct.id}
                                 onClick={() => handleSelectCandidateTest(ct.id)}
-                                className={`px-2.5 py-1 rounded-l-lg text-xs font-bold border-y border-l transition-all flex items-center space-x-1.5 ${
-                                  selectedCandidateTestId === ct.id
-                                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                className={`p-2 rounded-lg border text-xs cursor-pointer transition-all flex items-center space-x-2 ${
+                                  isCurrentActivePreview
+                                    ? 'border-blue-500 bg-blue-50/60 shadow-xs ring-1 ring-blue-400'
+                                    : isSelectedForMerge
+                                    ? 'border-indigo-300 bg-indigo-50/40'
+                                    : 'border-slate-200 bg-white hover:bg-slate-50'
                                 }`}
                               >
-                                <span>{ct.title}</span>
-                                <span className={`text-[10px] px-1 rounded font-mono ${selectedCandidateTestId === ct.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                                  {ct.questionCount} Qs
-                                </span>
-                              </button>
-                              <div className="flex items-center border border-slate-300 rounded-r-lg bg-white overflow-hidden">
-                                <button
-                                  type="button"
-                                  disabled={idx === 0}
-                                  onClick={(e) => {
+                                {/* Checkbox for 3-Passage Manual Selection */}
+                                <input
+                                  type="checkbox"
+                                  checked={isSelectedForMerge}
+                                  onChange={(e) => {
                                     e.stopPropagation();
-                                    handleMoveCandidatePassage(idx, 'left');
+                                    handleTogglePassageSelection(ct.id);
                                   }}
-                                  className="px-1 py-1 hover:bg-slate-100 text-slate-500 disabled:opacity-30 disabled:hover:bg-white text-[10px]"
-                                  title="Di chuyển sang trái"
-                                >
-                                  ◀
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={idx === (activeDoc.detectedStructure?.candidateTests?.length ?? 1) - 1}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleMoveCandidatePassage(idx, 'right');
-                                  }}
-                                  className="px-1 py-1 hover:bg-slate-100 text-slate-500 disabled:opacity-30 disabled:hover:bg-white text-[10px]"
-                                  title="Di chuyển sang phải"
-                                >
-                                  ▶
-                                </button>
+                                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                  title="Chọn để gộp thành bài thi"
+                                />
+
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-semibold text-slate-800 truncate max-w-[200px]" title={ct.title}>
+                                    {ct.title || `Passage ${idx + 1}`}
+                                  </span>
+                                  <div className="flex items-center space-x-1.5 mt-0.5">
+                                    <span className="text-[10px] text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded font-mono font-bold">
+                                      {ct.questionCount} Qs
+                                    </span>
+                                    {hasWarnings && (
+                                      <span
+                                        className="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded font-medium flex items-center space-x-0.5"
+                                        title={ct.warnings.join('\n')}
+                                      >
+                                        <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                        <span>{ct.warnings.length} warning{ct.warnings.length > 1 ? 's' : ''}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Move arrows */}
+                                <div className="flex items-center space-x-0.5 ml-auto border-l border-slate-200 pl-1.5">
+                                  <button
+                                    type="button"
+                                    disabled={idx === 0}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveCandidatePassage(idx, 'left');
+                                    }}
+                                    className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-20 text-[10px]"
+                                    title="Di chuyển sang trước"
+                                  >
+                                    ◀
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx === candidateTests.length - 1}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveCandidatePassage(idx, 'right');
+                                    }}
+                                    className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-700 disabled:opacity-20 text-[10px]"
+                                    title="Di chuyển sang sau"
+                                  >
+                                    ▶
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -3799,6 +3990,168 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         </div>
       </div>
     </div>
+
+    {/* Manual 3-Passage Merging Configuration Modal */}
+    {isMergeConfigOpen && (
+      <Portal>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-4 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <span className="p-2 bg-blue-100 text-blue-700 rounded-xl">
+                  <Sparkles className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Gộp 3 Passage thành Reading Test mới
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Sắp xếp thứ tự và cấu hình bài thi IELTS Reading hoàn chỉnh 3 Passages
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMergeConfigOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form Content */}
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Tên bài Reading Test mới <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={mergeTestTitle}
+                  onChange={(e) => setMergeTestTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  placeholder="VD: IELTS Academic Reading Test 1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Thư mục lưu trữ trong Thư viện tài nguyên
+                </label>
+                <select
+                  value={mergeTargetFolderId || ''}
+                  onChange={(e) => setMergeTargetFolderId(e.target.value || null)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
+                >
+                  <option value="">Thư mục gốc / Mặc định (Root)</option>
+                  {availableFolders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      📁 {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Thứ tự 3 Passages trong đề thi (Sử dụng nút ▲ ▼ để điều chỉnh)
+                </label>
+                <div className="space-y-2 border border-slate-200 rounded-xl p-2.5 bg-slate-50/50">
+                  {orderedMergeCandidateIds.map((id, idx) => {
+                    const ct = activeDoc?.detectedStructure?.candidateTests?.find((c) => c.id === id);
+                    return (
+                      <div
+                        key={id}
+                        className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg shadow-2xs text-xs"
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center shrink-0 text-xs">
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <span className="font-bold text-slate-800 truncate block">
+                              Passage {idx + 1}: {ct?.title || id}
+                            </span>
+                            <div className="flex items-center space-x-2 text-[10px] text-slate-500">
+                              <span>{ct?.questionCount || 0} câu hỏi</span>
+                              {ct?.warnings && ct.warnings.length > 0 && (
+                                <span className="text-amber-700 flex items-center space-x-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                  <span>{ct.warnings.length} warning</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => {
+                              const next = [...orderedMergeCandidateIds];
+                              const temp = next[idx - 1];
+                              next[idx - 1] = next[idx];
+                              next[idx] = temp;
+                              setOrderedMergeCandidateIds(next);
+                            }}
+                            className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 disabled:opacity-20 cursor-pointer"
+                            title="Đổi lên trước"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === orderedMergeCandidateIds.length - 1}
+                            onClick={() => {
+                              const next = [...orderedMergeCandidateIds];
+                              const temp = next[idx + 1];
+                              next[idx + 1] = next[idx];
+                              next[idx] = temp;
+                              setOrderedMergeCandidateIds(next);
+                            }}
+                            className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 disabled:opacity-20 cursor-pointer"
+                            title="Đổi xuống sau"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsMergeConfigOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingMerge || !mergeTestTitle.trim()}
+                onClick={handleConfirmMergePassages}
+                className="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center space-x-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmittingMerge ? (
+                  <span>Đang lưu...</span>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Xác nhận gộp & Lưu đề thi</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Portal>
+    )}
     </Portal>
   );
 };

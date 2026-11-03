@@ -214,6 +214,7 @@ export interface QuestionGroup {
   sharedInstructions?: string;
   /** Question IDs that participate in the shared resource */
   sharedQuestionIds?: string[];
+  warnings?: string[];
   questions: ReadingQuestion[];
 }
 

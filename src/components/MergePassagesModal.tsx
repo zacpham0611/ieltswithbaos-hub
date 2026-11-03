@@ -175,7 +175,7 @@ export const MergePassagesModal: React.FC<MergePassagesModalProps> = ({
         title: testTitle.trim(),
         type: 'doc',
         content: JSON.stringify(fullTestPayload),
-        tags: ['reading', 'full-test', 'merged-test', 'academic'],
+        tags: [],
         skill: 'reading',
         folder: targetFolder ? targetFolder.name : undefined,
         folderId: targetFolderId || null,

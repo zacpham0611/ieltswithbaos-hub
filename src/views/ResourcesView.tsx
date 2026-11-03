@@ -970,14 +970,19 @@ export const ResourcesView: React.FC = () => {
 
                               <td className="py-3 px-4">
                                 <div className="flex flex-wrap gap-1">
-                                  {res.tags.map((tg) => (
-                                    <span
-                                      key={tg}
-                                      className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
-                                    >
-                                      #{tg}
-                                    </span>
-                                  ))}
+                                  {(() => {
+                                    const redundantTagRegex = /^(?:smart-import|reading|full-test|merged-test|academic|interactive-test|test\s*\d+|practice\s*test\s*\d+|converted-docx|original-source)$/i;
+                                    const visibleTags = (res.tags || []).filter((tg) => !redundantTagRegex.test(tg.trim()));
+                                    if (visibleTags.length === 0) return <span className="text-slate-400 text-xs">-</span>;
+                                    return visibleTags.map((tg) => (
+                                      <span
+                                        key={tg}
+                                        className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
+                                      >
+                                        #{tg}
+                                      </span>
+                                    ));
+                                  })()}
                                 </div>
                               </td>
 
@@ -1175,14 +1180,19 @@ export const ResourcesView: React.FC = () => {
 
                           <td className="py-3 px-4">
                             <div className="flex flex-wrap gap-1">
-                              {res.tags.map((tg) => (
-                                <span
-                                  key={tg}
-                                  className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
-                                >
-                                  #{tg}
-                                </span>
-                              ))}
+                              {(() => {
+                                const redundantTagRegex = /^(?:smart-import|reading|full-test|merged-test|academic|interactive-test|test\s*\d+|practice\s*test\s*\d+|converted-docx|original-source)$/i;
+                                const visibleTags = (res.tags || []).filter((tg) => !redundantTagRegex.test(tg.trim()));
+                                if (visibleTags.length === 0) return <span className="text-slate-400 text-xs">-</span>;
+                                return visibleTags.map((tg) => (
+                                  <span
+                                    key={tg}
+                                    className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]"
+                                  >
+                                    #{tg}
+                                  </span>
+                                ));
+                              })()}
                             </div>
                           </td>
 
