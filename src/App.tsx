@@ -17,6 +17,7 @@ import { RegularTestsView } from './views/RegularTestsView';
 import { RegularTestExamView } from './views/regular-tests/RegularTestExamView';
 import { AuthView } from './views/AuthView';
 import { useI18n } from './i18n/context';
+import { useSeasonalTheme } from './theme/SeasonalThemeContext';
 
 export const AppContent: React.FC = () => {
   const {
@@ -29,6 +30,7 @@ export const AppContent: React.FC = () => {
     setActiveExamAttempt,
   } = useApp();
   const { t } = useI18n();
+  const { currentTheme } = useSeasonalTheme();
 
   if (loadingAuth) {
     return (
@@ -93,11 +95,21 @@ export const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div
+      className="min-h-screen flex flex-col transition-colors duration-200"
+      style={{
+        backgroundColor: currentTheme.palette.mainBg,
+        color: currentTheme.palette.textMain,
+        fontFamily: currentTheme.typography.bodyFont,
+      }}
+    >
       <Navbar />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <main
+          className="flex-1 overflow-y-auto p-4 md:p-8"
+          style={{ backgroundColor: currentTheme.palette.mainBg }}
+        >
           <div key={activeTab} className="page-transition min-h-full">
             {renderContent()}
           </div>

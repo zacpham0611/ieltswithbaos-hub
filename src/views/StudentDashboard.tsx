@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
+import { useSeasonalTheme } from '../theme/SeasonalThemeContext';
 import {
   BookOpen,
   Clock,
@@ -25,6 +26,7 @@ export const StudentDashboard: React.FC = () => {
     setSelectedReportId,
   } = useApp();
   const { t, formatCurrency, formatNumber } = useI18n();
+  const { currentTheme } = useSeasonalTheme();
 
   if (!currentUser) return null;
 
@@ -63,19 +65,35 @@ export const StudentDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-            {t('dashboard.studentTitle')}
+      {/* Festive Hero Greeting for Student */}
+      <div
+        className="relative overflow-hidden rounded-2xl p-6 border shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition-all"
+        style={{
+          background: currentTheme.bannerGradient,
+          borderColor: currentTheme.palette.border,
+        }}
+      >
+        <div className="space-y-1 z-10">
+          <h1
+            className="text-2xl font-bold tracking-tight"
+            style={{
+              color: currentTheme.palette.primary,
+              fontFamily: currentTheme.typography.displayFont,
+            }}
+          >
+            {currentTheme.hero.title}
           </h1>
-          <p className="text-sm text-slate-500">
-            {t('dashboard.studentSubtitle')}
+          <p
+            className="text-xs sm:text-sm font-medium"
+            style={{ color: currentTheme.palette.textSecondary }}
+          >
+            {currentTheme.hero.subtitle}
           </p>
         </div>
         <button
           onClick={() => setActiveTab('find_course')}
-          className="inline-flex items-center space-x-2 px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 shadow-xs transition-colors"
+          className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold text-white shadow-xs transition-colors shrink-0 z-10"
+          style={{ backgroundColor: currentTheme.palette.primary }}
         >
           <BookOpen className="w-4 h-4" />
           <span>{t('nav.findCourse')}</span>
@@ -87,28 +105,36 @@ export const StudentDashboard: React.FC = () => {
         {/* Active courses */}
         <div
           onClick={() => setActiveTab('courses')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-blue-300 transition-all cursor-pointer group"
+          className="p-5 rounded-xl border shadow-xs transition-all cursor-pointer group hover:shadow-md"
+          style={{
+            backgroundColor: currentTheme.palette.cardSurface,
+            borderColor: currentTheme.palette.border,
+          }}
         >
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>{t('dashboard.enrolledCourses')}</span>
+          <div className="flex items-center justify-between text-xs font-medium uppercase tracking-wider mb-2">
+            <span style={{ color: currentTheme.palette.textSecondary }}>{t('dashboard.enrolledCourses')}</span>
             <BookOpen className="w-4 h-4 text-blue-600 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">
+          <div className="text-3xl font-extrabold" style={{ color: currentTheme.palette.textMain }}>
             {formatNumber(myCourses.length)}
           </div>
-          <p className="text-xs text-slate-400 mt-1">{t('dashboard.acrossTeachers')}</p>
+          <p className="text-xs opacity-60 mt-1">{t('dashboard.acrossTeachers')}</p>
         </div>
 
         {/* Action Required */}
         <div
           onClick={() => setActiveTab('assignments')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-amber-300 transition-all cursor-pointer group"
+          className="p-5 rounded-xl border shadow-xs transition-all cursor-pointer group hover:shadow-md"
+          style={{
+            backgroundColor: currentTheme.palette.cardSurface,
+            borderColor: currentTheme.palette.border,
+          }}
         >
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>{t('dashboard.assignmentsToDo')}</span>
+          <div className="flex items-center justify-between text-xs font-medium uppercase tracking-wider mb-2">
+            <span style={{ color: currentTheme.palette.textSecondary }}>{t('dashboard.assignmentsToDo')}</span>
             <Clock className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">
+          <div className="text-3xl font-extrabold" style={{ color: currentTheme.palette.textMain }}>
             {formatNumber(actionRequiredAssignments.length)}
           </div>
           <p className="text-xs text-amber-600 font-medium mt-1">{t('dashboard.dueSoon')}</p>
@@ -117,16 +143,20 @@ export const StudentDashboard: React.FC = () => {
         {/* Latest Report */}
         <div
           onClick={() => setActiveTab('assessments')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-indigo-300 transition-all cursor-pointer group"
+          className="p-5 rounded-xl border shadow-xs transition-all cursor-pointer group hover:shadow-md"
+          style={{
+            backgroundColor: currentTheme.palette.cardSurface,
+            borderColor: currentTheme.palette.border,
+          }}
         >
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>{t('nav.monthlyReports')}</span>
+          <div className="flex items-center justify-between text-xs font-medium uppercase tracking-wider mb-2">
+            <span style={{ color: currentTheme.palette.textSecondary }}>{t('nav.monthlyReports')}</span>
             <Award className="w-4 h-4 text-indigo-600 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900 truncate">
+          <div className="text-2xl font-extrabold truncate" style={{ color: currentTheme.palette.textMain }}>
             {latestReport ? latestReport.month : t('status.unpaid')}
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs opacity-60 mt-1">
             {latestReport ? `${latestReport.teacherEvaluation?.estimatedBand || t('status.approved')}` : t('dashboard.noReportsYet')}
           </p>
         </div>
@@ -134,16 +164,20 @@ export const StudentDashboard: React.FC = () => {
         {/* Tuition Balance */}
         <div
           onClick={() => setActiveTab('tuition')}
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-emerald-300 transition-all cursor-pointer group"
+          className="p-5 rounded-xl border shadow-xs transition-all cursor-pointer group hover:shadow-md"
+          style={{
+            backgroundColor: currentTheme.palette.cardSurface,
+            borderColor: currentTheme.palette.border,
+          }}
         >
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            <span>{t('dashboard.tuitionBalance')}</span>
+          <div className="flex items-center justify-between text-xs font-medium uppercase tracking-wider mb-2">
+            <span style={{ color: currentTheme.palette.textSecondary }}>{t('dashboard.tuitionBalance')}</span>
             <WalletCards className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">
+          <div className="text-2xl font-extrabold" style={{ color: currentTheme.palette.textMain }}>
             {totalTuitionBalance === 0 ? t('status.paid') : formatCurrency(totalTuitionBalance, myStatements[0]?.currency || 'VND')}
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs opacity-60 mt-1">
             {formatNumber(myStatements.filter((s) => s.remainingBalance > 0).length)} {t('dashboard.tuitionPending')}
           </p>
         </div>

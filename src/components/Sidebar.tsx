@@ -1,6 +1,8 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
+import { useSeasonalTheme } from '../theme/SeasonalThemeContext';
+import { getThemeArtwork } from '../theme/themes';
 import {
   LayoutDashboard,
   BookOpen,
@@ -25,6 +27,7 @@ export const Sidebar: React.FC = () => {
     setSelectedReportId,
   } = useApp();
   const { t } = useI18n();
+  const { activeThemeId, currentTheme } = useSeasonalTheme();
 
   if (!currentUser) return null;
 
@@ -38,7 +41,7 @@ export const Sidebar: React.FC = () => {
   interface NavItem {
     id: string;
     label: string;
-    icon: React.ComponentType<{ className?: string }>;
+    icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
     badge?: string;
   }
 
@@ -50,7 +53,7 @@ export const Sidebar: React.FC = () => {
     { id: 'regular_tests', label: t('nav.regularTests'), icon: ShieldCheck },
     { id: 'assessments', label: t('nav.monthlyAssessments'), icon: Award },
     { id: 'tuition', label: t('nav.tuition'), icon: WalletCards },
-    { id: 'ai_assistant', label: t('nav.aiAssistant'), icon: Sparkles, badge: 'AI' },
+    { id: 'ai_assistant', label: 'Trợ lý Gemini', icon: Sparkles, badge: 'AI' },
     { id: 'settings', label: t('nav.settings'), icon: Settings },
   ];
 
@@ -67,22 +70,46 @@ export const Sidebar: React.FC = () => {
   ];
 
   const navItems: NavItem[] = currentUser.role === 'teacher' ? teacherItems : studentItems;
+  const { SidebarBottom } = getThemeArtwork(activeThemeId);
+  const isDefaultTheme = activeThemeId === 'default';
 
   return (
-    <aside className="no-print w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] border-r border-slate-800">
+    <aside
+      className="no-print w-64 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] border-r transition-colors duration-200"
+      style={{
+        backgroundColor: currentTheme.palette.sidebarBg,
+        borderColor: currentTheme.palette.border,
+        color: currentTheme.palette.textMain,
+      }}
+    >
       {/* Workspace branding header in sidebar */}
-      <div className="p-4 border-b border-slate-800/80">
-        <div className="flex items-center space-x-2 text-white">
-          <div className="w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-blue-500/20" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+      <div
+        className="p-4 border-b transition-colors"
+        style={{ borderColor: currentTheme.palette.border }}
+      >
+        <div className="flex items-center space-x-2">
+          <div
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ backgroundColor: currentTheme.palette.primary }}
+          />
+          <span
+            className="text-xs font-bold uppercase tracking-wider"
+            style={{ color: currentTheme.palette.primary }}
+          >
             {currentUser.role === 'teacher'
               ? t('nav.teacherWorkspace')
               : t('nav.studentWorkspace')}
           </span>
         </div>
-        <p className="text-xs text-slate-300 font-medium mt-1 truncate">
-          {currentUser.name}
-        </p>
+        <div className="flex items-center space-x-1.5 mt-1.5">
+          <p
+            className="text-xs font-bold truncate"
+            style={{ color: currentTheme.palette.textMain }}
+          >
+            {currentUser.name}
+          </p>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+        </div>
       </div>
 
       {/* Nav List */}
@@ -94,21 +121,48 @@ export const Sidebar: React.FC = () => {
             <button
               key={item.id}
               onClick={() => handleNav(item.id)}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all ${
-                isActive
-                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all"
+              style={{
+                backgroundColor: isActive ? currentTheme.palette.primary : 'transparent',
+                color: isActive ? '#FFFFFF' : currentTheme.palette.textMain,
+                fontWeight: isActive ? 600 : 500,
+                boxShadow: isActive ? '0 2px 8px rgba(0, 0, 0, 0.12)' : 'none',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.backgroundColor = isDefaultTheme
+                    ? 'rgba(255, 255, 255, 0.08)'
+                    : `${currentTheme.palette.primary}12`;
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
+              }}
             >
               <div className="flex items-center space-x-3">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <Icon
+                  className="w-4 h-4 shrink-0 transition-colors"
+                  style={{
+                    color: isActive
+                      ? '#FFFFFF'
+                      : isDefaultTheme
+                      ? '#94A3B8'
+                      : currentTheme.palette.primary,
+                  }}
+                />
+                <span className="truncate">{item.label}</span>
               </div>
               {item.badge && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
-                    isActive ? 'bg-blue-700 text-blue-100' : 'bg-blue-500/20 text-blue-300'
-                  }`}
+                  className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+                  style={{
+                    backgroundColor: isActive
+                      ? 'rgba(255, 255, 255, 0.25)'
+                      : currentTheme.palette.primary,
+                    color: '#FFFFFF',
+                  }}
                 >
                   {item.badge}
                 </span>
@@ -118,18 +172,30 @@ export const Sidebar: React.FC = () => {
         })}
       </nav>
 
-      {/* Bottom info badge */}
-      <div className="p-4 border-t border-slate-800/80 text-[11px] text-slate-400 bg-slate-950/40">
-        <div className="flex items-center justify-between">
-          <span>{t('nav.privacyEnforced')}</span>
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+      {/* Sidebar Seasonal Artwork or Default Info Badge */}
+      {SidebarBottom ? (
+        <div className="p-2 flex items-center justify-center overflow-hidden">
+          <SidebarBottom />
         </div>
-        <p className="text-[10px] text-slate-400 mt-1">
-          {currentUser.role === 'teacher'
-            ? t('nav.privacyTeacherNote')
-            : t('nav.privacyStudentNote')}
-        </p>
-      </div>
+      ) : (
+        <div
+          className="p-4 border-t text-[11px] opacity-75"
+          style={{
+            borderColor: currentTheme.palette.border,
+            backgroundColor: 'rgba(0, 0, 0, 0.05)',
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span>{t('nav.privacyEnforced')}</span>
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+          <p className="text-[10px] mt-1 opacity-80">
+            {currentUser.role === 'teacher'
+              ? t('nav.privacyTeacherNote')
+              : t('nav.privacyStudentNote')}
+          </p>
+        </div>
+      )}
     </aside>
   );
 };
