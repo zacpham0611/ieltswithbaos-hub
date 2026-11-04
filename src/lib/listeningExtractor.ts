@@ -220,6 +220,30 @@ function processListeningPart(
   let currentExpectedRange: [number, number] | null = null;
 
   const finalizeGroup = () => {
+    // If multiple_select group had options collected but questions not yet created:
+    if (
+      currentType === 'multiple_select' &&
+      currentGroupQuestions.length === 0 &&
+      currentExpectedRange
+    ) {
+      const [startN, endN] = currentExpectedRange;
+      const count = endN - startN + 1;
+      const groupOpts = currentGroupOptions.length > 0 ? [...currentGroupOptions] : undefined;
+      for (let k = 0; k < count; k++) {
+        const qNum = startN + k;
+        currentGroupQuestions.push({
+          id: `q_p${partNumber}_${qNum}`,
+          number: qNum,
+          questionNumber: qNum,
+          part: partNumber as any,
+          type: 'multiple_select',
+          prompt: currentInstructions || `Questions ${startN}-${endN}`,
+          options: groupOpts,
+          allowNumbers: false,
+        });
+      }
+    }
+
     if (currentGroupQuestions.length > 0) {
       currentGroupQuestions.sort((a, b) => (a.questionNumber || 0) - (b.questionNumber || 0));
       const firstNum = currentGroupQuestions[0]?.questionNumber || currentGroupQuestions[0]?.number || 1;
@@ -283,17 +307,29 @@ function processListeningPart(
 
       currentType = inferQuestionTypeFromInstruction(line);
 
-      // Check next line for instructions & word limit
-      if (i + 1 < lines.length) {
-        const nextLine = lines[i + 1];
+      // Check next lines for instructions & word limit
+      while (i + 1 < lines.length) {
+        const nextLine = lines[i + 1].trim();
+        if (!nextLine) {
+          i++;
+          continue;
+        }
         const wlMatch = nextLine.match(wordLimitRegex);
         if (wlMatch && !currentWordLimit) {
           currentWordLimit = wlMatch[0].toUpperCase();
         }
-        if (/^(?:Complete|Choose|Write|Write NO MORE|How did)\b/i.test(nextLine)) {
+        if (
+          /^(?:Complete|Choose|Write|Write NO MORE|How did|Look at|Label|Answer|In boxes|Questions?|What|Which|Who|Where)\b/i.test(nextLine) ||
+          wordLimitRegex.test(nextLine)
+        ) {
           currentInstructions = (currentInstructions ? currentInstructions + ' ' : '') + nextLine;
-          currentType = inferQuestionTypeFromInstruction(nextLine);
+          const inferred = inferQuestionTypeFromInstruction(nextLine);
+          if (inferred !== 'note_completion' || currentType === 'note_completion') {
+            currentType = inferred;
+          }
           i++; // skip next line as instruction
+        } else {
+          break;
         }
       }
       continue;
@@ -467,30 +503,54 @@ function processListeningPart(
       continue;
     }
 
-    // Check for Sentences or Notes with inline blanks: e.g. "This year, activities end by 7 ………… p.m."
-    const inlineBlankMatch = line.match(/^(.*?)\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)(.*?)$/);
-    if (inlineBlankMatch) {
-      const qNum = parseInt(inlineBlankMatch[2], 10);
-      const prefix = inlineBlankMatch[1].replace(/^[•\-\*\s]+/, '').trim();
-      const suffix = inlineBlankMatch[3].trim();
-      const prompt = `${prefix ? prefix + ' ' : ''}_____${suffix ? ' ' + suffix : ''}`.trim();
+    // Check for Sentences, Forms, or Notes with inline blanks: e.g. "This year, activities end by 7 ………… p.m." or "• Address: 1 …………" or "[1]"
+    const blankRegex = /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\(([0-9]{1,2})\)\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\[([0-9]{1,2})\])/g;
+    const blankMatches = Array.from(line.matchAll(blankRegex));
 
-      currentGroupQuestions.push({
-        id: `q_p${partNumber}_${qNum}`,
-        number: qNum,
-        questionNumber: qNum,
-        part: partNumber as any,
-        type: currentType === 'form_completion' ? 'form_completion' : 'note_completion',
-        prompt,
-        maxWords: parseWordCount(currentWordLimit),
-        allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
-      });
+    if (blankMatches.length > 0 && !line.includes('|')) {
+      for (const bm of blankMatches) {
+        const qNum = parseInt(bm[1] || bm[2] || bm[3] || bm[4], 10);
+        let prompt = line.replace(/^[•\-\*\s]+/, '').trim();
+        prompt = prompt.replace(bm[0], '_____');
+        prompt = prompt.replace(blankRegex, '_____');
+
+        const resolvedType =
+          currentType === 'form_completion'
+            ? 'form_completion'
+            : currentType === 'summary_completion'
+            ? 'summary_completion'
+            : currentType === 'flowchart_completion'
+            ? 'flowchart_completion'
+            : currentType === 'sentence_completion'
+            ? 'sentence_completion'
+            : 'note_completion';
+
+        currentGroupQuestions.push({
+          id: `q_p${partNumber}_${qNum}`,
+          number: qNum,
+          questionNumber: qNum,
+          part: partNumber as any,
+          type: resolvedType,
+          prompt: prompt || `Question ${qNum}`,
+          maxWords: parseWordCount(currentWordLimit),
+          allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
+        });
+      }
+
+      // Add the formatted line to currentGroupText with standardized [qNum] gap markers
+      const formattedLine = line.replace(blankRegex, (_match, g1, g2, g3, g4) => `[${g1 || g2 || g3 || g4}]`);
+      currentGroupText += (currentGroupText ? '\n' : '') + formattedLine;
       continue;
     }
 
     // Accumulate text into group context / layout
-    if (line.length > 3 && !line.toLowerCase().startsWith('answer key')) {
-      currentGroupText += (currentGroupText ? '\n' : '') + line;
+    const trimmedLine = line.trim();
+    if (
+      trimmedLine.length > 0 &&
+      !trimmedLine.toLowerCase().startsWith('answer key') &&
+      !trimmedLine.toLowerCase().startsWith('listening answers')
+    ) {
+      currentGroupText += (currentGroupText ? '\n' : '') + trimmedLine;
     }
   }
 
@@ -577,6 +637,8 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
     lower.includes('chọn ba') ||
     lower.includes('chọn 2') ||
     lower.includes('chọn 3') ||
+    lower.includes('which two') ||
+    lower.includes('which three') ||
     lower.includes('multiple select')
   ) {
     return 'multiple_select';
@@ -584,7 +646,9 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
   if (
     lower.includes('choose the correct letter') ||
     lower.includes('multiple choice') ||
-    lower.includes('chọn đáp án đúng')
+    lower.includes('chọn đáp án đúng') ||
+    lower.includes('a, b or c') ||
+    lower.includes('a, b, c or d')
   ) {
     return 'multiple_choice';
   }
@@ -592,31 +656,63 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
     lower.includes('map') ||
     lower.includes('plan') ||
     lower.includes('diagram') ||
-    lower.includes('label') ||
+    lower.includes('label the') ||
+    lower.includes('labelling') ||
     lower.includes('sơ đồ') ||
     lower.includes('bản đồ')
   ) {
     return 'plan_map_diagram_labelling';
   }
-  if (lower.includes('flow-chart') || lower.includes('flowchart') || lower.includes('lưu đồ')) {
+  if (
+    lower.includes('flow-chart') ||
+    lower.includes('flowchart') ||
+    lower.includes('flow chart') ||
+    lower.includes('process') ||
+    lower.includes('stages') ||
+    lower.includes('lưu đồ') ||
+    lower.includes('quy trình')
+  ) {
     return 'flowchart_completion';
   }
   if (lower.includes('table') || lower.includes('bảng')) {
     return 'table_completion';
   }
-  if (lower.includes('form') || lower.includes('biểu mẫu') || lower.includes('đơn vị')) {
+  if (
+    lower.includes('form') ||
+    lower.includes('application') ||
+    lower.includes('registration') ||
+    lower.includes('details form') ||
+    lower.includes('biểu mẫu') ||
+    lower.includes('đơn vị')
+  ) {
     return 'form_completion';
   }
   if (lower.includes('summary') || lower.includes('tóm tắt')) {
     return 'summary_completion';
   }
-  if (lower.includes('matching') || lower.includes('match') || lower.includes('nối')) {
+  if (
+    lower.includes('matching') ||
+    lower.includes('match') ||
+    lower.includes('from the box') ||
+    lower.includes('from the list') ||
+    lower.includes('box below') ||
+    lower.includes('list below') ||
+    lower.includes('say about each') ||
+    lower.includes('which person') ||
+    lower.includes('which speaker') ||
+    lower.includes('nối')
+  ) {
     return 'matching';
   }
   if (lower.includes('sentence') || lower.includes('câu')) {
     return 'sentence_completion';
   }
-  if (lower.includes('short answer') || lower.includes('câu hỏi ngắn')) {
+  if (
+    lower.includes('short answer') ||
+    lower.includes('short-answer') ||
+    lower.includes('câu hỏi ngắn') ||
+    lower.includes('answer the questions below')
+  ) {
     return 'short_answer';
   }
   return 'note_completion';

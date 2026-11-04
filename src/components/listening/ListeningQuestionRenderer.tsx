@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flag, AlertCircle, Volume2 } from 'lucide-react';
+import { Flag, AlertCircle, Volume2, ChevronDown } from 'lucide-react';
 import type { ListeningQuestion, ListeningQuestionGroup } from '../../types';
 import { cleanListeningText } from '../../lib/listeningExtractor';
 
@@ -58,8 +58,8 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     safeQuestions[safeQuestions.length - 1]?.number ||
     safeQuestions.length;
 
-  // Set of question IDs whose inputs are directly embedded inside table cells
-  const tableEmbeddedQuestionIds = new Set<string>();
+  // Set of question IDs whose inputs are directly embedded inside structured content (tables, forms, notes, flowcharts)
+  const embeddedQuestionIds = new Set<string>();
 
   // Render question flag button
   const renderFlagButton = (questionId: string) => {
@@ -364,7 +364,72 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
-  // Render Markdown Table with INTERACTIVE in-cell answer inputs (Preserves table layout and places inputs in cells)
+  // Render an inline interactive input for a question embedded within structured content
+  const renderInlineQuestionInput = (qNum: number, keyPrefix: string) => {
+    const targetQ = safeQuestions.find(
+      (q) => (q.questionNumber || q.number) === qNum
+    );
+
+    if (targetQ) {
+      embeddedQuestionIds.add(targetQ.id);
+      const userVal = answers[targetQ.id] || '';
+
+      return (
+        <span
+          key={`${keyPrefix}-q${qNum}`}
+          className="inline-flex items-center gap-1.5 align-middle mx-1 my-0.5 flex-wrap"
+        >
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 shrink-0">
+            {qNum}
+          </span>
+          <input
+            type="text"
+            value={userVal}
+            disabled={isReadOnly}
+            placeholder={`[${qNum}]`}
+            onChange={(e) => onAnswerChange(targetQ.id, e.target.value)}
+            className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[95px] max-w-[170px] transition-colors"
+          />
+          {renderFlagButton(targetQ.id)}
+          {showCorrectAnswers && targetQ.correctAnswer && (
+            <span className="text-[11px] text-emerald-700 font-bold whitespace-nowrap">
+              [{cleanListeningText(targetQ.correctAnswer)}]
+            </span>
+          )}
+        </span>
+      );
+    }
+
+    return (
+      <span
+        key={`${keyPrefix}-q${qNum}`}
+        className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 mx-1 shadow-2xs"
+      >
+        [{qNum}]
+      </span>
+    );
+  };
+
+  // Helper to parse text with embedded gap markers [1], [2], etc., or inline blanks like 1 …………
+  const renderTextWithEmbeddedInputs = (rawText: string, keyPrefix: string) => {
+    // Normalize any 1 …………, 1 _____, (1) ………… into [1]
+    const normalized = rawText.replace(
+      /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\(([0-9]{1,2})\)\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g,
+      '[$1$2$3]'
+    );
+
+    const parts = normalized.split(/(\[[0-9]{1,2}\])/g);
+    return parts.map((part, pIdx) => {
+      const match = part.match(/^\[([0-9]{1,2})\]$/);
+      if (match) {
+        const qNum = parseInt(match[1], 10);
+        return renderInlineQuestionInput(qNum, `${keyPrefix}-p${pIdx}`);
+      }
+      return <span key={`${keyPrefix}-t${pIdx}`}>{cleanListeningText(part)}</span>;
+    });
+  };
+
+  // 1. Render Markdown Table with INTERACTIVE in-cell answer inputs
   const renderStructuredTable = (tableMarkdown: string) => {
     const lines = tableMarkdown
       .split('\n')
@@ -387,56 +452,6 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         .split('|')
         .map((c) => c.trim())
     );
-
-    const renderCellContentWithInputs = (cellText: string) => {
-      const parts = cellText.split(/(\[[0-9]{1,2}\])/g);
-      return parts.map((part, pIdx) => {
-        const match = part.match(/^\[([0-9]{1,2})\]$/);
-        if (match) {
-          const qNum = parseInt(match[1], 10);
-          const targetQ = safeQuestions.find(
-            (q) => (q.questionNumber || q.number) === qNum
-          );
-
-          if (targetQ) {
-            tableEmbeddedQuestionIds.add(targetQ.id);
-            const userVal = answers[targetQ.id] || '';
-
-            return (
-              <div key={pIdx} className="inline-flex items-center gap-1.5 my-1 flex-wrap">
-                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 shrink-0">
-                  {qNum}
-                </span>
-                <input
-                  type="text"
-                  value={userVal}
-                  disabled={isReadOnly}
-                  placeholder={`[${qNum}]`}
-                  onChange={(e) => onAnswerChange(targetQ.id, e.target.value)}
-                  className="px-2.5 py-1 text-xs sm:text-sm bg-blue-50/80 border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[90px] max-w-[150px]"
-                />
-                {renderFlagButton(targetQ.id)}
-                {showCorrectAnswers && targetQ.correctAnswer && (
-                  <span className="text-[11px] text-emerald-700 font-bold whitespace-nowrap">
-                    [{cleanListeningText(targetQ.correctAnswer)}]
-                  </span>
-                )}
-              </div>
-            );
-          }
-
-          return (
-            <span
-              key={pIdx}
-              className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 mx-1 shadow-2xs"
-            >
-              [{qNum}]
-            </span>
-          );
-        }
-        return <span key={pIdx}>{cleanListeningText(part)}</span>;
-      });
-    };
 
     return (
       <div className="overflow-x-auto my-3 rounded-xl border border-slate-200 shadow-2xs bg-white">
@@ -466,13 +481,174 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     key={cIdx}
                     className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 leading-relaxed font-normal align-top"
                   >
-                    {renderCellContentWithInputs(cell)}
+                    {renderTextWithEmbeddedInputs(cell, `table-${rIdx}-${cIdx}`)}
                   </td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+    );
+  };
+
+  // 2. Render Structured Flow-chart Completion
+  const renderStructuredFlowchart = (flowchartText: string) => {
+    // Split into steps using arrow indicators or blank lines
+    const rawSteps = flowchartText
+      .split(/(?:\n\s*(?:[↓▼]|-->|->)\s*\n|\n{2,})/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (rawSteps.length === 0) return null;
+
+    return (
+      <div className="flex flex-col items-center gap-2 my-2 w-full">
+        {rawSteps.map((stepText, sIdx) => {
+          const isLast = sIdx === rawSteps.length - 1;
+          const lines = stepText.split('\n').map((l) => l.trim()).filter(Boolean);
+          const firstLine = lines[0] || '';
+          const isStepHeader = /^(?:Step|Stage|Phase)\s+[0-9]+/i.test(firstLine);
+
+          return (
+            <React.Fragment key={sIdx}>
+              <div className="w-full max-w-2xl bg-white border border-slate-200 rounded-xl p-4 shadow-2xs hover:border-slate-300 transition">
+                {isStepHeader ? (
+                  <div>
+                    <span className="inline-block px-2 py-0.5 mb-1.5 rounded bg-blue-100 text-blue-800 text-[11px] font-bold">
+                      {cleanListeningText(firstLine)}
+                    </span>
+                    <div className="text-xs text-slate-800 leading-relaxed">
+                      {lines.slice(1).map((line, lIdx) => (
+                        <div key={lIdx} className="my-1">
+                          {renderTextWithEmbeddedInputs(line, `fc-${sIdx}-${lIdx}`)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-800 leading-relaxed">
+                    {lines.map((line, lIdx) => (
+                      <div key={lIdx} className="my-1">
+                        {renderTextWithEmbeddedInputs(line, `fc-${sIdx}-${lIdx}`)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {!isLast && (
+                <div className="flex flex-col items-center -my-1 text-slate-400">
+                  <div className="w-0.5 h-3 bg-slate-200" />
+                  <ChevronDown className="w-4 h-4 text-blue-500" />
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // 3. Render Structured Form Completion
+  const renderStructuredForm = (formText: string) => {
+    const lines = formText.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    return (
+      <div className="space-y-1 my-2">
+        {lines.map((line, lIdx) => {
+          const colonIdx = line.indexOf(':');
+          const isHeader =
+            colonIdx === -1 &&
+            (line.startsWith('#') ||
+              line === line.toUpperCase() ||
+              /^(?:Part|Section|Details|Applicant|Patient|Customer|Vehicle|Booking|Enquiry)\b/i.test(line));
+
+          if (isHeader) {
+            return (
+              <div
+                key={lIdx}
+                className="pt-3 pb-1.5 px-3 mb-1 text-xs font-bold uppercase tracking-wider text-purple-950 bg-purple-50/70 rounded-lg border border-purple-200"
+              >
+                {cleanListeningText(line.replace(/^#+\s*/, ''))}
+              </div>
+            );
+          }
+
+          if (colonIdx !== -1) {
+            const label = line.slice(0, colonIdx).trim();
+            const val = line.slice(colonIdx + 1).trim();
+
+            return (
+              <div
+                key={lIdx}
+                className="flex flex-col sm:flex-row sm:items-baseline gap-2 py-2 px-3 rounded-lg border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors"
+              >
+                <span className="text-xs font-bold text-slate-700 min-w-[140px] max-w-[240px] shrink-0">
+                  {cleanListeningText(label)}:
+                </span>
+                <div className="flex-1 text-xs text-slate-800 leading-relaxed">
+                  {renderTextWithEmbeddedInputs(val, `form-${lIdx}`)}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={lIdx} className="text-xs text-slate-800 py-1 px-3">
+              {renderTextWithEmbeddedInputs(line, `form-txt-${lIdx}`)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // 4. Render Structured Notes, Summaries, or Sentences
+  const renderStructuredNotesOrSummary = (notesText: string) => {
+    const lines = notesText.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    return (
+      <div className="space-y-1.5 my-2">
+        {lines.map((line, lIdx) => {
+          const isBullet = /^[•\-\*\+]\s+/.test(line);
+          const isHeading =
+            !isBullet &&
+            !line.includes('[') &&
+            (line.endsWith(':') ||
+              line === line.toUpperCase() ||
+              /^(?:Aim|Background|Methods?|Results?|Conclusion|Location|Activities|Session|Topic)\b/i.test(line));
+
+          if (isHeading) {
+            return (
+              <div
+                key={lIdx}
+                className="pt-3 pb-1 text-xs font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block shrink-0" />
+                <span>{cleanListeningText(line)}</span>
+              </div>
+            );
+          }
+
+          if (isBullet) {
+            const cleanBulletText = line.replace(/^[•\-\*\+\s]+/, '');
+            return (
+              <div key={lIdx} className="flex items-start gap-2.5 py-1 pl-2">
+                <span className="text-blue-500 font-bold shrink-0 mt-0.5">•</span>
+                <div className="flex-1 text-xs text-slate-800 leading-relaxed">
+                  {renderTextWithEmbeddedInputs(cleanBulletText, `note-${lIdx}`)}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <p key={lIdx} className="text-xs text-slate-800 leading-relaxed my-1">
+              {renderTextWithEmbeddedInputs(line, `para-${lIdx}`)}
+            </p>
+          );
+        })}
       </div>
     );
   };
@@ -583,6 +759,65 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
       .trim();
   };
 
+  // Render Structured Content (Tables, Flow-charts, Forms, Notes, Summaries) with embedded inputs
+  const renderStructuredContent = () => {
+    if (!effectiveGroupContent) return null;
+
+    // 1. Table Completion: pipe-separated Markdown table
+    if (effectiveGroupContent.includes('|')) {
+      const nonTableText = effectiveGroupContent
+        .split('\n')
+        .filter((l) => !l.trim().startsWith('|'))
+        .join(' ')
+        .trim();
+
+      return (
+        <div className="my-2 space-y-2">
+          {nonTableText && (
+            <p className="text-xs font-semibold text-slate-800 mb-1.5">
+              {cleanListeningText(nonTableText)}
+            </p>
+          )}
+          {renderStructuredTable(effectiveGroupContent)}
+        </div>
+      );
+    }
+
+    // 2. Flow-chart Completion
+    const hasFlowchartMarkers =
+      /[↓▼]|-->|->/i.test(effectiveGroupContent) ||
+      /^(?:Step|Stage)\s+[0-9]+/im.test(effectiveGroupContent);
+    if (type === 'flowchart_completion' || hasFlowchartMarkers) {
+      return (
+        <div className="my-2 p-4 bg-slate-50/50 rounded-xl border border-slate-200 shadow-2xs">
+          {renderStructuredFlowchart(effectiveGroupContent)}
+        </div>
+      );
+    }
+
+    // 3. Form Completion
+    const lines = effectiveGroupContent.split('\n').map((l) => l.trim()).filter(Boolean);
+    const colonCount = lines.filter((l) => l.includes(':')).length;
+    const isFormLike =
+      type === 'form_completion' ||
+      (colonCount >= 2 && colonCount >= lines.length * 0.35);
+
+    if (isFormLike) {
+      return (
+        <div className="my-2 p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
+          {renderStructuredForm(effectiveGroupContent)}
+        </div>
+      );
+    }
+
+    // 4. Note Completion / Summary Completion / Sentence Completion
+    return (
+      <div className="my-2 p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
+        {renderStructuredNotesOrSummary(effectiveGroupContent)}
+      </div>
+    );
+  };
+
   const isSingleIndependent =
     !instructions &&
     !imageUrl &&
@@ -592,14 +827,12 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     !questionGroup.optionsBox?.length &&
     safeQuestions.length === 1;
 
-  // Pre-render table if present to collect embedded questions
-  const renderedTable = effectiveGroupContent.includes('|')
-    ? renderStructuredTable(effectiveGroupContent)
-    : null;
+  // Pre-render structured content to collect all embedded question IDs
+  const renderedStructuredContent = effectiveGroupContent ? renderStructuredContent() : null;
 
-  // Filter out questions already rendered in table cells
+  // Filter out questions already rendered in embedded structured content
   const remainingQuestionsToRender = safeQuestions.filter(
-    (q) => !tableEmbeddedQuestionIds.has(q.id)
+    (q) => !embeddedQuestionIds.has(q.id)
   );
 
   return (
@@ -693,38 +926,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             );
           })()}
 
-          {/* Structured group text or notes / tables */}
-          {Boolean(effectiveGroupContent) && (
+          {/* Structured group text with embedded answer fields */}
+          {renderedStructuredContent && (
             <div className="my-2">
-              {effectiveGroupContent.includes('|') ? (
-                <>
-                  {effectiveGroupContent
-                    .split('\n')
-                    .filter((l: string) => !l.trim().startsWith('|'))
-                    .join(' ')
-                    .trim() && (
-                    <p className="text-xs font-semibold text-slate-800 mb-1.5">
-                      {cleanListeningText(
-                        effectiveGroupContent
-                          .split('\n')
-                          .filter((l: string) => !l.trim().startsWith('|'))
-                          .join(' ')
-                      )}
-                    </p>
-                  )}
-                  {renderedTable}
-                </>
-              ) : (
-                (() => {
-                  const cleanedText = getDisplayGroupText(effectiveGroupContent);
-                  if (!cleanedText) return null;
-                  return (
-                    <div className="p-3.5 bg-white rounded-xl border border-slate-200 text-xs text-slate-800 whitespace-pre-wrap font-sans leading-relaxed shadow-2xs">
-                      {cleanListeningText(cleanedText)}
-                    </div>
-                  );
-                })()
-              )}
+              {renderedStructuredContent}
             </div>
           )}
         </div>
@@ -732,7 +937,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
       {/* Render Questions */}
       <div className="space-y-3">
-        {remainingQuestionsToRender.length === 0 && tableEmbeddedQuestionIds.size === 0 ? (
+        {remainingQuestionsToRender.length === 0 && embeddedQuestionIds.size === 0 ? (
           <div className="p-4 bg-white rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-500">
             Không có câu hỏi trong phần này.
           </div>
