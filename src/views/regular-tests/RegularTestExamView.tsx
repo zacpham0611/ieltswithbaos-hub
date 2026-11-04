@@ -1302,18 +1302,14 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       </div>
 
                       {/* Matching Information Question Layout */}
-                      {(q.type === 'matching_information' ||
-                        q.type === 'matching_features' ||
-                        q.type === 'matching_sentence_endings') && (
+                      {q.type === 'matching_information' && (
                         <div className="mt-3 pl-2 sm:pl-8 space-y-3">
-                          {q.type === 'matching_information' && (
-                            <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 text-xs md:text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
-                              <span className="font-semibold">Which paragraph contains this information?</span>
-                              <span className="font-mono text-[11px] text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-md font-bold">
-                                NB: Letters may be used more than once
-                              </span>
-                            </div>
-                          )}
+                          <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 text-xs md:text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                            <span className="font-semibold">Which paragraph contains this information?</span>
+                            <span className="font-mono text-[11px] text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-md font-bold">
+                              NB: Letters may be used more than once
+                            </span>
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             {(q.options && q.options.length > 0
                               ? q.options.map((opt) => opt.replace(/^Paragraph\s+/i, '').trim())
@@ -1332,6 +1328,84 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                                 Paragraph {letter}
                               </button>
                             ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Matching Features Question Layout */}
+                      {q.type === 'matching_features' && (
+                        <div className="mt-3 pl-2 sm:pl-8 space-y-3">
+                          <div className="text-xs font-semibold text-slate-600">
+                            Select the matching feature:
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {(q.options && q.options.length > 0
+                              ? q.options
+                              : (q as any).featuresList && (q as any).featuresList.length > 0
+                              ? (q as any).featuresList
+                              : ['A', 'B', 'C', 'D', 'E']
+                            ).map((opt: string, oIdx: number) => {
+                              const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]?\s*(.*)$/);
+                              const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + oIdx);
+                              const isSelected = studentAns === letter || studentAns === opt;
+                              return (
+                                <button
+                                  key={oIdx}
+                                  type="button"
+                                  onClick={() => handleReadingAnswerChange(q.id, letter)}
+                                  className={`p-2.5 rounded-xl text-left text-xs md:text-sm font-medium border transition-all flex items-start gap-2.5 ${
+                                    isSelected
+                                      ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-2xs ring-1 ring-blue-500'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <span className={`px-2 py-0.5 rounded text-xs font-bold shrink-0 ${
+                                    isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {letter}
+                                  </span>
+                                  <span className="flex-1">{letterMatch ? letterMatch[2] : opt}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Matching Sentence Endings Question Layout */}
+                      {q.type === 'matching_sentence_endings' && (
+                        <div className="mt-3 pl-2 sm:pl-8 space-y-3">
+                          <div className="text-xs font-semibold text-slate-600">
+                            Select the ending that completes this sentence:
+                          </div>
+                          <div className="space-y-2">
+                            {(q.options && q.options.length > 0
+                              ? q.options
+                              : ['A', 'B', 'C', 'D', 'E', 'F']
+                            ).map((opt: string, oIdx: number) => {
+                              const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]?\s*(.*)$/);
+                              const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + oIdx);
+                              const isSelected = studentAns === letter || studentAns === opt;
+                              return (
+                                <button
+                                  key={oIdx}
+                                  type="button"
+                                  onClick={() => handleReadingAnswerChange(q.id, letter)}
+                                  className={`w-full p-2.5 rounded-xl text-left text-xs md:text-sm font-medium border transition-all flex items-start gap-2.5 ${
+                                    isSelected
+                                      ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-2xs ring-1 ring-blue-500'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <span className={`px-2 py-0.5 rounded text-xs font-bold shrink-0 ${
+                                    isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {letter}
+                                  </span>
+                                  <span className="flex-1">{letterMatch ? letterMatch[2] : opt}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                       )}

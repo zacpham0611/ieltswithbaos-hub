@@ -2893,71 +2893,71 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                         </p>
                                       </div>
                                     )}
-
-                                    {/* Shared Resources Across Questions */}
-                                    <div className="pt-2 border-t border-indigo-100 space-y-1.5">
-                                      <div className="flex items-center justify-between">
-                                        <label className="flex items-center space-x-1.5 text-[11px] font-bold text-indigo-900 cursor-pointer">
-                                          <input
-                                            type="checkbox"
-                                            checked={Boolean(q.sharedResourceId)}
-                                            onChange={(e) => {
-                                              if (e.target.checked) {
-                                                const sId = `res_shared_${Date.now()}`;
-                                                updateQ({ sharedResourceId: sId });
-                                              } else {
-                                                updateQ({ sharedResourceId: undefined });
-                                              }
-                                            }}
-                                            className="text-indigo-600 rounded text-xs"
-                                          />
-                                          <span>Chia sẻ tài nguyên này với các câu hỏi khác (Share across questions)</span>
-                                        </label>
-                                      </div>
-
-                                      {q.sharedResourceId && (
-                                        <div className="p-2 bg-indigo-100/60 rounded text-[10px] space-y-1 text-indigo-950">
-                                          <p className="font-semibold">Chọn các câu hỏi dùng chung Word Bank / Options này:</p>
-                                          <div className="flex flex-wrap gap-1.5">
-                                            {editableQuestions.map((otherQ, otherIdx) => {
-                                              if (otherIdx === idx) return null;
-                                              const isLinked = otherQ.sharedResourceId === q.sharedResourceId;
-                                              return (
-                                                <button
-                                                  key={otherQ.id || otherIdx}
-                                                  type="button"
-                                                  onClick={() => {
-                                                    const updated = [...editableQuestions];
-                                                    if (isLinked) {
-                                                      updated[otherIdx] = { ...updated[otherIdx], sharedResourceId: undefined, isTeacherEdited: true };
-                                                    } else {
-                                                      updated[otherIdx] = {
-                                                        ...updated[otherIdx],
-                                                        sharedResourceId: q.sharedResourceId,
-                                                        completionFormat: q.completionFormat,
-                                                        wordList: q.wordList ? [...q.wordList] : undefined,
-                                                        options: q.options ? [...q.options] : undefined,
-                                                        isTeacherEdited: true,
-                                                      };
-                                                    }
-                                                    setEditableQuestions(updated);
-                                                  }}
-                                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
-                                                    isLinked
-                                                      ? 'bg-indigo-600 text-white border-indigo-600'
-                                                      : 'bg-white text-indigo-800 border-indigo-200 hover:bg-indigo-50'
-                                                  }`}
-                                                >
-                                                  #{otherIdx + 1} {isLinked ? '✓' : '+'}
-                                                </button>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
                                   </div>
                                 )}
+
+                                {/* Shared Resources Across Questions (Available for ALL question types) */}
+                                <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <label className="flex items-center space-x-1.5 text-[11px] font-bold text-indigo-900 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(q.sharedResourceId)}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            const sId = `res_shared_${Date.now()}`;
+                                            updateQ({ sharedResourceId: sId });
+                                          } else {
+                                            updateQ({ sharedResourceId: undefined });
+                                          }
+                                        }}
+                                        className="text-indigo-600 rounded text-xs"
+                                      />
+                                      <span>Chia sẻ tài nguyên này với các câu hỏi khác (Share across questions)</span>
+                                    </label>
+                                  </div>
+
+                                  {q.sharedResourceId && (
+                                    <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-[10px] space-y-1 text-indigo-950">
+                                      <p className="font-semibold">Chọn các câu hỏi dùng chung tài nguyên / options này:</p>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {editableQuestions.map((otherQ, otherIdx) => {
+                                          if (otherIdx === idx) return null;
+                                          const isLinked = otherQ.sharedResourceId === q.sharedResourceId;
+                                          return (
+                                            <button
+                                              key={otherQ.id || otherIdx}
+                                              type="button"
+                                              onClick={() => {
+                                                const updated = [...editableQuestions];
+                                                if (isLinked) {
+                                                  updated[otherIdx] = { ...updated[otherIdx], sharedResourceId: undefined, isTeacherEdited: true };
+                                                } else {
+                                                  updated[otherIdx] = {
+                                                    ...updated[otherIdx],
+                                                    sharedResourceId: q.sharedResourceId,
+                                                    completionFormat: q.completionFormat,
+                                                    wordList: q.wordList ? [...q.wordList] : undefined,
+                                                    options: q.options ? [...q.options] : undefined,
+                                                    isTeacherEdited: true,
+                                                  };
+                                                }
+                                                setEditableQuestions(updated);
+                                              }}
+                                              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                                isLinked
+                                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                                  : 'bg-white text-indigo-800 border-indigo-200 hover:bg-indigo-50'
+                                              }`}
+                                            >
+                                              #{otherIdx + 1} {isLinked ? '✓' : '+'}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
 
                                 {/* Flow-chart & Diagram Labelling Image Handler (Section 12) */}
                                 {(q.type === 'flowchart_completion' || q.type === 'diagram_completion' || q.imageUrl || q.diagramUrl) && (

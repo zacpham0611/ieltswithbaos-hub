@@ -2048,6 +2048,7 @@ function parseSinglePassage(
     const groupQuestions: ReadingQuestion[] = [];
     const headingsList: string[] = [];
     const featuresList: string[] = [];
+    const sentenceEndingsList: string[] = [];
     const optionsBox: string[] = [];
     const inlineCompletionPassages: string[] = [];
     let detectedGroupMetaType: QuestionType | null = null;
@@ -2058,31 +2059,50 @@ function parseSinglePassage(
     const stdQRegex = /^(?:Question\s+)?(\d{1,2})(?:[\.\:\)]|\s+(?=[A-Za-z0-9\(\"\'\_\—\–\.\…]))\s*(.*)/i;
     const bulletQRegex = /(?:^|[•\-\–\*\s])(?:.*?)\b(\d{1,2})\b\s*[\.\_\–\-\…]{2,}(.*)/;
 
-    // Pre-pass to scan declarations within this question group (e.g. List of words, List of companies, List of headings)
+    // Pre-pass to scan declarations within this question group (e.g. List of words, List of companies, List of headings, List of sentence endings)
     let preInWordBox = false;
     let preInFeatures = false;
     let preInHeadings = false;
+    let preInSentenceEndings = false;
     for (const l of gRange.lines) {
       if (/list\s+of\s+headings/i.test(l)) {
         preInHeadings = true;
         preInWordBox = false;
         preInFeatures = false;
+        preInSentenceEndings = false;
         const parts = l.split(/(?:list\s+of\s+headings[:\s]*|;\s*)/i);
         const inlineHeadings = parts.filter((s) => /^[ivx\d]+[\.\s]/i.test(s.trim()));
         inlineHeadings.forEach((h) => headingsList.push(h.trim()));
+        continue;
+      }
+      if (/list\s+of\s+(?:sentence\s+endings|endings)|sentence\s+endings/i.test(l)) {
+        preInSentenceEndings = true;
+        preInWordBox = false;
+        preInFeatures = false;
+        preInHeadings = false;
         continue;
       }
       if (/list\s+of\s+(?:words|terms)|word\s+list|box\s+of\s+words/i.test(l)) {
         preInWordBox = true;
         preInFeatures = false;
         preInHeadings = false;
+        preInSentenceEndings = false;
         continue;
       }
-      if (/^list\s+of\s+(?:researchers|people|categories|features|companies|organizations|names|places)/i.test(l.trim())) {
+      if (/^list\s+of\s+(?:researchers|people|scientists|authors|experts|theories|categories|features|companies|organizations|names|places|statements|items)/i.test(l.trim())) {
         preInFeatures = true;
         preInWordBox = false;
         preInHeadings = false;
+        preInSentenceEndings = false;
         continue;
+      }
+      if (preInSentenceEndings) {
+        const seMatch = l.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        if (seMatch && seMatch[2].trim()) {
+          sentenceEndingsList.push(`${seMatch[1].toUpperCase()}. ${seMatch[2].trim()}`);
+        } else if (/^(?:Questions?|\d{1,2}[\.\:\)]|Dạng\s+câu\s+hỏi)/i.test(l)) {
+          preInSentenceEndings = false;
+        }
       }
       if (preInWordBox) {
         const wbMatch = l.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
@@ -2445,8 +2465,10 @@ function parseSinglePassage(
 
     if (headingsList.length > 0) {
       primaryType = 'matching_headings';
-    } else if (featuresList.length > 0) {
+    } else if (featuresList.length > 0 || primaryType === 'matching_features') {
       primaryType = 'matching_features';
+    } else if (sentenceEndingsList.length > 0 || primaryType === 'matching_sentence_endings') {
+      primaryType = 'matching_sentence_endings';
     } else if (optionsBox.length > 0 && !isButtonInstruction) {
       primaryType = 'summary_completion';
     }
@@ -2470,19 +2492,38 @@ function parseSinglePassage(
         }
       });
     }
-    if (featuresList.length > 0) {
+    if (featuresList.length > 0 || primaryType === 'matching_features') {
+      const effFeatures = featuresList.length > 0 ? featuresList : optionsBox;
       groupQuestions.forEach((q) => {
-        q.featuresList = featuresList;
+        q.featuresList = effFeatures;
         q.type = 'matching_features';
         if (!q.options || q.options.length === 0) {
-          q.options = featuresList;
+          q.options = effFeatures;
+        }
+      });
+    }
+    if (sentenceEndingsList.length > 0 || primaryType === 'matching_sentence_endings') {
+      const effEndings = sentenceEndingsList.length > 0 ? sentenceEndingsList : optionsBox;
+      groupQuestions.forEach((q) => {
+        q.type = 'matching_sentence_endings';
+        if (!q.options || q.options.length === 0) {
+          q.options = effEndings;
         }
       });
     }
     if (optionsBox.length > 0) {
       groupQuestions.forEach((q) => {
-        // Never override explicit button types with summary completion
-        if (q.type !== 'yes_no_not_given' && q.type !== 'true_false_not_given') {
+        // Never override explicit button types, matching features, sentence endings, or headings
+        if (
+          q.type !== 'yes_no_not_given' &&
+          q.type !== 'true_false_not_given' &&
+          q.type !== 'matching_features' &&
+          q.type !== 'matching_sentence_endings' &&
+          q.type !== 'matching_headings' &&
+          primaryType !== 'matching_features' &&
+          primaryType !== 'matching_sentence_endings' &&
+          primaryType !== 'matching_headings'
+        ) {
           q.type = 'summary_completion';
           q.options = [...optionsBox];
         }
@@ -2537,7 +2578,14 @@ function parseSinglePassage(
       groupText: inlineCompletionPassages.length > 0 ? inlineCompletionPassages.join('\n\n').trim() : undefined,
       headingsList: headingsList.length > 0 ? headingsList : undefined,
       featuresList: featuresList.length > 0 ? featuresList : undefined,
-      optionsBox: optionsBox.length > 0 ? optionsBox : undefined,
+      optionsBox:
+        sentenceEndingsList.length > 0
+          ? sentenceEndingsList
+          : featuresList.length > 0
+          ? featuresList
+          : optionsBox.length > 0
+          ? optionsBox
+          : undefined,
       warnings: groupWarnings.length > 0 ? groupWarnings : undefined,
       questions: groupQuestions,
     };

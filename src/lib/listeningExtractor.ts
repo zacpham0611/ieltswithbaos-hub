@@ -113,7 +113,9 @@ export function parseListeningDocument(
 
   // Strip Answer Key section from test body lines to prevent Answer Key polluting the final section
   let contentLines = allLines;
-  const akHeaderIdx = allLines.findIndex((l) => /^(?:Answer\s+key|Answers|Listening\s+Answers)\b/i.test(l));
+  const akHeaderIdx = allLines.findIndex((l) =>
+    /^(?:#+\s*)?(?:answer\s*keys?|listening\s*answers?|\banswers(?:\s+for\s+listening)?\b|đáp\s*án(?:\s*[-–—:]\s*key\s*listening)?|key\s*listening)\b/i.test(l.trim())
+  );
   if (akHeaderIdx !== -1) {
     contentLines = allLines.slice(0, akHeaderIdx);
   }
@@ -207,8 +209,8 @@ function processListeningPart(
   const questionGroups: ListeningQuestionGroup[] = [];
   const allQuestions: ListeningQuestion[] = [];
 
-  // Group boundary regex: "Questions 1-5", "Questions 11 and 12", "Questions 6 - 10", etc.
-  const groupRangeRegex = /^(?:Questions?)\s+([0-9]{1,2})\s*(?:[-–—to]+|\band\b|\&)\s*([0-9]{1,2})[\.\:\)]?\s*(.*)$/i;
+  // Group boundary regex: "Questions 1-5", "Questions 11 and 12", "DẠNG CÂU HỎI: ... - Questions 1-6", etc.
+  const groupRangeRegex = /(?:^|[-–—:|\s])Questions?\s+([0-9]{1,2})\s*(?:[-–—to]+|\band\b|\&)\s*([0-9]{1,2})(?:[\.\:\)]|\b)\s*(.*)$/i;
   // Word limit regex: "Write NO MORE THAN TWO WORDS..."
   const wordLimitRegex = /(?:(?:Write\s+)?(?:NO MORE THAN\s+(?:ONE|TWO|THREE|FOUR|[1-4])\s+WORDS?|ONE\s+WORD\s+ONLY)(?:\s+AND\/OR\s+A\s+NUMBER)?)/i;
 
@@ -311,8 +313,6 @@ function processListeningPart(
         currentWordLimit = wlMatchInLine[0].toUpperCase();
       }
 
-      currentType = inferQuestionTypeFromInstruction(line);
-
       // Check next lines for instructions & word limit
       while (i + 1 < lines.length) {
         const nextLine = lines[i + 1].trim();
@@ -329,15 +329,15 @@ function processListeningPart(
           wordLimitRegex.test(nextLine)
         ) {
           currentInstructions = (currentInstructions ? currentInstructions + ' ' : '') + nextLine;
-          const inferred = inferQuestionTypeFromInstruction(nextLine);
-          if (inferred !== 'note_completion' || currentType === 'note_completion') {
-            currentType = inferred;
-          }
           i++; // skip next line as instruction
         } else {
           break;
         }
       }
+
+      // Determine question type from the combined header + instruction lines
+      const fullHeaderContext = `${line} ${currentInstructions}`.trim();
+      currentType = inferQuestionTypeFromInstruction(fullHeaderContext);
       continue;
     }
 
@@ -350,9 +350,15 @@ function processListeningPart(
       continue;
     }
 
-    // Check for Shared Options for matching or multiple choice: "A They gave higher marks." or "• A They gave higher marks."
-    const sharedOptMatch = line.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
-    if (sharedOptMatch && !line.includes('|') && !isBlankPattern.test(line)) {
+    // Check for options table title row, e.g. "| Types of Products |"
+    if (/^\|\s*(?:types\s+of|options|features|list\s+of|categories|reasons|statements|opinions|causes|effects|actions)\b/i.test(line)) {
+      continue;
+    }
+
+    // Check for Shared Options for matching or multiple choice: "A They gave higher marks." or "| A They gave higher marks. |"
+    const cleanOptLine = line.replace(/^\|\s*/, '').replace(/\s*\|$/, '').trim();
+    const sharedOptMatch = cleanOptLine.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-\t]\s*|\s+)(.*)$/i);
+    if (sharedOptMatch && !isBlankPattern.test(cleanOptLine) && !/^[-:]+$/.test(cleanOptLine)) {
       currentGroupOptions.push(`${sharedOptMatch[1].toUpperCase()}. ${sharedOptMatch[2].trim()}`);
       continue;
     }
@@ -541,30 +547,45 @@ function processListeningPart(
       const cellsInLine = line.split('|').map((c) => c.trim()).filter(Boolean);
       for (const cell of cellsInLine) {
         if (/^[-:]+$/.test(cell)) continue; // ignore table header markdown line
-        const bracketMatch = cell.match(/\[([0-9]{1,2})\]/);
-        const prefixNumMatch = cell.match(/\b([0-9]{1,2})[\.\:\)]?\s*(?:[\$£€¥]|every|in|at|by|for|the|a|an|[^\w\s\n|])*\s*(?:_{2,}|[\u2026\.]{2,})/i);
-        const suffixNumMatch = cell.match(/(?:_{2,}|[\u2026\.]{2,})[\s\S]*?(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\]|\b([0-9]{1,2})\b)/i);
 
-        const matchedNum = bracketMatch
-          ? parseInt(bracketMatch[1], 10)
-          : prefixNumMatch
-          ? parseInt(prefixNumMatch[1], 10)
-          : suffixNumMatch
-          ? parseInt(suffixNumMatch[1] || suffixNumMatch[2] || suffixNumMatch[3], 10)
-          : null;
+        // Find ALL blanks within the cell using global matches
+        const cellNums: number[] = [];
 
-        if (matchedNum !== null && !isNaN(matchedNum) && !currentGroupQuestions.some((q) => q.questionNumber === matchedNum)) {
-          currentType = 'table_completion';
-          currentGroupQuestions.push({
-            id: `q_p${partNumber}_${matchedNum}`,
-            number: matchedNum,
-            questionNumber: matchedNum,
-            part: partNumber as any,
-            type: 'table_completion',
-            prompt: `Question ${matchedNum}`,
-            maxWords: parseWordCount(currentWordLimit),
-            allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
-          });
+        // Pattern 1: [15]
+        for (const m of cell.matchAll(/\[([0-9]{1,2})\]/g)) {
+          const num = parseInt(m[1], 10);
+          if (!isNaN(num) && !cellNums.includes(num)) cellNums.push(num);
+        }
+
+        // Pattern 2: 15 ……… or 15. ……… or 15: ………
+        for (const m of cell.matchAll(/\b([0-9]{1,2})[\.\:\)]?\s*(?:[\$£€¥]|every|in|at|by|for|the|a|an|[^\w\s\n|])*\s*(?:_{2,}|[\u2026\.]{2,})/gi)) {
+          const num = parseInt(m[1], 10);
+          if (!isNaN(num) && !cellNums.includes(num)) cellNums.push(num);
+        }
+
+        // Pattern 3: ……… (15) or ……… 15 or ……… (Q15)
+        for (const m of cell.matchAll(/(?:_{2,}|[\u2026\.]{2,})\s*(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\]|\b([0-9]{1,2})\b)/gi)) {
+          const num = parseInt(m[1] || m[2] || m[3], 10);
+          if (!isNaN(num) && !cellNums.includes(num)) cellNums.push(num);
+        }
+
+        for (const matchedNum of cellNums) {
+          if (!currentGroupQuestions.some((q) => q.questionNumber === matchedNum)) {
+            const qType = (currentType === 'form_completion' || currentType === 'note_completion') ? currentType : 'table_completion';
+            if (currentType !== 'form_completion' && currentType !== 'note_completion') {
+              currentType = 'table_completion';
+            }
+            currentGroupQuestions.push({
+              id: `q_p${partNumber}_${matchedNum}`,
+              number: matchedNum,
+              questionNumber: matchedNum,
+              part: partNumber as any,
+              type: qType,
+              prompt: `Question ${matchedNum}`,
+              maxWords: parseWordCount(currentWordLimit),
+              allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
+            });
+          }
         }
       }
 
@@ -752,6 +773,37 @@ function inferQuestionTypeFromPart(partNumber: number): ListeningQuestionType {
 
 function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestionType {
   const lower = instruction.toLowerCase();
+
+  // 1. Map / diagram / plan labelling (checked first because map instructions often say "write the letter next to questions")
+  if (
+    lower.includes('map') ||
+    lower.includes('plan') ||
+    lower.includes('diagram') ||
+    lower.includes('label the') ||
+    lower.includes('labelling') ||
+    lower.includes('sơ đồ') ||
+    lower.includes('bản đồ')
+  ) {
+    return 'plan_map_diagram_labelling';
+  }
+
+  // 2. Explicit matching / box / list matching (checked before multi-select so "Choose FOUR from the box" is matching, not multi-select)
+  if (
+    lower.includes('matching') ||
+    lower.includes('nối') ||
+    lower.includes('next to question') ||
+    lower.includes('from the box') ||
+    lower.includes('from the list') ||
+    lower.includes('box below') ||
+    lower.includes('list below') ||
+    lower.includes('say about each') ||
+    lower.includes('which person') ||
+    lower.includes('which speaker')
+  ) {
+    return 'matching';
+  }
+
+  // 3. Multi-select (choose 2, choose 3, etc.)
   if (
     lower.includes('choose two') ||
     lower.includes('choose 2') ||
@@ -771,26 +823,8 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
   ) {
     return 'multiple_select';
   }
-  if (
-    lower.includes('choose the correct letter') ||
-    lower.includes('multiple choice') ||
-    lower.includes('chọn đáp án đúng') ||
-    lower.includes('a, b or c') ||
-    lower.includes('a, b, c or d')
-  ) {
-    return 'multiple_choice';
-  }
-  if (
-    lower.includes('map') ||
-    lower.includes('plan') ||
-    lower.includes('diagram') ||
-    lower.includes('label the') ||
-    lower.includes('labelling') ||
-    lower.includes('sơ đồ') ||
-    lower.includes('bản đồ')
-  ) {
-    return 'plan_map_diagram_labelling';
-  }
+
+  // 4. Flowchart
   if (
     lower.includes('flow-chart') ||
     lower.includes('flowchart') ||
@@ -802,9 +836,13 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
   ) {
     return 'flowchart_completion';
   }
+
+  // 5. Table
   if (lower.includes('table') || lower.includes('bảng')) {
     return 'table_completion';
   }
+
+  // 6. Form
   if (
     lower.includes('form') ||
     lower.includes('application') ||
@@ -815,26 +853,22 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
   ) {
     return 'form_completion';
   }
+
+  // 7. Summary
   if (lower.includes('summary') || lower.includes('tóm tắt')) {
     return 'summary_completion';
   }
+
+  // 8. Sentence completion
   if (
-    lower.includes('matching') ||
-    lower.includes('match') ||
-    lower.includes('from the box') ||
-    lower.includes('from the list') ||
-    lower.includes('box below') ||
-    lower.includes('list below') ||
-    lower.includes('say about each') ||
-    lower.includes('which person') ||
-    lower.includes('which speaker') ||
-    lower.includes('nối')
+    (lower.includes('sentence') || lower.includes('câu')) &&
+    !lower.includes('choose the correct letter') &&
+    !lower.includes('trắc nghiệm')
   ) {
-    return 'matching';
-  }
-  if (lower.includes('sentence') || lower.includes('câu')) {
     return 'sentence_completion';
   }
+
+  // 9. Short answer
   if (
     lower.includes('short answer') ||
     lower.includes('short-answer') ||
@@ -843,6 +877,19 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
   ) {
     return 'short_answer';
   }
+
+  // 10. Multiple choice
+  if (
+    lower.includes('choose the correct letter') ||
+    lower.includes('multiple choice') ||
+    lower.includes('chọn đáp án đúng') ||
+    lower.includes('trắc nghiệm') ||
+    lower.includes('a, b or c') ||
+    lower.includes('a, b, c or d')
+  ) {
+    return 'multiple_choice';
+  }
+
   return 'note_completion';
 }
 

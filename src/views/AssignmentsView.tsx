@@ -3609,6 +3609,60 @@ export const AssignmentsView: React.FC = () => {
                                     {cleanReadingText(group.groupText).split(/(\[\d+\])/g).map((chunk, i) => {
                                       const match = chunk.match(/^\[(\d+)\]$/);
                                       if (match) {
+                                        const qNumStr = match[1];
+                                        const targetItem = group.questions.find(
+                                          (item) =>
+                                            String(item.idx + 1) === qNumStr ||
+                                            String((item.q as any).questionNumber || (item.q as any).number || '') === qNumStr ||
+                                            item.q.id.endsWith(`_${qNumStr}`)
+                                        );
+                                        const qId = targetItem?.q.id;
+                                        const isReadOnlyGroup = isTeacher || Boolean(mySub && mySub.status !== 'returned');
+                                        const currentVal = qId ? readingAnswers[qId] || (mySub?.readingAnswers && mySub.readingAnswers[qId]) || '' : '';
+
+                                        if (targetItem && qId) {
+                                          if (effectiveWordList && effectiveWordList.length > 0) {
+                                            return (
+                                              <span key={i} className="inline-flex items-center gap-1 mx-1 align-middle">
+                                                <span className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 shadow-2xs">
+                                                  [{qNumStr}]
+                                                </span>
+                                                <select
+                                                  disabled={isReadOnlyGroup}
+                                                  value={currentVal}
+                                                  onChange={(e) => handleAnswerChange(qId, e.target.value)}
+                                                  className="text-xs font-semibold px-2 py-0.5 rounded border border-blue-300 bg-white text-blue-900 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                                                >
+                                                  <option value="">--</option>
+                                                  {effectiveWordList.map((opt) => {
+                                                    const letter = opt.match(/^([A-Za-z])[\.\:\s]/)?.[1]?.toUpperCase() || opt;
+                                                    return (
+                                                      <option key={opt} value={letter}>
+                                                        {opt}
+                                                      </option>
+                                                    );
+                                                  })}
+                                                </select>
+                                              </span>
+                                            );
+                                          }
+                                          return (
+                                            <span key={i} className="inline-flex items-center gap-1 mx-1 align-middle">
+                                              <span className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 shadow-2xs">
+                                                [{qNumStr}]
+                                              </span>
+                                              <input
+                                                type="text"
+                                                disabled={isReadOnlyGroup}
+                                                value={currentVal}
+                                                onChange={(e) => handleAnswerChange(qId, e.target.value)}
+                                                placeholder="..."
+                                                className="w-24 sm:w-32 text-xs font-medium px-2 py-0.5 rounded border border-blue-300 bg-white text-slate-900 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                                              />
+                                            </span>
+                                          );
+                                        }
+
                                         return (
                                           <span
                                             key={i}
@@ -4116,7 +4170,7 @@ export const AssignmentsView: React.FC = () => {
                                         })}
                                       </select>
                                     </div>
-                                  ) : q.type === 'matching_features' && (group.featuresList || q.featuresList) && (group.featuresList || q.featuresList)!.length > 0 ? (
+                                  ) : q.type === 'matching_features' && (group.featuresList || q.featuresList || q.options) && (group.featuresList || q.featuresList || q.options)!.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
                                         disabled={isReadOnly}
@@ -4125,8 +4179,8 @@ export const AssignmentsView: React.FC = () => {
                                         className="w-full p-2.5 border border-slate-300 rounded-lg text-xs bg-white text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                                       >
                                         <option value="">-- Choose Feature / Person (A, B, C...) --</option>
-                                        {(group.featuresList || q.featuresList)!.map((f) => {
-                                          const letterMatch = f.match(/^([A-G])/i);
+                                        {(group.featuresList || q.featuresList || q.options)!.map((f) => {
+                                          const letterMatch = f.match(/^([A-P])/i);
                                           const code = letterMatch ? letterMatch[1] : f;
                                           return (
                                             <option key={f} value={code}>
