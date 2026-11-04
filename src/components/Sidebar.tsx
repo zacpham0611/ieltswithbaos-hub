@@ -72,29 +72,56 @@ export const Sidebar: React.FC = () => {
   const navItems: NavItem[] = currentUser.role === 'teacher' ? teacherItems : studentItems;
   const { SidebarBottom } = getThemeArtwork(activeThemeId);
   const isDefaultTheme = activeThemeId === 'default';
+  const isTetTheme = activeThemeId === 'tet';
 
   return (
     <aside
       className="no-print w-64 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] border-r transition-colors duration-200"
       style={{
-        backgroundColor: isDefaultTheme ? '#0B1528' : currentTheme.palette.sidebarBg,
-        borderColor: isDefaultTheme ? '#1E293B' : currentTheme.palette.border,
-        color: isDefaultTheme ? '#F8FAFC' : currentTheme.palette.textMain,
+        backgroundColor: isDefaultTheme
+          ? '#0B1528'
+          : isTetTheme
+          ? '#821E28'
+          : currentTheme.palette.sidebarBg,
+        borderColor: isDefaultTheme
+          ? '#1E293B'
+          : isTetTheme
+          ? 'rgba(212, 166, 74, 0.35)'
+          : currentTheme.palette.border,
+        color: isDefaultTheme ? '#F8FAFC' : isTetTheme ? '#FFFDF8' : currentTheme.palette.textMain,
       }}
     >
       {/* Workspace branding header in sidebar */}
       <div
         className="p-4 border-b transition-colors"
-        style={{ borderColor: isDefaultTheme ? '#1E293B' : currentTheme.palette.border }}
+        style={{
+          borderColor: isDefaultTheme
+            ? '#1E293B'
+            : isTetTheme
+            ? 'rgba(212, 166, 74, 0.25)'
+            : currentTheme.palette.border,
+        }}
       >
         <div className="flex items-center space-x-2">
           <div
             className="w-2.5 h-2.5 rounded-full"
-            style={{ backgroundColor: isDefaultTheme ? '#3B82F6' : currentTheme.palette.primary }}
+            style={{
+              backgroundColor: isDefaultTheme
+                ? '#3B82F6'
+                : isTetTheme
+                ? '#E9B94F'
+                : currentTheme.palette.primary,
+            }}
           />
           <span
             className="text-xs font-bold uppercase tracking-wider"
-            style={{ color: isDefaultTheme ? '#60A5FA' : currentTheme.palette.primary }}
+            style={{
+              color: isDefaultTheme
+                ? '#60A5FA'
+                : isTetTheme
+                ? '#E9B94F'
+                : currentTheme.palette.primary,
+            }}
           >
             {currentUser.role === 'teacher'
               ? t('nav.teacherWorkspace')
@@ -104,7 +131,9 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center space-x-1.5 mt-1.5">
           <p
             className="text-xs font-bold truncate"
-            style={{ color: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.textMain }}
+            style={{
+              color: isDefaultTheme ? '#FFFFFF' : isTetTheme ? '#FFFDF8' : currentTheme.palette.textMain,
+            }}
           >
             {currentUser.name}
           </p>
@@ -124,28 +153,49 @@ export const Sidebar: React.FC = () => {
               className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all cursor-pointer group"
               style={{
                 backgroundColor: isActive
-                  ? isDefaultTheme ? '#2563EB' : currentTheme.palette.primary
+                  ? isDefaultTheme
+                    ? '#2563EB'
+                    : isTetTheme
+                    ? '#B9272F'
+                    : currentTheme.palette.primary
                   : 'transparent',
+                border: isActive && isTetTheme ? '1.5px solid #D4A64A' : '1.5px solid transparent',
                 color: isActive
                   ? '#FFFFFF'
                   : isDefaultTheme
                   ? '#94A3B8'
+                  : isTetTheme
+                  ? '#F7EBD2'
                   : currentTheme.palette.textMain,
                 fontWeight: isActive ? 600 : 500,
-                boxShadow: isActive ? '0 2px 8px rgba(0, 0, 0, 0.15)' : 'none',
+                boxShadow: isActive
+                  ? isTetTheme
+                    ? '0 2px 10px rgba(185, 39, 47, 0.4)'
+                    : '0 2px 8px rgba(0, 0, 0, 0.15)'
+                  : 'none',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
                   e.currentTarget.style.backgroundColor = isDefaultTheme
                     ? 'rgba(255, 255, 255, 0.08)'
+                    : isTetTheme
+                    ? 'rgba(255, 255, 255, 0.14)'
                     : `${currentTheme.palette.primary}12`;
-                  e.currentTarget.style.color = isDefaultTheme ? '#FFFFFF' : currentTheme.palette.primary;
+                  e.currentTarget.style.color = isDefaultTheme
+                    ? '#FFFFFF'
+                    : isTetTheme
+                    ? '#FFFDF8'
+                    : currentTheme.palette.primary;
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
                   e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.color = isDefaultTheme ? '#94A3B8' : currentTheme.palette.textMain;
+                  e.currentTarget.style.color = isDefaultTheme
+                    ? '#94A3B8'
+                    : isTetTheme
+                    ? '#F7EBD2'
+                    : currentTheme.palette.textMain;
                 }
               }}
             >
@@ -157,6 +207,8 @@ export const Sidebar: React.FC = () => {
                       ? '#FFFFFF'
                       : isDefaultTheme
                       ? '#94A3B8'
+                      : isTetTheme
+                      ? '#E9B94F'
                       : currentTheme.palette.primary,
                   }}
                 />
@@ -168,10 +220,12 @@ export const Sidebar: React.FC = () => {
                   style={{
                     backgroundColor: item.badge === 'AI' && isDefaultTheme
                       ? '#DC2626'
+                      : item.badge === 'AI' && isTetTheme
+                      ? '#D4A64A'
                       : isActive
                       ? 'rgba(255, 255, 255, 0.25)'
                       : currentTheme.palette.primary,
-                    color: '#FFFFFF',
+                    color: item.badge === 'AI' && isTetTheme ? '#4B3027' : '#FFFFFF',
                   }}
                 >
                   {item.badge}

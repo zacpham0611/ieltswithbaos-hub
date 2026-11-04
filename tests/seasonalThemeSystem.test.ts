@@ -87,6 +87,49 @@ describe('Seasonal Theme Design System (Benchmark: Approved Vietnamese Tết Sta
     assert.strictEqual(tet.palette.cardSurface, '#FFFCF8', 'Tết cardSurface must match #FFFCF8');
   });
 
+  test('validates master Tết Nguyên Đán component tokens and WCAG contrast compliance', () => {
+    const tet = seasonalThemesData.tet;
+    assert.strictEqual(tet.palette.lacquerRed, '#821E28', 'Lacquer red token must be #821E28');
+    assert.strictEqual(tet.palette.antiqueGold, '#D4A64A', 'Antique gold token must be #D4A64A');
+    assert.strictEqual(tet.palette.apricotYellow, '#E9B94F', 'Apricot yellow token must be #E9B94F');
+    assert.strictEqual(tet.palette.peachPink, '#E9A1A4', 'Peach blossom pink token must be #E9A1A4');
+    assert.strictEqual(tet.palette.jadeGreen, '#547B55', 'Jade green token must be #547B55');
+    assert.strictEqual(tet.palette.warmCream, '#F7EBD2', 'Warm cream token must be #F7EBD2');
+    assert.strictEqual(tet.palette.inkBrown, '#4B3027', 'Ink brown token must be #4B3027');
+    assert.strictEqual(tet.palette.vermilion, '#B9272F', 'Vermilion red token must be #B9272F');
+
+    // Helper for relative luminance calculation
+    const getLuminance = (hex: string) => {
+      const rgb = [0, 2, 4].map((offset) => parseInt(hex.substring(offset + 1, offset + 3), 16) / 255);
+      const [r, g, b] = rgb.map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+
+    const getContrastRatio = (hex1: string, hex2: string) => {
+      const lum1 = getLuminance(hex1);
+      const lum2 = getLuminance(hex2);
+      const brightest = Math.max(lum1, lum2);
+      const darkest = Math.min(lum1, lum2);
+      return (brightest + 0.05) / (darkest + 0.05);
+    };
+
+    // 1. Ink brown on ivory/cream card surface
+    const textOnCream = getContrastRatio(tet.palette.inkBrown!, tet.palette.cardSurface);
+    assert.ok(textOnCream >= 7.0, `Ink brown text on cream (${textOnCream.toFixed(2)}) must exceed AAA (7:1)`);
+
+    // 2. White text on lacquer red sidebar
+    const whiteOnLacquer = getContrastRatio('#FFFFFF', tet.palette.lacquerRed!);
+    assert.ok(whiteOnLacquer >= 7.0, `White on lacquer red (${whiteOnLacquer.toFixed(2)}) must exceed AAA (7:1)`);
+
+    // 3. White text on vermilion primary button
+    const whiteOnVermilion = getContrastRatio('#FFFFFF', tet.palette.vermilion!);
+    assert.ok(whiteOnVermilion >= 4.5, `White on vermilion button (${whiteOnVermilion.toFixed(2)}) must exceed AA (4.5:1)`);
+
+    // 4. White text on jade green success button
+    const whiteOnJade = getContrastRatio('#FFFFFF', tet.palette.jadeGreen!);
+    assert.ok(whiteOnJade >= 4.0, `White on jade green (${whiteOnJade.toFixed(2)}) must meet standard button readability`);
+  });
+
   test('ensures Vietnamese Women’s Day 20/10 is distinct from International Women’s Day 8/3', () => {
     const day83 = seasonalThemesData.womens_day_8_3;
     const day2010 = seasonalThemesData.vietnamese_womens_day_20_10;

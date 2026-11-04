@@ -61,6 +61,9 @@ export const SeasonalThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     const root = document.documentElement;
     const { palette, typography } = currentTheme;
 
+    root.setAttribute('data-theme', activeThemeId);
+    root.setAttribute('data-seasonal-theme', activeThemeId);
+
     root.style.setProperty('--theme-main-bg', palette.mainBg);
     root.style.setProperty('--theme-secondary-bg', palette.secondaryBg);
     root.style.setProperty('--theme-sidebar-bg', palette.sidebarBg);
@@ -74,10 +77,21 @@ export const SeasonalThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     root.style.setProperty('--theme-display-font', typography.displayFont);
     root.style.setProperty('--theme-body-font', typography.bodyFont);
 
+    if (activeThemeId === 'tet') {
+      root.style.setProperty('--theme-vermilion', palette.vermilion || '#B9272F');
+      root.style.setProperty('--theme-lacquer-red', palette.lacquerRed || '#821E28');
+      root.style.setProperty('--theme-antique-gold', palette.antiqueGold || '#D4A64A');
+      root.style.setProperty('--theme-apricot-yellow', palette.apricotYellow || '#E9B94F');
+      root.style.setProperty('--theme-peach-pink', palette.peachPink || '#E9A1A4');
+      root.style.setProperty('--theme-jade-green', palette.jadeGreen || '#547B55');
+      root.style.setProperty('--theme-warm-cream', palette.warmCream || '#F7EBD2');
+      root.style.setProperty('--theme-ink-brown', palette.inkBrown || '#4B3027');
+    }
+
     // Apply main background directly to body to avoid flashing white
     document.body.style.backgroundColor = palette.mainBg;
     document.body.style.color = palette.textMain;
-  }, [currentTheme]);
+  }, [currentTheme, activeThemeId]);
 
   const availableThemes = useMemo(() => Object.values(seasonalThemes), []);
   const isSeasonalActive = activeThemeId !== 'default';

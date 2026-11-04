@@ -25,6 +25,14 @@ export interface SeasonalThemePalette {
   textSecondary: string;
   border: string;
   shadow: string;
+  lacquerRed?: string;
+  antiqueGold?: string;
+  apricotYellow?: string;
+  peachPink?: string;
+  jadeGreen?: string;
+  warmCream?: string;
+  inkBrown?: string;
+  vermilion?: string;
 }
 
 export interface SeasonalThemeTypography {

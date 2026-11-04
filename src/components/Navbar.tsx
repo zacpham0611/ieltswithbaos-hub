@@ -49,23 +49,69 @@ export const Navbar: React.FC = () => {
   const unreadCount = myNotifications.filter((n) => !n.read).length;
 
   const isDefaultTheme = activeThemeId === 'default';
+  const isTetTheme = activeThemeId === 'tet';
 
   return (
     <header
-      className="no-print h-16 px-4 md:px-8 flex items-center justify-between sticky top-0 z-30 transition-colors duration-200 border-b"
+      className="no-print h-16 px-4 md:px-8 flex items-center justify-between sticky top-0 z-30 transition-colors duration-200 border-b relative overflow-hidden"
       style={{
-        backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.mainBg,
-        borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
+        backgroundColor: isDefaultTheme
+          ? '#FFFFFF'
+          : isTetTheme
+          ? '#821E28'
+          : currentTheme.palette.mainBg,
+        borderColor: isDefaultTheme
+          ? '#E2E8F0'
+          : isTetTheme
+          ? 'rgba(212, 166, 74, 0.45)'
+          : currentTheme.palette.border,
+        boxShadow: isTetTheme
+          ? '0 2px 10px rgba(130, 30, 40, 0.35)'
+          : '0 1px 3px rgba(0, 0, 0, 0.03)',
       }}
     >
+      {/* Tết Header Decorative Lanterns & Blossoms (Non-intrusive ambient accents) */}
+      {isTetTheme && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-0">
+          {/* Subtle floral branch at top left */}
+          <svg className="absolute -top-1 left-48 w-44 h-14 opacity-40 text-[#E9B94F]" viewBox="0 0 160 50" fill="none">
+            <path d="M0 0 Q60 25 120 10 T160 30" stroke="#FFE082" strokeWidth="1.5" strokeLinecap="round" />
+            <circle cx="45" cy="14" r="3.5" fill="#FF80AB" />
+            <circle cx="95" cy="18" r="3" fill="#E9B94F" />
+            <circle cx="130" cy="12" r="3.5" fill="#FF80AB" />
+          </svg>
+          {/* Traditional Miniature Hanging Lanterns */}
+          <div className="absolute top-0 right-72 hidden lg:flex items-start space-x-6 opacity-85">
+            <div className="flex flex-col items-center">
+              <div className="w-[1px] h-3 bg-[#E9B94F]" />
+              <div className="w-3.5 h-4.5 rounded-full bg-[#B9272F] border border-[#E9B94F] shadow-xs flex items-center justify-center">
+                <div className="w-1.5 h-2.5 rounded-full bg-[#E9B94F] opacity-75" />
+              </div>
+              <div className="w-[1px] h-2 bg-[#E9B94F]" />
+            </div>
+            <div className="flex flex-col items-center mt-1">
+              <div className="w-[1px] h-2 bg-[#E9B94F]" />
+              <div className="w-3 h-4 rounded-full bg-[#B9272F] border border-[#E9B94F] shadow-xs flex items-center justify-center">
+                <div className="w-1 h-2 rounded-full bg-[#E9B94F] opacity-75" />
+              </div>
+              <div className="w-[1px] h-1.5 bg-[#E9B94F]" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Brand & Workspace Context */}
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center space-x-3 z-10">
         <div className="flex items-center space-x-2.5">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-lg shadow-xs transition-transform hover:scale-105"
             style={{
-              backgroundColor: isDefaultTheme ? '#2563EB' : currentTheme.palette.primary,
+              backgroundColor: isDefaultTheme
+                ? '#2563EB'
+                : isTetTheme
+                ? '#B9272F'
+                : currentTheme.palette.primary,
+              border: isTetTheme ? '1.5px solid #D4A64A' : 'none',
               color: '#FFFFFF',
             }}
           >
@@ -75,7 +121,11 @@ export const Navbar: React.FC = () => {
             <span
               className="font-extrabold tracking-tight text-base leading-tight uppercase"
               style={{
-                color: isDefaultTheme ? '#0F172A' : currentTheme.palette.primary,
+                color: isDefaultTheme
+                  ? '#0F172A'
+                  : isTetTheme
+                  ? '#FFFDF8'
+                  : currentTheme.palette.primary,
                 letterSpacing: '0.02em',
               }}
             >
@@ -85,7 +135,11 @@ export const Navbar: React.FC = () => {
               className="text-[11px] font-bold uppercase tracking-wider"
               style={{
                 color: isDefaultTheme
-                  ? (currentUser.role === 'teacher' ? '#B91C1C' : '#2563EB')
+                  ? currentUser.role === 'teacher'
+                    ? '#B91C1C'
+                    : '#2563EB'
+                  : isTetTheme
+                  ? '#E9B94F'
                   : currentTheme.palette.textSecondary,
               }}
             >
@@ -102,9 +156,11 @@ export const Navbar: React.FC = () => {
             onClick={() => setActiveTab('find_course')}
             className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-colors ml-4 border"
             style={{
-              backgroundColor: currentTheme.palette.secondaryBg,
-              color: currentTheme.palette.primary,
-              borderColor: currentTheme.palette.border,
+              backgroundColor: isTetTheme
+                ? 'rgba(255, 255, 255, 0.15)'
+                : currentTheme.palette.secondaryBg,
+              color: isTetTheme ? '#FFFDF8' : currentTheme.palette.primary,
+              borderColor: isTetTheme ? '#D4A64A' : currentTheme.palette.border,
             }}
           >
             <BookOpen className="w-3.5 h-3.5" />
@@ -114,7 +170,7 @@ export const Navbar: React.FC = () => {
       </div>
 
       {/* Right controls: Theme Switcher, Language Switcher, Notifications, Profile */}
-      <div className="flex items-center space-x-2 sm:space-x-3">
+      <div className="flex items-center space-x-2 sm:space-x-3 z-10">
         {/* Seasonal Theme Switcher (Available to teachers to manage the global seasonal experience) */}
         {isTeacher && (
           <div className="relative">
@@ -122,15 +178,19 @@ export const Navbar: React.FC = () => {
               onClick={() => setShowThemeMenu(!showThemeMenu)}
               className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all shadow-xs"
               style={{
-                backgroundColor: currentTheme.palette.cardSurface,
-                borderColor: currentTheme.palette.border,
-                color: currentTheme.palette.textMain,
+                backgroundColor: isTetTheme
+                  ? 'rgba(255, 255, 255, 0.12)'
+                  : currentTheme.palette.cardSurface,
+                borderColor: isTetTheme
+                  ? 'rgba(212, 166, 74, 0.45)'
+                  : currentTheme.palette.border,
+                color: isTetTheme ? '#FFFDF8' : currentTheme.palette.textMain,
               }}
               title="Chọn chủ đề lễ hội (Seasonal Theme)"
             >
               <span className="text-sm">{themeIcons[activeThemeId]}</span>
               <span className="hidden md:inline font-semibold">{currentTheme.name}</span>
-              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+              <ChevronDown className="w-3.5 h-3.5 opacity-75" />
             </button>
 
             {showThemeMenu && (
@@ -194,17 +254,25 @@ export const Navbar: React.FC = () => {
         <div
           className="flex items-center space-x-1 p-1 rounded-lg border text-xs"
           style={{
-            backgroundColor: currentTheme.palette.cardSurface,
-            borderColor: currentTheme.palette.border,
+            backgroundColor: isTetTheme
+              ? 'rgba(255, 255, 255, 0.12)'
+              : currentTheme.palette.cardSurface,
+            borderColor: isTetTheme
+              ? 'rgba(212, 166, 74, 0.45)'
+              : currentTheme.palette.border,
+            color: isTetTheme ? '#FFFDF8' : currentTheme.palette.textMain,
           }}
         >
-          <Globe className="w-3.5 h-3.5 opacity-60 ml-1.5 mr-0.5" />
+          <Globe className="w-3.5 h-3.5 opacity-70 ml-1.5 mr-0.5" />
           <button
             onClick={() => setLanguage('vi')}
             className="px-2 py-0.5 rounded font-bold transition-all text-[11px]"
             style={{
-              backgroundColor: language === 'vi' ? currentTheme.palette.primary : 'transparent',
-              color: language === 'vi' ? '#FFFFFF' : currentTheme.palette.textSecondary,
+              backgroundColor: language === 'vi'
+                ? isTetTheme ? '#B9272F' : currentTheme.palette.primary
+                : 'transparent',
+              border: language === 'vi' && isTetTheme ? '1px solid #D4A64A' : 'none',
+              color: language === 'vi' ? '#FFFFFF' : isTetTheme ? '#F7EBD2' : currentTheme.palette.textSecondary,
             }}
           >
             VI
@@ -214,8 +282,11 @@ export const Navbar: React.FC = () => {
             onClick={() => setLanguage('en')}
             className="px-2 py-0.5 rounded font-bold transition-all text-[11px]"
             style={{
-              backgroundColor: language === 'en' ? currentTheme.palette.primary : 'transparent',
-              color: language === 'en' ? '#FFFFFF' : currentTheme.palette.textSecondary,
+              backgroundColor: language === 'en'
+                ? isTetTheme ? '#B9272F' : currentTheme.palette.primary
+                : 'transparent',
+              border: language === 'en' && isTetTheme ? '1px solid #D4A64A' : 'none',
+              color: language === 'en' ? '#FFFFFF' : isTetTheme ? '#F7EBD2' : currentTheme.palette.textSecondary,
             }}
           >
             EN
@@ -228,7 +299,11 @@ export const Navbar: React.FC = () => {
             onClick={() => setShowNotifMenu(!showNotifMenu)}
             className="relative p-2 rounded-lg transition-colors hover:bg-black/5"
             style={{
-              color: isDefaultTheme ? '#EF4444' : currentTheme.palette.primary,
+              color: isDefaultTheme
+                ? '#EF4444'
+                : isTetTheme
+                ? '#E9B94F'
+                : currentTheme.palette.primary,
               backgroundColor: 'transparent',
             }}
             title={t('nav.notifications')}
@@ -236,8 +311,15 @@ export const Navbar: React.FC = () => {
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
               <span
-                className="absolute top-1 right-1 w-4 h-4 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white"
-                style={{ backgroundColor: isDefaultTheme ? '#EF4444' : currentTheme.palette.primary }}
+                className="absolute top-1 right-1 w-4 h-4 text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white"
+                style={{
+                  backgroundColor: isDefaultTheme
+                    ? '#EF4444'
+                    : isTetTheme
+                    ? '#E9B94F'
+                    : currentTheme.palette.primary,
+                  color: isTetTheme ? '#821E28' : '#FFFFFF',
+                }}
               >
                 {unreadCount}
               </span>
@@ -299,24 +381,45 @@ export const Navbar: React.FC = () => {
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center space-x-2.5 p-1 rounded-lg transition-colors hover:bg-black/5"
             style={{
-              backgroundColor: isDefaultTheme ? 'transparent' : currentTheme.palette.cardSurface,
-              borderColor: isDefaultTheme ? 'transparent' : currentTheme.palette.border,
+              backgroundColor: isDefaultTheme
+                ? 'transparent'
+                : isTetTheme
+                ? 'rgba(255, 255, 255, 0.1)'
+                : currentTheme.palette.cardSurface,
+              borderColor: isDefaultTheme
+                ? 'transparent'
+                : isTetTheme
+                ? 'rgba(212, 166, 74, 0.35)'
+                : currentTheme.palette.border,
             }}
           >
             <img
               src={currentUser.avatar}
               alt={currentUser.name}
-              className="w-8 h-8 rounded-full object-cover border border-slate-200"
+              className="w-8 h-8 rounded-full object-cover border"
+              style={{
+                borderColor: isTetTheme ? '#D4A64A' : '#E2E8F0',
+              }}
             />
             <div className="hidden md:flex flex-col text-left pr-1">
-              <span className="text-xs font-bold leading-tight" style={{ color: currentTheme.palette.textMain }}>
+              <span
+                className="text-xs font-bold leading-tight"
+                style={{
+                  color: isTetTheme ? '#FFFDF8' : currentTheme.palette.textMain,
+                }}
+              >
                 {currentUser.name}
               </span>
-              <span className="text-[10px] font-medium capitalize" style={{ color: currentTheme.palette.textSecondary }}>
+              <span
+                className="text-[10px] font-medium capitalize"
+                style={{
+                  color: isTetTheme ? '#E9B94F' : currentTheme.palette.textSecondary,
+                }}
+              >
                 {currentUser.role === 'teacher' ? 'Giáo Viên IELTS Độc Lập' : t('auth.studentRole')}
               </span>
             </div>
-            <ChevronDown className="w-3.5 h-3.5 opacity-60 mr-1" />
+            <ChevronDown className="w-3.5 h-3.5 opacity-70 mr-1" style={{ color: isTetTheme ? '#FFFDF8' : undefined }} />
           </button>
 
           {showUserMenu && (

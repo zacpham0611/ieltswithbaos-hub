@@ -98,6 +98,241 @@
   background: #cbd5e1;
   border-radius: 9999px;
 }
+
+/* =============================================================================
+   TẾT NGUYÊN ĐÁN – MASTER SEASONAL UI SYSTEM ([data-theme="tet"])
+   Authoritative Reference: media_1793755577563_ed0ac1fd.jpg & media_1793726425820_371390b5.png
+   Palette:
+     - Vermilion Red: #B9272F
+     - Deep Lacquer Red: #821E28
+     - Antique Gold: #D4A64A
+     - Apricot Yellow: #E9B94F
+     - Peach Blossom Pink: #E9A1A4
+     - Jade Green: #547B55
+     - Warm Cream / Ivory: #FFFCF8 & #F7EBD2
+     - Ink Brown: #4B3027
+   ============================================================================= */
+
+[data-theme="tet"] {
+  --theme-main-bg: #FFF7EF;
+  --theme-secondary-bg: #FCE9E3;
+  --theme-sidebar-bg: #821E28;
+  --theme-card-surface: #FFFCF8;
+  --theme-primary: #B9272F;
+  --theme-secondary: #E56B70;
+  --theme-supporting: #D4A64A;
+  --theme-border: #E8D2C4;
+  --theme-text-main: #4B3027;
+  --theme-text-secondary: #7A5B4C;
+}
+
+/* Card surfaces & panels throughout all views */
+[data-theme="tet"] .bg-white {
+  background-color: #FFFCF8 !important;
+}
+
+[data-theme="tet"] .border-slate-200,
+[data-theme="tet"] .border-slate-100,
+[data-theme="tet"] .border-gray-200,
+[data-theme="tet"] .border-gray-100 {
+  border-color: rgba(212, 166, 74, 0.3) !important;
+}
+
+[data-theme="tet"] .border-slate-300,
+[data-theme="tet"] .border-gray-300 {
+  border-color: rgba(212, 166, 74, 0.45) !important;
+}
+
+[data-theme="tet"] .bg-slate-50,
+[data-theme="tet"] .bg-gray-50 {
+  background-color: #FFF9F2 !important;
+}
+
+[data-theme="tet"] .bg-slate-100,
+[data-theme="tet"] .bg-gray-100 {
+  background-color: #F8EBDD !important;
+}
+
+[data-theme="tet"] .bg-slate-200 {
+  background-color: #EEDCCE !important;
+}
+
+/* Main Ink Brown Typography */
+[data-theme="tet"] .text-slate-900,
+[data-theme="tet"] .text-slate-800,
+[data-theme="tet"] .text-gray-900,
+[data-theme="tet"] .text-gray-800 {
+  color: #4B3027 !important;
+}
+
+[data-theme="tet"] .text-slate-700,
+[data-theme="tet"] .text-slate-600,
+[data-theme="tet"] .text-gray-700,
+[data-theme="tet"] .text-gray-600 {
+  color: #63473D !important;
+}
+
+[data-theme="tet"] .text-slate-500,
+[data-theme="tet"] .text-gray-500 {
+  color: #7A5E52 !important;
+}
+
+[data-theme="tet"] .text-slate-400,
+[data-theme="tet"] .text-gray-400 {
+  color: #9C8377 !important;
+}
+
+/* Primary Vermilion Action Buttons with Antique Gold Borders */
+[data-theme="tet"] .bg-blue-600,
+[data-theme="tet"] .bg-indigo-600 {
+  background: linear-gradient(135deg, #B9272F 0%, #A01E27 100%) !important;
+  border: 1px solid #D4A64A !important;
+  color: #FFFDF8 !important;
+  box-shadow: 0 2px 8px rgba(185, 39, 47, 0.22) !important;
+}
+
+[data-theme="tet"] .bg-blue-600:hover,
+[data-theme="tet"] .hover\:bg-blue-700:hover,
+[data-theme="tet"] .bg-indigo-600:hover,
+[data-theme="tet"] .hover\:bg-indigo-700:hover {
+  background: linear-gradient(135deg, #A01E27 0%, #821E28 100%) !important;
+  border-color: #E9B94F !important;
+  box-shadow: 0 4px 12px rgba(130, 30, 40, 0.3) !important;
+}
+
+/* Semantic Success Buttons & Badges (Jade Green #547B55) */
+[data-theme="tet"] .bg-emerald-600,
+[data-theme="tet"] .bg-green-600 {
+  background-color: #547B55 !important;
+  border: 1px solid rgba(84, 123, 85, 0.5) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme="tet"] .bg-emerald-600:hover,
+[data-theme="tet"] .bg-green-600:hover,
+[data-theme="tet"] .hover\:bg-emerald-700:hover {
+  background-color: #426443 !important;
+}
+
+[data-theme="tet"] .bg-emerald-50,
+[data-theme="tet"] .bg-green-50 {
+  background-color: #EBF4EB !important;
+  color: #2D5E30 !important;
+  border: 1px solid rgba(84, 123, 85, 0.35) !important;
+}
+
+[data-theme="tet"] .text-emerald-600,
+[data-theme="tet"] .text-emerald-700,
+[data-theme="tet"] .text-green-600 {
+  color: #3D6A3E !important;
+}
+
+/* Semantic Danger / Destructive Buttons & Badges (#821E28) */
+[data-theme="tet"] .bg-red-600 {
+  background-color: #821E28 !important;
+  border: 1px solid rgba(130, 30, 40, 0.4) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme="tet"] .bg-red-600:hover,
+[data-theme="tet"] .hover\:bg-red-700:hover {
+  background-color: #69161E !important;
+}
+
+[data-theme="tet"] .bg-red-50 {
+  background-color: #FDF0F0 !important;
+  color: #821E28 !important;
+  border: 1px solid rgba(185, 39, 47, 0.3) !important;
+}
+
+[data-theme="tet"] .text-red-600,
+[data-theme="tet"] .text-red-700 {
+  color: #9B222E !important;
+}
+
+/* Semantic Warning & Status Badges (Antique Gold / Apricot Yellow) */
+[data-theme="tet"] .bg-amber-50,
+[data-theme="tet"] .bg-yellow-50 {
+  background-color: #FFF8E7 !important;
+  color: #8A5B10 !important;
+  border: 1px solid rgba(233, 185, 79, 0.45) !important;
+}
+
+[data-theme="tet"] .text-amber-600,
+[data-theme="tet"] .text-amber-700 {
+  color: #945B0E !important;
+}
+
+/* Secondary Buttons (Warm Cream with Gold/Red Border) */
+[data-theme="tet"] button.border-slate-300,
+[data-theme="tet"] button.border-slate-200 {
+  background-color: #FFFCF8 !important;
+  border: 1px solid rgba(212, 166, 74, 0.45) !important;
+  color: #4B3027 !important;
+}
+
+[data-theme="tet"] button.border-slate-300:hover,
+[data-theme="tet"] button.border-slate-200:hover {
+  background-color: #F8EBDD !important;
+  border-color: #D4A64A !important;
+  color: #B9272F !important;
+}
+
+/* Forms & Inputs */
+[data-theme="tet"] input[type="text"],
+[data-theme="tet"] input[type="email"],
+[data-theme="tet"] input[type="password"],
+[data-theme="tet"] input[type="search"],
+[data-theme="tet"] input[type="number"],
+[data-theme="tet"] textarea,
+[data-theme="tet"] select {
+  background-color: #FFFCF8 !important;
+  border: 1px solid rgba(212, 166, 74, 0.4) !important;
+  color: #4B3027 !important;
+}
+
+[data-theme="tet"] input:focus,
+[data-theme="tet"] textarea:focus,
+[data-theme="tet"] select:focus {
+  border-color: #B9272F !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(185, 39, 47, 0.2) !important;
+}
+
+[data-theme="tet"] input::placeholder,
+[data-theme="tet"] textarea::placeholder {
+  color: #9C8377 !important;
+}
+
+/* Tables */
+[data-theme="tet"] table th {
+  background-color: #F8EBDD !important;
+  color: #4B3027 !important;
+  border-bottom: 1.5px solid rgba(212, 166, 74, 0.35) !important;
+}
+
+[data-theme="tet"] table td {
+  border-bottom: 1px solid rgba(212, 166, 74, 0.16) !important;
+  color: #4B3027 !important;
+}
+
+[data-theme="tet"] table tbody tr:hover td {
+  background-color: #FDF3E3 !important;
+}
+
+/* Modals & Dialogs */
+[data-theme="tet"] #modal-root > div,
+[data-theme="tet"] [role="dialog"] {
+  border-color: #D4A64A !important;
+  box-shadow: 0 16px 48px -8px rgba(75, 48, 39, 0.28) !important;
+}
+
+/* Distraction-Free Student Reading & Test Areas (Pure Reading Comfort) */
+[data-theme="tet"] .reading-passage-area,
+[data-theme="tet"] .prose {
+  background-color: #FAF7F2;
+  color: #1E293B;
+}
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }

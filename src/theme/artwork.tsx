@@ -236,57 +236,103 @@ export const TetFloralBranchDecor: React.FC<{ className?: string }> = ({ classNa
 );
 
 /**
- * Tết Sidebar Bottom Decoration (Bánh Chưng, Câu đối Tết, Hoa đào)
+ * Tết Sidebar Bottom Decoration (Bảo mật nghiêm ngặt, Bánh Chưng, Sóng mây hoàng kim, Hoa đào)
+ * Matches master design mockup media_1793755577563_ed0ac1fd.jpg
  */
-export const TetSidebarBottomDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-36' }) => (
-  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <defs>
-      <linearGradient id="banhchung_leaf" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#43A047" />
-        <stop offset="100%" stopColor="#2E7D32" />
-      </linearGradient>
-    </defs>
+export const TetSidebarBottomDecor: React.FC<{ className?: string }> = ({ className = 'w-full' }) => (
+  <div className={`flex flex-col gap-2.5 w-full select-none ${className}`}>
+    {/* Security Privacy Card with Gold Shield Accent */}
+    <div
+      className="mx-2 p-2.5 rounded-xl border flex items-start space-x-2.5 transition-all shadow-xs"
+      style={{
+        backgroundColor: 'rgba(130, 30, 40, 0.75)',
+        borderColor: 'rgba(212, 166, 74, 0.45)',
+      }}
+    >
+      <div className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center bg-gradient-to-br from-[#E9B94F] to-[#D4A64A] text-[#821E28] shadow-xs">
+        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-[#FFFDF8] tracking-tight">Bảo mật nghiêm ngặt</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 shadow-2xs" />
+        </div>
+        <p className="text-[10px] text-[#F7EBD2] opacity-80 leading-tight mt-0.5">
+          Giới hạn trong khóa học và học viên của bạn
+        </p>
+      </div>
+    </div>
 
-    {/* Peach Blossom Branch arched behind */}
-    <path d="M10 120 Q35 70 65 50 Q90 35 130 30" stroke="#6D4C41" strokeWidth="3" strokeLinecap="round" fill="none" />
-    <circle cx="30" cy="85" r="6" fill="#FF80AB" />
-    <circle cx="45" cy="65" r="5" fill="#FF4081" />
-    <circle cx="75" cy="46" r="6" fill="#FF80AB" />
-    <circle cx="105" cy="36" r="5" fill="#FF4081" />
-    <circle cx="125" cy="28" r="4" fill="#FFD54F" />
+    {/* Traditional Vietnamese Bánh Chưng, Golden Wave & Peach Blossom */}
+    <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-28 px-1">
+      <defs>
+        <linearGradient id="banhchung_leaf" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#43A047" />
+          <stop offset="100%" stopColor="#2E7D32" />
+        </linearGradient>
+        <linearGradient id="tet_gold_waves" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FDE68A" />
+          <stop offset="100%" stopColor="#D4A64A" />
+        </linearGradient>
+      </defs>
 
-    {/* Bánh Chưng */}
-    <g transform="translate(18, 70)">
-      <polygon points="10,40 55,55 90,40 45,25" fill="#1B5E20" opacity="0.3" />
-      <polygon points="10,32 55,48 55,20 10,6" fill="url(#banhchung_leaf)" />
-      <polygon points="55,48 95,32 95,6 55,20" fill="#2E7D32" />
-      <polygon points="10,6 55,20 95,6 50,-6" fill="#66BB6A" />
+      {/* Traditional Vietnamese Golden Cloud & Waves (Sóng mây triều khúc) */}
+      <path
+        d="M-10 120 C20 105 45 92 75 102 C105 112 135 96 165 106 C185 112 205 100 220 120 Z"
+        fill="url(#tet_gold_waves)"
+        opacity="0.3"
+      />
+      <path
+        d="M-5 120 C25 100 55 110 85 96 C115 84 145 102 180 92 C198 96 210 106 220 120 Z"
+        fill="none"
+        stroke="url(#tet_gold_waves)"
+        strokeWidth="1.5"
+        opacity="0.55"
+      />
 
-      {/* Ties */}
-      <polygon points="8,19 55,34 95,19 95,21 55,36 8,21" fill="#FFF59D" />
-      <polygon points="9,14 55,29 95,14 95,16 55,31 9,16" fill="#FFF59D" />
-      <polygon points="30,0 30,39 32,39 32,0" fill="#FFF59D" />
-      <polygon points="72,0 72,39 74,39 74,0" fill="#FFF59D" />
-    </g>
+      {/* Peach Blossom Branch arched behind */}
+      <path d="M10 110 Q35 65 65 46 Q90 32 130 26" stroke="#8D6E63" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+      <circle cx="28" cy="76" r="5" fill="#FF80AB" />
+      <circle cx="44" cy="56" r="4.5" fill="#FF4081" />
+      <circle cx="72" cy="40" r="5" fill="#FF80AB" />
+      <circle cx="100" cy="30" r="4.5" fill="#FF4081" />
+      <circle cx="122" cy="24" r="3.5" fill="#FFD54F" />
 
-    {/* Red Diamond "Tết" Sign */}
-    <g transform="translate(95, 48)">
-      <polygon points="32,0 64,32 32,64 0,32" fill="#D32F2F" stroke="#FFD54F" strokeWidth="2.5" />
-      <polygon points="32,4 60,32 32,60 4,32" fill="none" stroke="#FFE082" strokeWidth="1" strokeDasharray="2 2" />
-      <text
-        x="32"
-        y="39"
-        fill="#FFF9C4"
-        fontSize="19"
-        fontWeight="bold"
-        textAnchor="middle"
-        fontFamily={SERIF_HEADING_FONT}
-        fontStyle="italic"
-      >
-        Tết
-      </text>
-    </g>
-  </svg>
+      {/* Bánh Chưng */}
+      <g transform="translate(18, 56)">
+        <polygon points="10,40 55,55 90,40 45,25" fill="#1B5E20" opacity="0.4" />
+        <polygon points="10,32 55,48 55,20 10,6" fill="url(#banhchung_leaf)" />
+        <polygon points="55,48 95,32 95,6 55,20" fill="#2E7D32" />
+        <polygon points="10,6 55,20 95,6 50,-6" fill="#66BB6A" />
+
+        {/* Ties */}
+        <polygon points="8,19 55,34 95,19 95,21 55,36 8,21" fill="#FFF59D" />
+        <polygon points="9,14 55,29 95,14 95,16 55,31 9,16" fill="#FFF59D" />
+        <polygon points="30,0 30,39 32,39 32,0" fill="#FFF59D" />
+        <polygon points="72,0 72,39 74,39 74,0" fill="#FFF59D" />
+      </g>
+
+      {/* Red Diamond "Tết" Sign */}
+      <g transform="translate(100, 40)">
+        <polygon points="28,0 56,28 28,56 0,28" fill="#B9272F" stroke="#E9B94F" strokeWidth="2" />
+        <polygon points="28,3.5 52.5,28 28,52.5 3.5,28" fill="none" stroke="#FFE082" strokeWidth="1" strokeDasharray="2 2" />
+        <text
+          x="28"
+          y="35"
+          fill="#FFFDF8"
+          fontSize="17"
+          fontWeight="bold"
+          textAnchor="middle"
+          fontFamily={SERIF_HEADING_FONT}
+          fontStyle="italic"
+        >
+          Tết
+        </text>
+      </g>
+    </svg>
+  </div>
 );
 
 
@@ -1356,31 +1402,55 @@ export const SeasonalPageDecoration: React.FC<{ themeId: SeasonalThemeId }> = ({
   if (themeId === 'default') return null;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden select-none opacity-25">
-      {/* Top right ambient festival aura */}
-      <div
-        className="absolute -top-24 -right-24 w-96 h-96 rounded-full blur-3xl"
-        style={{
-          background:
-            themeId === 'tet'
-              ? 'radial-gradient(circle, rgba(185,39,53,0.15) 0%, rgba(243,194,98,0.08) 70%, transparent 100%)'
-              : themeId === 'back_to_school'
-              ? 'radial-gradient(circle, rgba(38,61,91,0.15) 0%, rgba(212,175,55,0.08) 70%, transparent 100%)'
-              : themeId === 'mid_autumn'
-              ? 'radial-gradient(circle, rgba(201,75,66,0.15) 0%, rgba(243,194,98,0.1) 70%, transparent 100%)'
-              : themeId === 'halloween'
-              ? 'radial-gradient(circle, rgba(223,122,40,0.15) 0%, rgba(112,81,127,0.1) 70%, transparent 100%)'
-              : themeId === 'womens_day_8_3'
-              ? 'radial-gradient(circle, rgba(201,94,115,0.15) 0%, rgba(230,201,148,0.08) 70%, transparent 100%)'
-              : themeId === 'vietnamese_womens_day_20_10'
-              ? 'radial-gradient(circle, rgba(158,41,53,0.15) 0%, rgba(196,151,70,0.08) 70%, transparent 100%)'
-              : themeId === 'teachers_day_20_11'
-              ? 'radial-gradient(circle, rgba(47,107,85,0.15) 0%, rgba(212,175,55,0.08) 70%, transparent 100%)'
-              : themeId === 'christmas'
-              ? 'radial-gradient(circle, rgba(166,43,56,0.15) 0%, rgba(46,107,78,0.1) 70%, transparent 100%)'
-              : 'radial-gradient(circle, rgba(216,180,106,0.15) 0%, rgba(23,35,63,0.1) 70%, transparent 100%)',
-        }}
-      />
+    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden select-none">
+      {themeId === 'tet' ? (
+        <>
+          {/* Authentic Vietnamese Tết Traditional Pattern & Still-Life Watermark */}
+          <div
+            className="absolute inset-0 z-0 bg-cover bg-bottom bg-no-repeat transition-opacity duration-300"
+            style={{
+              backgroundImage: "url('/themes/tet-bg.jpg')",
+              opacity: 0.16,
+            }}
+          />
+          {/* Ambient Warm Apricot & Vermilion Festival Aura */}
+          <div
+            className="absolute -top-24 -right-24 w-[420px] h-[420px] rounded-full blur-3xl opacity-40"
+            style={{
+              background: 'radial-gradient(circle, rgba(185,39,47,0.18) 0%, rgba(233,185,79,0.12) 60%, transparent 100%)',
+            }}
+          />
+          {/* Bottom Left Subtle Glow */}
+          <div
+            className="absolute -bottom-24 -left-24 w-[360px] h-[360px] rounded-full blur-3xl opacity-35"
+            style={{
+              background: 'radial-gradient(circle, rgba(212,166,74,0.15) 0%, rgba(84,123,85,0.08) 60%, transparent 100%)',
+            }}
+          />
+        </>
+      ) : (
+        <div
+          className="absolute -top-24 -right-24 w-96 h-96 rounded-full blur-3xl opacity-25"
+          style={{
+            background:
+              themeId === 'back_to_school'
+                ? 'radial-gradient(circle, rgba(38,61,91,0.15) 0%, rgba(212,175,55,0.08) 70%, transparent 100%)'
+                : themeId === 'mid_autumn'
+                ? 'radial-gradient(circle, rgba(201,75,66,0.15) 0%, rgba(243,194,98,0.1) 70%, transparent 100%)'
+                : themeId === 'halloween'
+                ? 'radial-gradient(circle, rgba(223,122,40,0.15) 0%, rgba(112,81,127,0.1) 70%, transparent 100%)'
+                : themeId === 'womens_day_8_3'
+                ? 'radial-gradient(circle, rgba(201,94,115,0.15) 0%, rgba(230,201,148,0.08) 70%, transparent 100%)'
+                : themeId === 'vietnamese_womens_day_20_10'
+                ? 'radial-gradient(circle, rgba(158,41,53,0.15) 0%, rgba(196,151,70,0.08) 70%, transparent 100%)'
+                : themeId === 'teachers_day_20_11'
+                ? 'radial-gradient(circle, rgba(47,107,85,0.15) 0%, rgba(212,175,55,0.08) 70%, transparent 100%)'
+                : themeId === 'christmas'
+                ? 'radial-gradient(circle, rgba(166,43,56,0.15) 0%, rgba(46,107,78,0.1) 70%, transparent 100%)'
+                : 'radial-gradient(circle, rgba(216,180,106,0.15) 0%, rgba(23,35,63,0.1) 70%, transparent 100%)',
+          }}
+        />
+      )}
     </div>
   );
 };
