@@ -350,7 +350,26 @@ export const AssignmentsView: React.FC = () => {
   // Reading Timer & Layout state
   const [timerSeconds, setTimerSeconds] = useState<number>(60 * 60); // 60 minutes default
   const [timerRunning, setTimerRunning] = useState<boolean>(true);
-  const [passageFontSize, setPassageFontSize] = useState<'normal' | 'large'>('normal');
+  const [passageFontSize, setPassageFontSize] = useState<'15px' | '17px' | '19px'>(() => {
+    try {
+      const saved = localStorage.getItem('ielts_student_reading_font_size');
+      if (saved === '15px' || saved === '17px' || saved === '19px') {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return '17px';
+  });
+
+  const handleSetPassageFontSize = (size: '15px' | '17px' | '19px') => {
+    setPassageFontSize(size);
+    try {
+      localStorage.setItem('ielts_student_reading_font_size', size);
+    } catch {
+      // ignore
+    }
+  };
 
   // Split-Screen Drag state
   const [splitWidth, setSplitWidth] = useState<number>(50); // percentage for left pane
@@ -3142,7 +3161,9 @@ export const AssignmentsView: React.FC = () => {
     return (
       <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
         {/* Navigation & Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
+        <div className={`flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 gap-3 ${
+          isReading ? 'pb-2.5 mb-1' : 'pb-4'
+        }`}>
           <div>
             <button
               onClick={() => setSelectedAssignmentId(null)}
@@ -3164,7 +3185,9 @@ export const AssignmentsView: React.FC = () => {
                 {isReading && ` (${activeAssignment.readingTestType === 'general' ? 'General Training' : 'Academic'})`}
                 {isWriting && ` (${activeAssignment.writingTaskCategory?.replace('_', ' ').toUpperCase() || 'TASK 2'})`}
               </span>
-              <h1 className="text-2xl font-bold text-slate-900">{activeAssignment.title}</h1>
+              <h1 className={`${isReading ? 'text-lg sm:text-xl' : 'text-2xl'} font-bold text-slate-900`}>
+                {activeAssignment.title}
+              </h1>
             </div>
             <p className="text-sm text-slate-500 mt-1">Due date: {activeAssignment.dueDate || 'No deadline'}</p>
           </div>
@@ -3202,16 +3225,18 @@ export const AssignmentsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Instructions Banner */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-          <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-            {t('assignments.instructionsTitle')}
-          </h3>
-          <p className="text-sm text-slate-700 leading-relaxed">{activeAssignment.instructions}</p>
-          {activeAssignment.objectives && (
-            <p className="text-xs text-slate-400 mt-1 italic">{activeAssignment.objectives}</p>
-          )}
-        </div>
+        {/* Instructions Banner - Omitted in Reading to reclaim vertical space */}
+        {!isReading && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              {t('assignments.instructionsTitle')}
+            </h3>
+            <p className="text-sm text-slate-700 leading-relaxed">{activeAssignment.instructions}</p>
+            {activeAssignment.objectives && (
+              <p className="text-xs text-slate-400 mt-1 italic">{activeAssignment.objectives}</p>
+            )}
+          </div>
+        )}
 
         {/* =========================================================================
             1. READING SPLIT-SCREEN WORKFLOW
@@ -3367,13 +3392,28 @@ export const AssignmentsView: React.FC = () => {
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0 flex-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => setPassageFontSize(passageFontSize === 'normal' ? 'large' : 'normal')}
-                          className="text-xs text-slate-600 font-semibold px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                        <div
+                          className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200"
+                          role="group"
+                          aria-label="Passage font size"
                         >
-                          Font: {passageFontSize === 'normal' ? '17px' : '19px'}
-                        </button>
+                          <span className="text-[11px] font-semibold text-slate-500 pl-1.5 pr-0.5">Font:</span>
+                          {(['15px', '17px', '19px'] as const).map((size) => (
+                            <button
+                              key={size}
+                              type="button"
+                              onClick={() => handleSetPassageFontSize(size)}
+                              aria-label={`Set passage font size to ${size}`}
+                              className={`text-xs px-2 py-0.5 rounded-md font-medium transition-all ${
+                                passageFontSize === size
+                                  ? 'bg-white text-blue-700 font-bold shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                              }`}
+                            >
+                              {size}
+                            </button>
+                          ))}
+                        </div>
 
                         <span className="text-xs text-slate-400 font-mono hidden sm:inline whitespace-nowrap shrink-0">
                           {((activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) || activeAssignment.readingPassage || '')
@@ -3421,9 +3461,17 @@ export const AssignmentsView: React.FC = () => {
                 {/* Passage Text with Highlighting */}
                 <div
                   onMouseUp={handlePassageMouseUp}
-                  className={`flex-1 p-6 overflow-y-auto font-serif text-slate-800 select-text leading-[1.75] text-justify ${
-                    passageFontSize === 'normal' ? 'text-[17px]' : 'text-[19px]'
+                  className={`flex-1 p-6 overflow-y-auto font-serif text-slate-800 select-text text-justify ${
+                    passageFontSize === '15px'
+                      ? 'text-[15px] leading-[1.7]'
+                      : passageFontSize === '19px'
+                      ? 'text-[19px] leading-[1.8]'
+                      : 'text-[17px] leading-[1.75]'
                   }`}
+                  style={{
+                    fontSize: passageFontSize,
+                    lineHeight: passageFontSize === '15px' ? 1.7 : passageFontSize === '19px' ? 1.8 : 1.75,
+                  }}
                 >
                   {renderHighlightedPassage(
                     (activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) ||

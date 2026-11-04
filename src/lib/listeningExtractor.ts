@@ -503,17 +503,60 @@ function processListeningPart(
       continue;
     }
 
-    // Check for Sentences, Forms, or Notes with inline blanks: e.g. "This year, activities end by 7 ………… p.m." or "• Address: 1 …………" or "[1]"
-    const blankRegex = /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\(([0-9]{1,2})\)\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\[([0-9]{1,2})\])/g;
-    const blankMatches = Array.from(line.matchAll(blankRegex));
+    // Check for Sentences, Forms, or Notes with inline blanks:
+    // Formats supported:
+    // 1) "- The main cause of the problem is ______ (Q31)." or "- The process usually takes ______ days (Q32)."
+    // 2) "- Additional support is provided by 34. ______" or "• 34. Cost: ______"
+    // 3) "This year, activities end by 7 ………… p.m." or "• Address: 1 …………" or "[1]"
+    if (!line.includes('|')) {
+      let lineToProcess = line;
+      const detectedQNums: number[] = [];
 
-    if (blankMatches.length > 0 && !line.includes('|')) {
-      for (const bm of blankMatches) {
-        const qNum = parseInt(bm[1] || bm[2] || bm[3] || bm[4], 10);
-        let prompt = line.replace(/^[•\-\*\s]+/, '').trim();
-        prompt = prompt.replace(bm[0], '_____');
-        prompt = prompt.replace(blankRegex, '_____');
+      // Pattern 1: Blank followed anywhere by (Q<num>) or (<num>) or [<num>]
+      const blankThenTagRegex = /((?:[…\.]{2,}|_{2,}|\.{3,}|…+))([\s\S]*?)(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\])/g;
+      let matchTag: RegExpExecArray | null;
+      while ((matchTag = blankThenTagRegex.exec(line)) !== null) {
+        const num = parseInt(matchTag[3] || matchTag[4], 10);
+        if (!isNaN(num) && !detectedQNums.includes(num)) {
+          detectedQNums.push(num);
+        }
+      }
+      if (detectedQNums.length > 0) {
+        lineToProcess = lineToProcess.replace(
+          /((?:[…\.]{2,}|_{2,}|\.{3,}|…+))([\s\S]*?)(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\])/g,
+          (_m, _blank, middle, g3, g4) => {
+            const n = g3 || g4;
+            return `[${n}]${middle.replace(/\s+$/, '')}`;
+          }
+        );
+      }
 
+      // Pattern 2: Number before blank, e.g. "34. ______" or "- Additional support is provided by 34. ______"
+      const numBeforeBlankRegex = /(?:by|in|at|to|for|is|are|on|of|^|[•\-\*\s]+)\s*([0-9]{1,2})[\.\:\)]\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/g;
+      let matchNumBefore: RegExpExecArray | null;
+      while ((matchNumBefore = numBeforeBlankRegex.exec(lineToProcess)) !== null) {
+        const num = parseInt(matchNumBefore[1], 10);
+        if (!isNaN(num) && !detectedQNums.includes(num)) {
+          detectedQNums.push(num);
+        }
+      }
+      lineToProcess = lineToProcess.replace(
+        /((?:by|in|at|to|for|is|are|on|of|^|[•\-\*\s]+)\s*)([0-9]{1,2})[\.\:\)]\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/g,
+        '$1[$2]'
+      );
+
+      // Pattern 3: Standard inline number+blank, e.g. "1 …………" or "[1]"
+      const standardBlankRegex = /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\(([0-9]{1,2})\)\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\[([0-9]{1,2})\])/g;
+      let matchStd: RegExpExecArray | null;
+      while ((matchStd = standardBlankRegex.exec(lineToProcess)) !== null) {
+        const num = parseInt(matchStd[1] || matchStd[2] || matchStd[3] || matchStd[4], 10);
+        if (!isNaN(num) && !detectedQNums.includes(num)) {
+          detectedQNums.push(num);
+        }
+      }
+      lineToProcess = lineToProcess.replace(standardBlankRegex, (_m, g1, g2, g3, g4) => `[${g1 || g2 || g3 || g4}]`);
+
+      if (detectedQNums.length > 0) {
         const resolvedType =
           currentType === 'form_completion'
             ? 'form_completion'
@@ -525,22 +568,28 @@ function processListeningPart(
             ? 'sentence_completion'
             : 'note_completion';
 
-        currentGroupQuestions.push({
-          id: `q_p${partNumber}_${qNum}`,
-          number: qNum,
-          questionNumber: qNum,
-          part: partNumber as any,
-          type: resolvedType,
-          prompt: prompt || `Question ${qNum}`,
-          maxWords: parseWordCount(currentWordLimit),
-          allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
-        });
-      }
+        for (const qNum of detectedQNums) {
+          let cleanPrompt = line
+            .replace(/^[•\-\*\s]+/, '')
+            .replace(/\([Qq]?\s*[0-9]{1,2}\)/gi, '')
+            .trim();
+          cleanPrompt = cleanPrompt.replace(/(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/g, '_____');
 
-      // Add the formatted line to currentGroupText with standardized [qNum] gap markers
-      const formattedLine = line.replace(blankRegex, (_match, g1, g2, g3, g4) => `[${g1 || g2 || g3 || g4}]`);
-      currentGroupText += (currentGroupText ? '\n' : '') + formattedLine;
-      continue;
+          currentGroupQuestions.push({
+            id: `q_p${partNumber}_${qNum}`,
+            number: qNum,
+            questionNumber: qNum,
+            part: partNumber as any,
+            type: resolvedType,
+            prompt: cleanPrompt || `Question ${qNum}`,
+            maxWords: parseWordCount(currentWordLimit),
+            allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
+          });
+        }
+
+        currentGroupText += (currentGroupText ? '\n' : '') + lineToProcess;
+        continue;
+      }
     }
 
     // Accumulate text into group context / layout

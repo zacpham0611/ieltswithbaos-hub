@@ -412,8 +412,25 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // Helper to parse text with embedded gap markers [1], [2], etc., or inline blanks like 1 …………
   const renderTextWithEmbeddedInputs = (rawText: string, keyPrefix: string) => {
-    // Normalize any 1 …………, 1 _____, (1) ………… into [1]
-    const normalized = rawText.replace(
+    // 1. Normalize blanks followed anywhere by (Q<num>) or (<num>) or [<num>]
+    // e.g. "- The main cause of the problem is ______ (Q31)."
+    // e.g. "- The process usually takes ______ days (Q32)."
+    let normalized = rawText.replace(
+      /((?:[…\.]{2,}|_{2,}|\.{3,}|…+))([\s\S]*?)(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\])/gi,
+      (_m, _blank, middle, g3, g4) => {
+        const n = g3 || g4;
+        return `[${n}]${middle.replace(/\s+$/, '')}`;
+      }
+    );
+
+    // 2. Normalize numbers before blank, e.g. "34. ______" or "• 34. Cost: ______"
+    normalized = normalized.replace(
+      /((?:by|in|at|to|for|is|are|on|of|^|[•\-\*\s]+)\s*)([0-9]{1,2})[\.\:\)]\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/gi,
+      '$1[$2]'
+    );
+
+    // 3. Normalize any 1 …………, 1 _____, (1) ………… into [1]
+    normalized = normalized.replace(
       /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\(([0-9]{1,2})\)\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g,
       '[$1$2$3]'
     );
@@ -453,6 +470,11 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         .map((c) => c.trim())
     );
 
+    // Identify designated Answer column (e.g. "Answer", "Letters", "Choice", or second column if empty)
+    const answerColIdx = headerCells.findIndex((h) =>
+      /^(?:answer|answers|option|options|choice|choices|letter|letters|đáp án)\b/i.test(cleanListeningText(h))
+    );
+
     return (
       <div className="overflow-x-auto my-3 rounded-xl border border-slate-200 shadow-2xs bg-white">
         <table className="w-full text-left border-collapse text-xs sm:text-sm">
@@ -469,23 +491,129 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {bodyRows.map((row, rIdx) => (
-              <tr
-                key={rIdx}
-                className={`hover:bg-slate-50/80 transition-colors ${
-                  rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                }`}
-              >
-                {row.map((cell, cIdx) => (
-                  <td
-                    key={cIdx}
-                    className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 leading-relaxed font-normal align-top"
-                  >
-                    {renderTextWithEmbeddedInputs(cell, `table-${rIdx}-${cIdx}`)}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {bodyRows.map((row, rIdx) => {
+              const rowFullText = row.join(' ');
+              const numMatch = rowFullText.match(/(?:\[([0-9]{1,2})\]|^([0-9]{1,2})[\.\:\)\s]|\b([0-9]{1,2})\s+[a-zA-Z])/);
+              const rowQNum = numMatch ? parseInt(numMatch[1] || numMatch[2] || numMatch[3], 10) : NaN;
+              const matchedQ = !isNaN(rowQNum)
+                ? safeQuestions.find((q) => (q.questionNumber || q.number) === rowQNum)
+                : safeQuestions.find((q, idx) => idx === rIdx && (q.type === 'matching' || type === 'matching'));
+
+              if (matchedQ) {
+                embeddedQuestionIds.add(matchedQ.id);
+              }
+
+              return (
+                <tr
+                  key={rIdx}
+                  className={`hover:bg-slate-50/80 transition-colors ${
+                    rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                  }`}
+                >
+                  {row.map((cell, cIdx) => {
+                    const isAnswerCell =
+                      (answerColIdx >= 0 && cIdx === answerColIdx) ||
+                      (headerCells.length === 2 && cIdx === 1 && !cell.trim() && Boolean(matchedQ));
+
+                    if (isAnswerCell && matchedQ) {
+                      const isMatching = matchedQ.type === 'matching' || type === 'matching';
+                      if (isMatching) {
+                        const matchingOpts = getMatchingOptions(matchedQ);
+                        const userVal = (answers[matchedQ.id] || '').trim().toUpperCase();
+
+                        return (
+                          <td
+                            key={cIdx}
+                            className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 align-middle"
+                          >
+                            <div className="flex items-center gap-2">
+                              {matchingOpts.length > 0 ? (
+                                <select
+                                  value={userVal}
+                                  disabled={isReadOnly}
+                                  onChange={(e) => onAnswerChange(matchedQ.id, e.target.value.toUpperCase())}
+                                  className="px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-bold text-slate-800"
+                                >
+                                  <option value="">-- Chọn --</option>
+                                  {matchingOpts.map((opt: string, optIdx: number) => {
+                                    const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+                                    const optLetter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
+                                    return (
+                                      <option key={optIdx} value={optLetter}>
+                                        {optLetter}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={userVal}
+                                  disabled={isReadOnly}
+                                  placeholder="A, B..."
+                                  onChange={(e) => onAnswerChange(matchedQ.id, e.target.value.toUpperCase())}
+                                  className="w-16 px-2 py-1 text-xs text-center font-bold bg-slate-50 border border-slate-300 rounded-lg uppercase"
+                                />
+                              )}
+                              {renderFlagButton(matchedQ.id)}
+                              {showCorrectAnswers && matchedQ.correctAnswer && (
+                                <span className="text-xs text-emerald-700 font-bold whitespace-nowrap ml-1">
+                                  [{cleanListeningText(matchedQ.correctAnswer)}]
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      }
+
+                      return (
+                        <td
+                          key={cIdx}
+                          className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 align-middle"
+                        >
+                          {renderInlineQuestionInput(
+                            matchedQ.questionNumber || matchedQ.number || rowQNum || rIdx + 1,
+                            `table-ans-${rIdx}-${cIdx}`
+                          )}
+                        </td>
+                      );
+                    }
+
+                    if (cIdx === 0 && matchedQ) {
+                      const statementClean = cell.replace(/^[0-9]{1,2}[\.\:\)\s]+/, '').trim();
+                      const displayNum = matchedQ.questionNumber || matchedQ.number || rowQNum;
+
+                      return (
+                        <td
+                          key={cIdx}
+                          className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 leading-relaxed font-normal align-middle"
+                        >
+                          <div className="flex items-baseline gap-2">
+                            {displayNum && (
+                              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-xs font-bold shrink-0">
+                                {displayNum}
+                              </span>
+                            )}
+                            <span className="text-slate-800 font-medium">
+                              {cleanListeningText(statementClean || cell)}
+                            </span>
+                          </div>
+                        </td>
+                      );
+                    }
+
+                    return (
+                      <td
+                        key={cIdx}
+                        className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 leading-relaxed font-normal align-top"
+                      >
+                        {renderTextWithEmbeddedInputs(cell, `table-${rIdx}-${cIdx}`)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -692,6 +820,63 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     }
 
     const hasBlank = cleanPrompt.includes('_____');
+    const isBullet = /^[•\-\*\+]\s+/.test(cleanPrompt);
+
+    if (isBullet) {
+      const bulletContent = cleanPrompt.replace(/^[•\-\*\+\s]+/, '');
+      return (
+        <div
+          key={q.id}
+          className="flex items-start gap-2.5 py-2 px-3 bg-white rounded-lg border border-slate-200 shadow-2xs hover:border-slate-300 transition"
+        >
+          <span className="text-blue-500 font-bold shrink-0 mt-1">•</span>
+          <div className="text-sm text-slate-800 font-medium leading-relaxed flex-1">
+            {hasBlank ? (
+              <span>
+                {bulletContent.split('_____')[0]}
+                <span className="inline-flex items-center gap-1.5 align-middle mx-1 my-0.5">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-xs font-bold border border-blue-300 shrink-0">
+                    {qNum}
+                  </span>
+                  <input
+                    type="text"
+                    value={userVal}
+                    disabled={isReadOnly}
+                    placeholder={`[${qNum}]`}
+                    onChange={(e) => onAnswerChange(q.id, e.target.value)}
+                    className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[95px] max-w-[170px]"
+                  />
+                </span>
+                {bulletContent.split('_____')[1]}
+              </span>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span>{bulletContent}</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-xs font-bold shrink-0">
+                    {qNum}
+                  </span>
+                  <input
+                    type="text"
+                    value={userVal}
+                    disabled={isReadOnly}
+                    placeholder={`[${qNum}]`}
+                    onChange={(e) => onAnswerChange(q.id, e.target.value)}
+                    className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 border border-blue-400 rounded-md font-semibold text-blue-900 min-w-[95px]"
+                  />
+                </span>
+              </div>
+            )}
+          </div>
+          {renderFlagButton(q.id)}
+          {showCorrectAnswers && q.correctAnswer && (
+            <span className="text-xs text-emerald-700 font-bold ml-2 shrink-0">
+              [{cleanListeningText(q.correctAnswer)}]
+            </span>
+          )}
+        </div>
+      );
+    }
 
     return (
       <div
@@ -771,9 +956,26 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         .join(' ')
         .trim();
 
+      const tableLines = effectiveGroupContent
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith('|') && l.endsWith('|'));
+      const headerLine = tableLines[0] || '';
+      const tableHeaders = headerLine
+        .slice(1, -1)
+        .split('|')
+        .map((c) => cleanListeningText(c).toLowerCase());
+
+      const cleanNonTable = cleanListeningText(nonTableText).toLowerCase();
+      const isRedundantHeading =
+        !cleanNonTable ||
+        tableHeaders.some((h) => h === cleanNonTable) ||
+        cleanListeningText(instructions || '').toLowerCase().includes(cleanNonTable) ||
+        cleanListeningText(title || '').toLowerCase().includes(cleanNonTable);
+
       return (
         <div className="my-2 space-y-2">
-          {nonTableText && (
+          {!isRedundantHeading && (
             <p className="text-xs font-semibold text-slate-800 mb-1.5">
               {cleanListeningText(nonTableText)}
             </p>
