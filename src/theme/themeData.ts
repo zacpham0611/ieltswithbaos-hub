@@ -43,8 +43,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
-      title: 'Chào mừng thầy cô trở lại!',
-      subtitle: 'Chúc một năm mới An Khang - Thịnh Vượng!',
+      title: 'Chúc Mừng Năm Mới',
+      subtitle: 'Xuân sang cội phúc sinh nhành lộc – Tết đến cây đức trổ thêm hoa',
       aiButtonText: 'Trợ lý AI Giảng dạy',
       createButtonText: 'Tạo khóa học mới',
     },

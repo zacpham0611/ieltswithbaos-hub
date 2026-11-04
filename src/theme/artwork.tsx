@@ -1,5 +1,17 @@
 import React from 'react';
 import type { SeasonalThemeId } from './types';
+export {
+  TetCalligraphyTitle,
+  TetBanhChung,
+  TetBanhTet,
+  HoaMaiBlossom,
+  HoaDaoBlossom,
+  TetBaoLiXi,
+  TetThoiVang,
+  TetDuaHau,
+  TetLantern,
+  TetHangingScroll,
+} from './tetVectors';
 
 // =============================================================================
 // SHARED HELPER STYLES & FONTS
@@ -10,73 +22,6 @@ const BODY_FONT = "'Be Vietnam Pro', sans-serif";
 // =============================================================================
 // 1. TẾT ARTWORK (MASTER BENCHMARK REFERENCE)
 // =============================================================================
-
-/**
- * Authentic Vietnamese Brush Calligraphy for Tết Hero Greeting (Thư Pháp Việt)
- * Matches the approved master design reference screenshot exactly.
- */
-export const TetCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <div
-    className={`flex flex-col select-none relative ${className}`}
-    role="heading"
-    aria-level={1}
-    aria-label="Chào mừng thầy cô trở lại! Chúc một năm mới An Khang – Thịnh Vượng!"
-  >
-    <div className="flex items-center gap-3">
-      {/* Traditional Red Seal Stamp (Ấn Triện Thư Pháp "Phúc - Xuân") */}
-      <div className="shrink-0 w-8 h-8 rounded-md bg-[#B92735] border border-[#F3C262] shadow-xs flex items-center justify-center rotate-[-3deg] hover:rotate-0 transition-transform">
-        <svg viewBox="0 0 32 32" className="w-6 h-6 text-[#FFF7EF]" fill="currentColor">
-          <rect x="2" y="2" width="28" height="28" rx="2" fill="none" stroke="#F3C262" strokeWidth="1.2" strokeDasharray="1 1" />
-          <path d="M7 8 H25 M16 8 V16 M9 16 H23 M11 19 H21 M13 22 H19 M16 22 V27" stroke="#FFF7EF" strokeWidth="1.6" strokeLinecap="round" />
-          <circle cx="16" cy="12" r="1.5" fill="#F3C262" />
-        </svg>
-      </div>
-
-      {/* Main Calligraphy Headline: Chào mừng thầy cô trở lại! */}
-      <div className="relative inline-block">
-        <span
-          style={{
-            fontFamily: SERIF_HEADING_FONT,
-            fontStyle: 'italic',
-            letterSpacing: '-0.015em',
-            textShadow: '0 2px 4px rgba(185, 39, 53, 0.15)',
-          }}
-          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#B92735] leading-tight flex items-baseline gap-1"
-        >
-          <span>Chào mừng thầy cô trở lại!</span>
-        </span>
-
-        {/* Dynamic Calligraphy Brush Stroke Underline */}
-        <svg
-          viewBox="0 0 240 12"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#B92735] opacity-80"
-        >
-          <path
-            d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z"
-            fill="currentColor"
-          />
-        </svg>
-      </div>
-    </div>
-
-    {/* Subtitle with Thư Pháp Emphasis: Chúc một năm mới An Khang – Thịnh Vượng! */}
-    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#8B3A3E]">
-      <span className="opacity-90">Chúc một năm mới</span>
-      <span
-        style={{
-          fontFamily: SERIF_HEADING_FONT,
-          fontStyle: 'italic',
-        }}
-        className="font-black text-[#B92735] relative px-1"
-      >
-        <span>An Khang – Thịnh Vượng!</span>
-        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#D6A64F] via-[#F3C262] to-[#B92735] rounded-full" />
-      </span>
-    </div>
-  </div>
-);
 
 /**
  * Tết Lion Dance Child Mascot holding "Vạn Sự Như Ý" red scroll
@@ -1405,24 +1350,31 @@ export const SeasonalPageDecoration: React.FC<{ themeId: SeasonalThemeId }> = ({
     <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden select-none">
       {themeId === 'tet' ? (
         <>
-          {/* Authentic Vietnamese Tết Traditional Pattern & Still-Life Watermark */}
+          {/* Authentic Vietnamese Tết Traditional Pattern & Still-Life Illustration Layer */}
           <div
-            className="absolute inset-0 z-0 bg-cover bg-bottom bg-no-repeat transition-opacity duration-300"
+            className="absolute inset-0 z-0 bg-cover bg-bottom bg-no-repeat transition-opacity duration-300 pointer-events-none"
             style={{
               backgroundImage: "url('/themes/tet-bg.jpg')",
-              opacity: 0.16,
+              opacity: 0.38,
+            }}
+          />
+          {/* Golden Apricot Blossom Branch & Traditional Red Lanterns Framing Top Right */}
+          <div
+            className="absolute top-0 right-0 w-[420px] md:w-[620px] h-52 md:h-72 pointer-events-none z-0 bg-contain bg-top bg-no-repeat opacity-45"
+            style={{
+              backgroundImage: "url('/themes/tet-banner-lanterns.png')",
             }}
           />
           {/* Ambient Warm Apricot & Vermilion Festival Aura */}
           <div
-            className="absolute -top-24 -right-24 w-[420px] h-[420px] rounded-full blur-3xl opacity-40"
+            className="absolute -top-24 -right-24 w-[420px] h-[420px] rounded-full blur-3xl opacity-40 pointer-events-none"
             style={{
               background: 'radial-gradient(circle, rgba(185,39,47,0.18) 0%, rgba(233,185,79,0.12) 60%, transparent 100%)',
             }}
           />
           {/* Bottom Left Subtle Glow */}
           <div
-            className="absolute -bottom-24 -left-24 w-[360px] h-[360px] rounded-full blur-3xl opacity-35"
+            className="absolute -bottom-24 -left-24 w-[360px] h-[360px] rounded-full blur-3xl opacity-35 pointer-events-none"
             style={{
               background: 'radial-gradient(circle, rgba(212,166,74,0.15) 0%, rgba(84,123,85,0.08) 60%, transparent 100%)',
             }}

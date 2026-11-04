@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { useSeasonalTheme } from '../theme/SeasonalThemeContext';
@@ -9,6 +9,14 @@ import {
   StatCardStudentsIllustration,
   StatCardCalendarIllustration,
 } from '../theme/artwork';
+import {
+  TetBaoLiXi,
+  TetThoiVang,
+  HoaMaiBlossom,
+  HoaDaoBlossom,
+  TetBanhChung,
+} from '../theme/tetVectors';
+import { TetBlessingModal } from '../components/TetBlessingModal';
 import {
   BookOpen,
   Users,
@@ -36,6 +44,7 @@ export const TeacherDashboard: React.FC = () => {
   } = useApp();
   const { t, formatNumber } = useI18n();
   const { activeThemeId, currentTheme } = useSeasonalTheme();
+  const [showTetModal, setShowTetModal] = useState(false);
 
   if (!currentUser) return null;
 
@@ -131,50 +140,82 @@ export const TeacherDashboard: React.FC = () => {
               {currentTheme.hero.titleCustomComponent ? (
                 currentTheme.hero.titleCustomComponent
               ) : (
-                <h1
-                  className="text-2xl md:text-3xl font-extrabold tracking-tight"
-                  style={{
-                    color: currentTheme.palette.primary,
-                    fontFamily: currentTheme.typography.displayFont,
-                  }}
-                >
-                  {currentTheme.hero.title}
-                </h1>
+                <>
+                  <h1
+                    className="text-2xl md:text-3xl font-extrabold tracking-tight"
+                    style={{
+                      color: currentTheme.palette.primary,
+                      fontFamily: currentTheme.typography.displayFont,
+                    }}
+                  >
+                    {currentTheme.hero.title}
+                  </h1>
+                  <p
+                    className="text-xs md:text-sm italic font-medium leading-relaxed"
+                    style={{
+                      color: currentTheme.palette.textSecondary,
+                      fontFamily: currentTheme.typography.displayFont,
+                    }}
+                  >
+                    {currentTheme.hero.subtitle}
+                  </p>
+                </>
               )}
-
-              <p
-                className="text-xs md:text-sm italic font-medium leading-relaxed"
-                style={{
-                  color: currentTheme.palette.textSecondary,
-                  fontFamily: currentTheme.typography.displayFont,
-                }}
-              >
-                {currentTheme.hero.subtitle}
-              </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3 shrink-0 z-10 w-full sm:w-auto justify-center sm:justify-end">
+          <div className="flex items-center flex-wrap gap-2.5 shrink-0 z-10 w-full sm:w-auto justify-center sm:justify-end">
+            {/* Standalone Interactive Illustrated Button for Vietnamese Tết: "Hái Lộc Đầu Năm" */}
+            {activeThemeId === 'tet' && (
+              <button
+                onClick={() => setShowTetModal(true)}
+                className="relative inline-flex items-center space-x-1.5 px-4 py-2.5 rounded-full text-xs font-bold text-white transition-all shadow-md hover:scale-105 active:scale-95 cursor-pointer"
+                style={{
+                  background: 'linear-gradient(135deg, #B9272F 0%, #821E28 100%)',
+                  border: '1.5px solid #E9B94F',
+                  boxShadow: '0 4px 14px rgba(185, 39, 47, 0.35)',
+                }}
+              >
+                <span className="shrink-0 -ml-1">
+                  <TetBaoLiXi className="w-4 h-6 drop-shadow-xs" />
+                </span>
+                <span className="tracking-wide">Hái Lộc Đầu Năm</span>
+                <span className="shrink-0 -mr-1">
+                  <HoaMaiBlossom size={16} />
+                </span>
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab('ai_assistant')}
-              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold transition-all shadow-xs hover:opacity-90 hover:shadow-sm"
+              className="relative inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold transition-all shadow-xs hover:opacity-90 hover:shadow-sm cursor-pointer"
               style={{
                 backgroundColor: currentTheme.palette.secondaryBg,
                 color: currentTheme.palette.primary,
                 border: `1px solid ${currentTheme.palette.border}`,
               }}
             >
+              {activeThemeId === 'tet' && (
+                <span className="absolute -top-1.5 -left-1.5 pointer-events-none">
+                  <HoaDaoBlossom size={15} />
+                </span>
+              )}
               <Sparkles className="w-3.5 h-3.5" style={{ color: currentTheme.palette.primary }} />
               <span>{currentTheme.hero.aiButtonText}</span>
             </button>
 
             <button
               onClick={() => setActiveTab('courses')}
-              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold text-white transition-all shadow-xs hover:opacity-95 hover:shadow-sm"
+              className="relative inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold text-white transition-all shadow-xs hover:opacity-95 hover:shadow-sm cursor-pointer"
               style={{
                 backgroundColor: currentTheme.palette.primary,
               }}
             >
+              {activeThemeId === 'tet' && (
+                <span className="absolute -top-2 -right-1.5 pointer-events-none">
+                  <TetThoiVang className="w-5 h-3.5" />
+                </span>
+              )}
               <PlusCircle className="w-3.5 h-3.5" />
               <span>{currentTheme.hero.createButtonText}</span>
             </button>
@@ -191,10 +232,18 @@ export const TeacherDashboard: React.FC = () => {
           onClick={() => setActiveTab('courses')}
           className="relative overflow-hidden p-5 rounded-2xl border transition-all cursor-pointer group shadow-xs hover:shadow-md"
           style={{
-            backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.cardSurface,
+            backgroundColor: isDefaultTheme ? '#FFFFFF' : 'rgba(255, 252, 248, 0.94)',
             borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
+            backdropFilter: isDefaultTheme ? undefined : 'blur(8px)',
           }}
         >
+          {/* Authentic Vietnamese Tết Corner Accent */}
+          {activeThemeId === 'tet' && (
+            <div className="absolute top-2 right-10 pointer-events-none opacity-35 group-hover:opacity-75 transition-opacity">
+              <TetBanhChung className="w-7 h-7" />
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-2">
             <span
               className="text-[11px] font-bold uppercase tracking-wider"
@@ -237,10 +286,18 @@ export const TeacherDashboard: React.FC = () => {
           onClick={() => setActiveTab('courses')}
           className="relative overflow-hidden p-5 rounded-2xl border transition-all cursor-pointer group shadow-xs hover:shadow-md"
           style={{
-            backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.cardSurface,
+            backgroundColor: isDefaultTheme ? '#FFFFFF' : 'rgba(255, 252, 248, 0.94)',
             borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
+            backdropFilter: isDefaultTheme ? undefined : 'blur(8px)',
           }}
         >
+          {/* Authentic Vietnamese Tết Corner Accent */}
+          {activeThemeId === 'tet' && (
+            <div className="absolute top-2 right-10 pointer-events-none opacity-45 group-hover:opacity-85 transition-opacity">
+              <HoaMaiBlossom size={19} />
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-2">
             <span
               className="text-[11px] font-bold uppercase tracking-wider"
@@ -283,10 +340,18 @@ export const TeacherDashboard: React.FC = () => {
           onClick={() => setActiveTab('assignments')}
           className="relative overflow-hidden p-5 rounded-2xl border transition-all cursor-pointer group shadow-xs hover:shadow-md"
           style={{
-            backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.cardSurface,
+            backgroundColor: isDefaultTheme ? '#FFFFFF' : 'rgba(255, 252, 248, 0.94)',
             borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
+            backdropFilter: isDefaultTheme ? undefined : 'blur(8px)',
           }}
         >
+          {/* Authentic Vietnamese Tết Corner Accent */}
+          {activeThemeId === 'tet' && (
+            <div className="absolute top-2 right-10 pointer-events-none opacity-45 group-hover:opacity-85 transition-opacity">
+              <TetBaoLiXi className="w-5 h-7" />
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-2">
             <span
               className="text-[11px] font-bold uppercase tracking-wider"
@@ -562,6 +627,15 @@ export const TeacherDashboard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Standalone Interactive Vietnamese Tết Blessing Modal */}
+      {activeThemeId === 'tet' && (
+        <TetBlessingModal
+          isOpen={showTetModal}
+          onClose={() => setShowTetModal(false)}
+          onNavigate={(tab) => setActiveTab(tab)}
+        />
+      )}
     </div>
   );
 };

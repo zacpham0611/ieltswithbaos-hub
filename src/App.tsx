@@ -109,8 +109,10 @@ export const AppContent: React.FC = () => {
       <div className="flex-1 flex overflow-hidden z-10">
         <Sidebar />
         <main
-          className="flex-1 overflow-y-auto p-4 md:p-8"
-          style={{ backgroundColor: currentTheme.palette.mainBg }}
+          className="flex-1 overflow-y-auto p-4 md:p-8 relative"
+          style={{
+            backgroundColor: activeThemeId === 'tet' ? 'transparent' : currentTheme.palette.mainBg,
+          }}
         >
           <div key={activeTab} className="page-transition min-h-full">
             {renderContent()}
