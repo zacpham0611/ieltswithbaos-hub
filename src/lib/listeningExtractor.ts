@@ -48,6 +48,8 @@ export function convertHtmlTablesToMarkdown(html: string): string {
         let cellText = cMatch[1]
           .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}/gi, '[$1]')
           .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>/gi, '$1')
+          .replace(/\b([0-9]{1,2})[\.\:\)]?\s*(?:[\$£€¥]|(?:every|in|at|by|for|the|a|an)\s+)*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/gi, '[$1]')
+          .replace(/(?:[…\.]{2,}|_{2,}|\.{3,}|…+)\s*(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\]|\b([0-9]{1,2})\b)/gi, '[$1$2$3]')
           .replace(/\b([0-9]{1,2})\s*[\u2026\.]{2,}/g, '[$1]')
           .replace(/\b([0-9]{1,2})\s*_{2,}/g, '[$1]')
           .replace(/<[^>]+>/g, ' ')
@@ -116,8 +118,8 @@ export function parseListeningDocument(
     contentLines = allLines.slice(0, akHeaderIdx);
   }
 
-  // Part markers regex: PART 1, SECTION 1, PART 2, etc.
-  const partHeaderRegex = /^(?:PART|SECTION)\s+([1-4])\b/i;
+  // Part markers regex: PART 1, SECTION 1, Part 1:, Listening Section 2, etc.
+  const partHeaderRegex = /(?:\b(?:PART|SECTION)\s*([1-4])\b|^([1-4])\b\s*(?:st|nd|rd|th)?\s*(?:Part|Section))/i;
 
   const rawParts: { partNumber: number; title: string; lines: string[] }[] = [];
   let currentPartIndex = 1;
@@ -137,7 +139,8 @@ export function parseListeningDocument(
       }
       hasFoundFirstPart = true;
       currentPartLines = [];
-      currentPartIndex = parseInt(match[1], 10);
+      const parsedPartNum = parseInt(match[1] || match[2], 10);
+      currentPartIndex = !isNaN(parsedPartNum) && parsedPartNum >= 1 && parsedPartNum <= 4 ? parsedPartNum : currentPartIndex;
     } else {
       currentPartLines.push(line);
     }
@@ -254,7 +257,10 @@ function processListeningPart(
       // Assign matching/shared options to questions if missing
       if (groupOpts) {
         currentGroupQuestions.forEach((q) => {
-          if ((q.type === 'matching' || currentType === 'matching') && (!q.options || q.options.length === 0)) {
+          if (
+            (q.type === 'matching' || q.type === 'plan_map_diagram_labelling' || currentType === 'matching' || currentType === 'plan_map_diagram_labelling') &&
+            (!q.options || q.options.length === 0)
+          ) {
             q.options = [...groupOpts];
           }
         });
@@ -345,7 +351,7 @@ function processListeningPart(
     }
 
     // Check for Shared Options for matching or multiple choice: "A They gave higher marks." or "• A They gave higher marks."
-    const sharedOptMatch = line.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
+    const sharedOptMatch = line.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
     if (sharedOptMatch && !line.includes('|') && !isBlankPattern.test(line)) {
       currentGroupOptions.push(`${sharedOptMatch[1].toUpperCase()}. ${sharedOptMatch[2].trim()}`);
       continue;
@@ -355,8 +361,10 @@ function processListeningPart(
     if (currentType === 'multiple_select' && currentExpectedRange) {
       const [startN, endN] = currentExpectedRange;
       const count = endN - startN + 1;
-      if (/^(?:Which|What|Who|Where|When)\b/i.test(line)) {
-        const multiPrompt = line.trim();
+      const isOptionLine = /^[•\-\*\s\u2022]*[A-Za-z][\.\)\:\-]/i.test(line);
+      const isHeaderLine = /^(?:PART|SECTION|Questions?)\b/i.test(line);
+      if (!isOptionLine && !isHeaderLine && currentGroupQuestions.length === 0) {
+        let multiPrompt = line.trim();
         const opts: string[] = [];
         let j = i + 1;
         while (j < lines.length) {
@@ -365,11 +373,15 @@ function processListeningPart(
             j++;
             continue;
           }
-          const om = optL.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s*)(.*)$/i);
+          const om = optL.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s*)(.*)$/i);
           if (om) {
             opts.push(`${om[1].toUpperCase()}. ${om[2].trim()}`);
             j++;
-          } else if (optL.startsWith('(')) {
+          } else if (optL.startsWith('(') || optL.endsWith(')')) {
+            j++;
+          } else if (opts.length === 0 && !/^(?:PART|SECTION|Questions?)\b/i.test(optL)) {
+            // Continuation of multi-select prompt
+            multiPrompt = `${multiPrompt} ${optL}`;
             j++;
           } else {
             break;
@@ -389,8 +401,8 @@ function processListeningPart(
             questionNumber: qNum,
             part: partNumber as any,
             type: 'multiple_select',
-            prompt: multiPrompt,
-            options: opts,
+            prompt: multiPrompt || `Questions ${startN}-${endN}`,
+            options: opts.length > 0 ? opts : undefined,
             allowNumbers: false,
           });
         }
@@ -410,13 +422,43 @@ function processListeningPart(
       // Look ahead for multiple choice options (A, B, C...)
       const options: string[] = [];
       let j = i + 1;
+
+      // Accumulate continuation lines for multi-line prompts before options appear
+      while (j < lines.length) {
+        const nextL = lines[j].trim();
+        if (!nextL) {
+          j++;
+          continue;
+        }
+        const isOpt = /^[•\-\*\s\u2022]*[A-Za-z](?:[\.\)\:\-]\s*|\s+)/i.test(nextL);
+        if (isOpt) break;
+        const isNextQ = /^(?:Question\s+)?[0-9]{1,2}[\.\)\:\-]/i.test(nextL);
+        const isHeader = /^(?:PART|SECTION|Questions?)\b/i.test(nextL);
+        if (isNextQ || isHeader || nextL.includes('|')) break;
+
+        // Check if an option appears shortly after this line
+        let hasOptionShortly = false;
+        for (let lookK = j + 1; lookK <= Math.min(j + 3, lines.length - 1); lookK++) {
+          if (/^[•\-\*\s\u2022]*[A-Ca-c](?:[\.\)\:\-]\s*|\s+)/i.test(lines[lookK].trim())) {
+            hasOptionShortly = true;
+            break;
+          }
+        }
+        if (hasOptionShortly) {
+          prompt = `${prompt} ${nextL}`;
+          j++;
+        } else {
+          break;
+        }
+      }
+
       while (j < lines.length) {
         const optLine = lines[j].trim();
         if (!optLine) {
           j++;
           continue;
         }
-        const optMatch = optLine.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
+        const optMatch = optLine.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
         if (optMatch) {
           options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
           j++;
@@ -436,6 +478,8 @@ function processListeningPart(
           qType = 'multiple_choice';
           currentType = 'multiple_choice';
           i = j - 1; // advance index
+        } else if (prompt.endsWith('?') && options.length === 0) {
+          qType = 'short_answer';
         }
 
         currentGroupQuestions.push({
@@ -456,48 +500,72 @@ function processListeningPart(
     // Check for Table Rows: lines with |
     if (line.includes('|')) {
       // Clean blank markers in table cells so the table displays visual badges [1], [2], etc.
-      const formattedTableLine = line.replace(
-        /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g,
-        '[$1$2]'
-      );
+      let formattedTableLine = line
+        .replace(/(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g, '[$1$2]')
+        .replace(/((?:[…\.]{2,}|_{2,}|\.{3,}|…+))([\s\S]*?)(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\])/g, (_m, _b, mid, g3, g4) => `[${g3 || g4}]${mid}`)
+        .replace(/(?:[…\.]{2,}|_{2,}|\.{3,}|…+)\s*\(([0-9]{1,2})\)/g, '[$1]');
       currentGroupText += (currentGroupText ? '\n' : '') + formattedTableLine;
 
-      // Table matching row: | 25 male students marking female presenters | |
-      const matchRow = line.match(/^\|\s*([0-9]{1,2})\s+([^|]+)\|/);
+      // Table matching row:
+      // Format 1: | 25. Research design | [25] | or | 25) Research design | |
+      // Format 2: | 25 | Research design | [25] | or | 25 | Research design | |
+      const matchRowNumbered = line.match(/^\|\s*([0-9]{1,2})[\.\)\:\-]?\s+([^|]+)\|/);
+      const matchRowColSplit = line.match(/^\|\s*([0-9]{1,2})\s*\|\s*([^|]+)\|/);
+      const matchRow = matchRowNumbered || matchRowColSplit;
+
       if (matchRow) {
         const qNum = parseInt(matchRow[1], 10);
         const prompt = matchRow[2].trim();
-        currentType = 'matching';
+        const isTableMatching =
+          currentType === 'matching' ||
+          currentType === 'plan_map_diagram_labelling' ||
+          currentGroupOptions.length > 0;
+        const qType = isTableMatching ? 'matching' : 'table_completion';
+        if (isTableMatching) currentType = 'matching';
+
         currentGroupQuestions.push({
           id: `q_p${partNumber}_${qNum}`,
           number: qNum,
           questionNumber: qNum,
           part: partNumber as any,
-          type: 'matching',
+          type: qType,
           prompt,
           options: currentGroupOptions.length > 0 ? currentGroupOptions : undefined,
+          maxWords: parseWordCount(currentWordLimit),
+          allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
         });
         continue;
       }
 
-      // Table completion cells with blanks: e.g. | the 1 ………… | or | [1] | or | 31 ………… languages |
-      const cellMatches = Array.from(line.matchAll(/(?:\[([0-9]{1,2})\]|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g));
-      if (cellMatches.length > 0) {
-        currentType = 'table_completion';
-        for (const cm of cellMatches) {
-          const qNum = parseInt(cm[1] || cm[2], 10);
+      // Extract question blanks from individual table cells:
+      const cellsInLine = line.split('|').map((c) => c.trim()).filter(Boolean);
+      for (const cell of cellsInLine) {
+        if (/^[-:]+$/.test(cell)) continue; // ignore table header markdown line
+        const bracketMatch = cell.match(/\[([0-9]{1,2})\]/);
+        const prefixNumMatch = cell.match(/\b([0-9]{1,2})[\.\:\)]?\s*(?:[\$£€¥]|every|in|at|by|for|the|a|an|[^\w\s\n|])*\s*(?:_{2,}|[\u2026\.]{2,})/i);
+        const suffixNumMatch = cell.match(/(?:_{2,}|[\u2026\.]{2,})[\s\S]*?(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\]|\b([0-9]{1,2})\b)/i);
+
+        const matchedNum = bracketMatch
+          ? parseInt(bracketMatch[1], 10)
+          : prefixNumMatch
+          ? parseInt(prefixNumMatch[1], 10)
+          : suffixNumMatch
+          ? parseInt(suffixNumMatch[1] || suffixNumMatch[2] || suffixNumMatch[3], 10)
+          : null;
+
+        if (matchedNum !== null && !isNaN(matchedNum) && !currentGroupQuestions.some((q) => q.questionNumber === matchedNum)) {
+          currentType = 'table_completion';
           currentGroupQuestions.push({
-            id: `q_p${partNumber}_${qNum}`,
-            number: qNum,
-            questionNumber: qNum,
+            id: `q_p${partNumber}_${matchedNum}`,
+            number: matchedNum,
+            questionNumber: matchedNum,
             part: partNumber as any,
             type: 'table_completion',
-            prompt: `Question ${qNum}`,
+            prompt: `Question ${matchedNum}`,
             maxWords: parseWordCount(currentWordLimit),
             allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
           });
         }
-        continue;
       }
 
       continue;
@@ -566,6 +634,14 @@ function processListeningPart(
             ? 'flowchart_completion'
             : currentType === 'sentence_completion'
             ? 'sentence_completion'
+            : currentType === 'table_completion'
+            ? 'table_completion'
+            : currentType === 'matching'
+            ? 'matching'
+            : currentType === 'plan_map_diagram_labelling'
+            ? 'plan_map_diagram_labelling'
+            : currentType === 'short_answer'
+            ? 'short_answer'
             : 'note_completion';
 
         for (const qNum of detectedQNums) {
@@ -582,6 +658,9 @@ function processListeningPart(
             part: partNumber as any,
             type: resolvedType,
             prompt: cleanPrompt || `Question ${qNum}`,
+            options: (resolvedType === 'matching' || resolvedType === 'plan_map_diagram_labelling') && currentGroupOptions.length > 0
+              ? currentGroupOptions
+              : undefined,
             maxWords: parseWordCount(currentWordLimit),
             allowNumbers: !currentWordLimit.toLowerCase().includes('only words'),
           });
@@ -781,13 +860,12 @@ function parseWordCount(wordLimitStr: string): number | undefined {
  */
 export function extractListeningAnswerKey(text: string): Record<string, string> {
   const result: Record<string, string> = {};
-  const lower = text.toLowerCase();
-  const keyIndex = lower.indexOf('answer key');
-  const targetText = keyIndex !== -1 ? text.substring(keyIndex) : text;
+  const headerMatch = text.match(/(?:^|\n)\s*(?:answer\s*keys?|listening\s*answers?|\banswers(?:\s+for\s+listening)?\b|đáp\s*án)\b/i);
+  const targetText = headerMatch && headerMatch.index !== undefined ? text.substring(headerMatch.index) : text;
   const lines = targetText.split('\n').map((l) => l.trim()).filter(Boolean);
 
   // 1. Check for range in text: "Questions 18–20 are A, F and G in any order"
-  const rangeRegex = /(?:Questions?|Q)?\s*([0-9]{1,2})\s*[-–—to]+\s*([0-9]{1,2})\s+are\s+([A-G,\s]+(?:\s+and\s+[A-G])?)\s+in\s+any\s+order/gi;
+  const rangeRegex = /(?:Questions?|Q)?\s*([0-9]{1,2})\s*[-–—to]+\s*([0-9]{1,2})\s+are\s+([A-Za-z,\s]+(?:\s+and\s+[A-Za-z])?)\s+in\s+any\s+order/gi;
   let rangeMatch;
   while ((rangeMatch = rangeRegex.exec(targetText)) !== null) {
     const startQ = parseInt(rangeMatch[1], 10);

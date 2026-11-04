@@ -21,7 +21,7 @@ const extractOptionsFromText = (text?: string): string[] => {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const opts: string[] = [];
   for (const line of lines) {
-    const match = line.match(/^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
+    const match = line.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
     if (match) {
       opts.push(`${match[1].toUpperCase()}. ${match[2].trim()}`);
     }
@@ -118,9 +118,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         {options.length > 0 ? (
           <div className="space-y-2 pt-1 pl-8">
             {options.map((opt, optIdx) => {
-              const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+              const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
               const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
-              const cleanOpt = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
+              const cleanOpt = cleanListeningText(opt.replace(/^[A-Za-z][\.\:\)]\s*/i, ''));
               const isSelected =
                 userVal.toUpperCase() === letter ||
                 userVal.toUpperCase() === opt.toUpperCase() ||
@@ -245,9 +245,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         {/* Checkbox Options */}
         <div className="space-y-2 pt-1 pl-2">
           {options.map((opt, optIdx) => {
-            const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+            const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
             const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
-            const cleanOpt = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
+            const cleanOpt = cleanListeningText(opt.replace(/^[A-Za-z][\.\:\)]\s*/i, ''));
             const isChecked = selectedSet.has(letter);
 
             return (
@@ -333,9 +333,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             >
               <option value="">-- Chọn đáp án --</option>
               {options.map((opt: string, idx: number) => {
-                const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+                const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
                 const optLetter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + idx);
-                const optText = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
+                const optText = cleanListeningText(opt.replace(/^[A-Za-z][\.\:\)]\s*/i, ''));
                 return (
                   <option key={idx} value={optLetter}>
                     {optLetter}. {optText || opt}
@@ -536,7 +536,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                                 >
                                   <option value="">-- Chọn --</option>
                                   {matchingOpts.map((opt: string, optIdx: number) => {
-                                    const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+                                    const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
                                     const optLetter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
                                     return (
                                       <option key={optIdx} value={optLetter}>
@@ -937,7 +937,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     return rawText
       .split('\n')
       .filter((line) => {
-        const isOptLine = /^[•\-\*\s\u2022]*([A-G])(?:[\.\)\:\-]\s*|\s+)/i.test(line.trim());
+        const isOptLine = /^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s+)/i.test(line.trim());
         return !isOptLine;
       })
       .join('\n')
@@ -1110,9 +1110,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                   {displayOpts.map((opt, oIdx) => {
-                    const letterMatch = opt.match(/^([A-G])[\.\:\)]/i);
+                    const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
                     const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + oIdx);
-                    const text = cleanListeningText(opt.replace(/^[A-G][\.\:\)]\s*/i, ''));
+                    const text = cleanListeningText(opt.replace(/^[A-Za-z][\.\:\)]\s*/i, ''));
                     return (
                       <div
                         key={oIdx}

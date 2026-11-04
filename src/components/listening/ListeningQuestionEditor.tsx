@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Layers,
   Plus,
@@ -1193,11 +1193,131 @@ export const ListeningQuestionEditor: React.FC<ListeningQuestionEditorProps> = (
   };
 
   // =========================================================================
+  // AUDIT & VALIDATION CALCULATIONS
+  // =========================================================================
+  const allQuestionsAcrossParts = useMemo(() => {
+    return parts.flatMap((p) => p.questions || []);
+  }, [parts]);
+
+  const totalQuestionsCount = allQuestionsAcrossParts.length;
+
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    allQuestionsAcrossParts.forEach((q) => {
+      const t = q.type || 'note_completion';
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    return counts;
+  }, [allQuestionsAcrossParts]);
+
+  const answerKeysCount = useMemo(() => {
+    return allQuestionsAcrossParts.filter((q) => Boolean(q.correctAnswer && q.correctAnswer.trim())).length;
+  }, [allQuestionsAcrossParts]);
+
+  const numberingAnalysis = useMemo(() => {
+    const nums = allQuestionsAcrossParts
+      .map((q) => q.questionNumber || q.number || 0)
+      .filter((n) => n > 0)
+      .sort((a, b) => a - b);
+    const min = nums[0] || 0;
+    const max = nums[nums.length - 1] || 0;
+
+    const duplicates: number[] = [];
+    const seen = new Set<number>();
+    nums.forEach((n) => {
+      if (seen.has(n)) duplicates.push(n);
+      else seen.add(n);
+    });
+
+    const gaps: number[] = [];
+    if (min > 0 && max > 0) {
+      for (let expected = min; expected <= max; expected++) {
+        if (!seen.has(expected)) {
+          gaps.push(expected);
+        }
+      }
+    }
+
+    return { min, max, duplicates, gaps };
+  }, [allQuestionsAcrossParts]);
+
+  // =========================================================================
   // MAIN RENDER
   // =========================================================================
 
   return (
     <div className="space-y-6">
+      {/* AUDIT & EXTRACTION SUMMARY BANNER */}
+      <div className="p-4 bg-gradient-to-r from-purple-50/80 via-slate-50 to-indigo-50/60 rounded-2xl border border-purple-200/80 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2.5 border-b border-purple-200/60">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block animate-pulse" />
+            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+              Bảng kiểm toán nhận diện & Phân loại câu hỏi Listening
+            </h4>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+            <span className="px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-900 font-bold shadow-2xs">
+              Tổng số câu: <span className="font-mono text-purple-700">{totalQuestionsCount}</span> / 40
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold shadow-2xs">
+              Phạm vi: <span className="font-mono text-blue-700">{numberingAnalysis.min > 0 ? `Q${numberingAnalysis.min}–Q${numberingAnalysis.max}` : 'Chưa đánh số'}</span>
+            </span>
+            <span
+              className={`px-2.5 py-1 rounded-lg border font-semibold shadow-2xs ${
+                answerKeysCount === totalQuestionsCount && totalQuestionsCount > 0
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}
+            >
+              Đáp án: <span className="font-mono">{answerKeysCount}/{totalQuestionsCount}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Question Type Breakdown */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-[11px] font-semibold text-slate-500 mr-1">Dạng câu hỏi:</span>
+          {Object.entries(typeCounts).map(([typeKey, count]) => {
+            const typeObj = LISTENING_QUESTION_TYPES.find((t) => t.value === typeKey);
+            const label = typeObj?.label || typeKey;
+            return (
+              <span
+                key={typeKey}
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 text-[11px] font-medium shadow-2xs"
+              >
+                <span className="font-semibold text-purple-800">{count}</span>
+                <span>{label}</span>
+              </span>
+            );
+          })}
+        </div>
+
+        {/* Warning alerts if numbering gap or missing answers detected */}
+        {(numberingAnalysis.gaps.length > 0 || numberingAnalysis.duplicates.length > 0 || (totalQuestionsCount > 0 && answerKeysCount < totalQuestionsCount)) && (
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+            {numberingAnalysis.gaps.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-medium border border-amber-200">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>Khuyết số câu: Q{numberingAnalysis.gaps.join(', Q')}</span>
+              </span>
+            )}
+            {numberingAnalysis.duplicates.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-100 text-rose-900 font-medium border border-rose-200">
+                <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span>Trùng số câu: Q{Array.from(new Set(numberingAnalysis.duplicates)).join(', Q')}</span>
+              </span>
+            )}
+            {totalQuestionsCount > 0 && answerKeysCount < totalQuestionsCount && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 font-medium border border-amber-200">
+                <HelpCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>{totalQuestionsCount - answerKeysCount} câu chưa có đáp án tự động</span>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Top Bar: Section/Part Tabs + Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
         <div className="flex items-center space-x-1.5 overflow-x-auto">
