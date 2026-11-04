@@ -132,4 +132,19 @@ describe('Seasonal Theme Design System (Benchmark: Approved Vietnamese Tết Sta
     assert.strictEqual(xmas.palette.secondary, '#A62B38', 'Christmas secondary must be cranberry/burgundy red');
     assert.strictEqual(xmas.palette.supporting, '#C9A658', 'Christmas supporting must be champagne gold');
   });
+
+  test('verifies distinct visual identity and complete configuration for all 9 seasonal themes', () => {
+    const seasonalOnly = allThemeIds.filter((id) => id !== 'default');
+    const visualIdentities = new Set<string>();
+
+    for (const id of seasonalOnly) {
+      const theme = seasonalThemesData[id];
+      assert.ok(theme.visualIdentity, `Theme ${id} must specify visualIdentity`);
+      assert.ok(theme.hero.title, `Theme ${id} must specify hero title`);
+      assert.ok(theme.hero.subtitle, `Theme ${id} must specify hero subtitle`);
+      assert.ok(!visualIdentities.has(theme.visualIdentity), `Visual identity must be unique: ${theme.visualIdentity}`);
+      visualIdentities.add(theme.visualIdentity);
+    }
+    assert.strictEqual(visualIdentities.size, 9, 'All 9 seasonal themes must have distinct visual identities');
+  });
 });

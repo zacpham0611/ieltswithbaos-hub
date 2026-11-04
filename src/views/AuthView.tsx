@@ -16,6 +16,8 @@ import {
   Key,
 } from 'lucide-react';
 import { UserRole } from '../types';
+import { useSeasonalTheme } from '../theme/SeasonalThemeContext';
+import { getThemeArtwork } from '../theme/themes';
 
 interface AuthViewProps {
   onAuthSuccess?: () => void;
@@ -24,6 +26,8 @@ interface AuthViewProps {
 export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   const { t, language, setLanguage } = useI18n();
   const { signIn, setAuthenticatedUser, setActiveTab } = useApp();
+  const { activeThemeId, currentTheme, isSeasonalActive } = useSeasonalTheme();
+  const { HeroBranch } = getThemeArtwork(activeThemeId);
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
@@ -111,15 +115,30 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 selection:bg-blue-100 selection:text-blue-900">
+    <div
+      className="min-h-screen relative flex flex-col justify-center py-12 sm:px-6 lg:px-8 selection:bg-blue-100 selection:text-blue-900 transition-colors duration-200"
+      style={{
+        backgroundColor: isSeasonalActive ? currentTheme.palette.mainBg : '#F8FAFC',
+      }}
+    >
+      {/* Seasonal corner framing */}
+      {isSeasonalActive && HeroBranch && (
+        <div className="absolute top-0 right-0 pointer-events-none z-0 opacity-70 hidden sm:block">
+          <HeroBranch />
+        </div>
+      )}
+
       {/* Top right language switch */}
-      <div className="absolute top-6 right-6 flex items-center space-x-2 bg-white px-3 py-1.5 rounded-full border border-slate-200 shadow-xs text-xs">
+      <div className="absolute top-6 right-6 z-20 flex items-center space-x-2 bg-white/90 backdrop-blur-xs px-3 py-1.5 rounded-full border border-slate-200 shadow-xs text-xs">
         <Globe className="w-3.5 h-3.5 text-slate-500" />
         <button
           onClick={() => setLanguage('en')}
           className={`font-semibold px-2 py-0.5 rounded ${
-            language === 'en' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900'
+            language === 'en'
+              ? isSeasonalActive ? 'text-white' : 'bg-blue-600 text-white'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
+          style={language === 'en' && isSeasonalActive ? { backgroundColor: currentTheme.palette.primary } : undefined}
         >
           EN
         </button>
@@ -127,17 +146,34 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         <button
           onClick={() => setLanguage('vi')}
           className={`font-semibold px-2 py-0.5 rounded ${
-            language === 'vi' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900'
+            language === 'vi'
+              ? isSeasonalActive ? 'text-white' : 'bg-blue-600 text-white'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
+          style={language === 'vi' && isSeasonalActive ? { backgroundColor: currentTheme.palette.primary } : undefined}
         >
           VI
         </button>
       </div>
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white shadow-md text-2xl font-bold mb-3">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center z-10">
+        <div
+          className="inline-flex items-center justify-center w-14 h-14 rounded-2xl text-white shadow-md text-2xl font-bold mb-3"
+          style={{ backgroundColor: isSeasonalActive ? currentTheme.palette.primary : '#2563EB' }}
+        >
           🎓
         </div>
+        {isSeasonalActive && (
+          <div className="mb-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-2xs"
+            style={{
+              backgroundColor: currentTheme.palette.secondaryBg,
+              color: currentTheme.palette.primary,
+              border: `1px solid ${currentTheme.palette.border}`,
+            }}
+          >
+            <span>{currentTheme.name}</span>
+          </div>
+        )}
         <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
           {mode === 'signin' ? t('auth.signInTitle') : t('auth.signUpTitle')}
         </h2>
@@ -293,7 +329,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center justify-center space-x-2 mt-2"
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center justify-center space-x-2 mt-2 cursor-pointer"
+              style={isSeasonalActive ? { backgroundColor: currentTheme.palette.primary } : undefined}
             >
               <span>
                 {loading

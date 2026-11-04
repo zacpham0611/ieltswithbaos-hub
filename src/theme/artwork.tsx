@@ -2,16 +2,18 @@ import React from 'react';
 import type { SeasonalThemeId } from './types';
 
 // =============================================================================
+// SHARED HELPER STYLES & FONTS
+// =============================================================================
+const SERIF_HEADING_FONT = "'Playfair Display', 'Cormorant Garamond', 'Be Vietnam Pro', serif";
+const BODY_FONT = "'Be Vietnam Pro', sans-serif";
+
+// =============================================================================
 // 1. TẾT ARTWORK (MASTER BENCHMARK REFERENCE)
 // =============================================================================
 
 /**
- * Authentic Vietnamese Brush Calligraphy for Tết Hero Greeting
- * Matches the approved master design reference screenshot exactly.
- */
-/**
  * Authentic Vietnamese Brush Calligraphy for Tết Hero Greeting (Thư Pháp Việt)
- * Features traditional calligraphic strokes, artist red seal (ấn triện), and golden flourishes.
+ * Matches the approved master design reference screenshot exactly.
  */
 export const TetCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
   <div
@@ -20,12 +22,10 @@ export const TetCalligraphyTitle: React.FC<{ className?: string }> = ({ classNam
     aria-level={1}
     aria-label="Chào mừng thầy cô trở lại! Chúc một năm mới An Khang – Thịnh Vượng!"
   >
-    {/* Decorative Top Flourish & Artist Seal */}
     <div className="flex items-center gap-3">
       {/* Traditional Red Seal Stamp (Ấn Triện Thư Pháp "Phúc - Xuân") */}
       <div className="shrink-0 w-8 h-8 rounded-md bg-[#B92735] border border-[#F3C262] shadow-xs flex items-center justify-center rotate-[-3deg] hover:rotate-0 transition-transform">
         <svg viewBox="0 0 32 32" className="w-6 h-6 text-[#FFF7EF]" fill="currentColor">
-          {/* Traditional Seal Script Glyphs representing "Xuân" / "Phúc" */}
           <rect x="2" y="2" width="28" height="28" rx="2" fill="none" stroke="#F3C262" strokeWidth="1.2" strokeDasharray="1 1" />
           <path d="M7 8 H25 M16 8 V16 M9 16 H23 M11 19 H21 M13 22 H19 M16 22 V27" stroke="#FFF7EF" strokeWidth="1.6" strokeLinecap="round" />
           <circle cx="16" cy="12" r="1.5" fill="#F3C262" />
@@ -36,7 +36,7 @@ export const TetCalligraphyTitle: React.FC<{ className?: string }> = ({ classNam
       <div className="relative inline-block">
         <span
           style={{
-            fontFamily: "'Playfair Display', 'Cormorant Garamond', 'Be Vietnam Pro', serif",
+            fontFamily: SERIF_HEADING_FONT,
             fontStyle: 'italic',
             letterSpacing: '-0.015em',
             textShadow: '0 2px 4px rgba(185, 39, 53, 0.15)',
@@ -66,13 +66,12 @@ export const TetCalligraphyTitle: React.FC<{ className?: string }> = ({ classNam
       <span className="opacity-90">Chúc một năm mới</span>
       <span
         style={{
-          fontFamily: "'Playfair Display', 'Be Vietnam Pro', serif",
+          fontFamily: SERIF_HEADING_FONT,
           fontStyle: 'italic',
         }}
         className="font-black text-[#B92735] relative px-1"
       >
         <span>An Khang – Thịnh Vượng!</span>
-        {/* Gold calligraphic ribbon flourish */}
         <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#D6A64F] via-[#F3C262] to-[#B92735] rounded-full" />
       </span>
     </div>
@@ -143,13 +142,10 @@ export const TetLionDanceMascot: React.FC<{ className?: string }> = ({ className
 
     {/* Happy Child Face peering through */}
     <circle cx="80" cy="98" r="19" fill="#FFE0B2" />
-    {/* Rosy Cheeks */}
     <circle cx="69" cy="103" r="3.5" fill="#FF8A80" opacity="0.6" />
     <circle cx="91" cy="103" r="3.5" fill="#FF8A80" opacity="0.6" />
-    {/* Child Happy Eyes */}
     <path d="M71 96 Q75 92 79 96" stroke="#4E342E" strokeWidth="2.5" strokeLinecap="round" fill="none" />
     <path d="M81 96 Q85 92 89 96" stroke="#4E342E" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-    {/* Smile */}
     <path d="M76 104 Q80 108 84 104" stroke="#D84315" strokeWidth="2" strokeLinecap="round" fill="none" />
 
     {/* Child Festive Clothes & Arms */}
@@ -158,18 +154,14 @@ export const TetLionDanceMascot: React.FC<{ className?: string }> = ({ className
 
     {/* Red Scroll "Vạn Sự Như Ý" held on the right */}
     <g transform="translate(108, 68)">
-      {/* Scroll rods */}
       <rect x="0" y="0" width="28" height="5" rx="2.5" fill="url(#tet_gold_grad)" />
       <rect x="0" y="58" width="28" height="5" rx="2.5" fill="url(#tet_gold_grad)" />
-      {/* Scroll Paper */}
       <rect x="3" y="4" width="22" height="55" rx="1.5" fill="#C62828" stroke="#FFE082" strokeWidth="1" />
-      {/* Calligraphy marks (simulated four characters) */}
       <text x="14" y="17" fill="#FFF9C4" fontSize="7.5" fontWeight="900" textAnchor="middle" fontFamily="serif">VẠN</text>
       <text x="14" y="29" fill="#FFF9C4" fontSize="7.5" fontWeight="900" textAnchor="middle" fontFamily="serif">SỰ</text>
       <text x="14" y="41" fill="#FFF9C4" fontSize="7.5" fontWeight="900" textAnchor="middle" fontFamily="serif">NHƯ</text>
       <text x="14" y="53" fill="#FFF9C4" fontSize="7.5" fontWeight="900" textAnchor="middle" fontFamily="serif">Ý</text>
-      {/* Hanging tassel */}
-      <path d="M14 63 L14 74" stroke="#FFD54F" strokeWidth="1.5" />
+      <line x1="14" y1="63" x2="14" y2="74" stroke="#FFD54F" strokeWidth="1.5" />
       <circle cx="14" cy="74" r="2.5" fill="#E53935" />
     </g>
   </svg>
@@ -180,7 +172,6 @@ export const TetLionDanceMascot: React.FC<{ className?: string }> = ({ className
  */
 export const TetFloralBranchDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
   <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Dark wooden branch extending from top right */}
     <path
       d="M240 10 Q190 20 160 45 T100 70 Q70 78 40 70"
       stroke="#5D4037"
@@ -200,7 +191,6 @@ export const TetFloralBranchDecor: React.FC<{ className?: string }> = ({ classNa
       <circle cx="-6" cy="-2" r="4.5" fill="#FFD54F" />
       <circle cx="0" cy="1" r="2.5" fill="#E65100" />
     </g>
-
     <g transform="translate(145, 30)">
       <circle cx="0" cy="-6" r="4.5" fill="#FFD54F" />
       <circle cx="6" cy="-2" r="4.5" fill="#FFCA28" />
@@ -219,7 +209,6 @@ export const TetFloralBranchDecor: React.FC<{ className?: string }> = ({ classNa
       <circle cx="-7" cy="-2" r="5" fill="#FF80AB" />
       <circle cx="0" cy="1" r="3" fill="#C2185B" />
     </g>
-
     <g transform="translate(60, 74)">
       <circle cx="0" cy="-5" r="4" fill="#FF80AB" />
       <circle cx="5" cy="-1" r="4" fill="#FF4081" />
@@ -241,7 +230,6 @@ export const TetFloralBranchDecor: React.FC<{ className?: string }> = ({ classNa
       <ellipse cx="0" cy="33" rx="11" ry="13" fill="#D32F2F" />
       <ellipse cx="0" cy="33" rx="5" ry="13" fill="#F44336" />
       <rect x="-8" y="44" width="16" height="4" rx="1.5" fill="#FFA000" />
-      {/* Golden fringe */}
       <line x1="0" y1="48" x2="0" y2="60" stroke="#FFD54F" strokeWidth="2" />
     </g>
   </svg>
@@ -249,7 +237,6 @@ export const TetFloralBranchDecor: React.FC<{ className?: string }> = ({ classNa
 
 /**
  * Tết Sidebar Bottom Decoration (Bánh Chưng, Câu đối Tết, Hoa đào)
- * Matches the lower left of the reference screenshot.
  */
 export const TetSidebarBottomDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-36' }) => (
   <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -268,34 +255,24 @@ export const TetSidebarBottomDecor: React.FC<{ className?: string }> = ({ classN
     <circle cx="105" cy="36" r="5" fill="#FF4081" />
     <circle cx="125" cy="28" r="4" fill="#FFD54F" />
 
-    {/* Bánh Chưng (Green Square Sticky Rice Cake with Bamboo Ties) */}
+    {/* Bánh Chưng */}
     <g transform="translate(18, 70)">
-      {/* Bottom perspective shadow */}
       <polygon points="10,40 55,55 90,40 45,25" fill="#1B5E20" opacity="0.3" />
-
-      {/* Main Square Cake Body */}
-      {/* Front Face */}
       <polygon points="10,32 55,48 55,20 10,6" fill="url(#banhchung_leaf)" />
-      {/* Right Face */}
       <polygon points="55,48 95,32 95,6 55,20" fill="#2E7D32" />
-      {/* Top Face */}
       <polygon points="10,6 55,20 95,6 50,-6" fill="#66BB6A" />
 
-      {/* Yellow/Straw Bamboo String Ties (Lạt tre) */}
-      {/* Horizontal ties */}
+      {/* Ties */}
       <polygon points="8,19 55,34 95,19 95,21 55,36 8,21" fill="#FFF59D" />
       <polygon points="9,14 55,29 95,14 95,16 55,31 9,16" fill="#FFF59D" />
-      {/* Vertical ties */}
       <polygon points="30,0 30,39 32,39 32,0" fill="#FFF59D" />
       <polygon points="72,0 72,39 74,39 74,0" fill="#FFF59D" />
     </g>
 
-    {/* Red Diamond "Tết" Sign resting on cake */}
+    {/* Red Diamond "Tết" Sign */}
     <g transform="translate(95, 48)">
-      {/* Red Diamond with Gold Trim */}
       <polygon points="32,0 64,32 32,64 0,32" fill="#D32F2F" stroke="#FFD54F" strokeWidth="2.5" />
       <polygon points="32,4 60,32 32,60 4,32" fill="none" stroke="#FFE082" strokeWidth="1" strokeDasharray="2 2" />
-      {/* Gold Calligraphy word "Tết" */}
       <text
         x="32"
         y="39"
@@ -303,7 +280,7 @@ export const TetSidebarBottomDecor: React.FC<{ className?: string }> = ({ classN
         fontSize="19"
         fontWeight="bold"
         textAnchor="middle"
-        fontFamily="'Playfair Display', serif"
+        fontFamily={SERIF_HEADING_FONT}
         fontStyle="italic"
       >
         Tết
@@ -312,322 +289,658 @@ export const TetSidebarBottomDecor: React.FC<{ className?: string }> = ({ classN
   </svg>
 );
 
+
 // =============================================================================
-// 2. BACK TO SCHOOL ARTWORK (ACADEMIC RENAISSANCE)
+// 2. BACK TO SCHOOL ARTWORK (VINTAGE LIBRARY & ACADEMIC RENAISSANCE)
 // =============================================================================
 
-export const BackToSchoolHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-40 h-36' }) => (
-  <svg viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+export const BackToSchoolCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* Vintage Academic Crest Stamp */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#263D5B] border border-[#D4AF37] shadow-xs flex items-center justify-center rotate-[-2deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#F5EBD7]" fill="none" stroke="currentColor">
+          <circle cx="16" cy="16" r="12" strokeWidth="1.4" strokeDasharray="2 1" />
+          <polygon points="16,6 20,12 16,18 12,12" fill="#D4AF37" stroke="none" />
+          <path d="M10 22 Q16 19 22 22" stroke="#F5EBD7" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
+
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(38, 61, 91, 0.15)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#263D5B] leading-tight"
+        >
+          Chào mừng năm học mới!
+        </span>
+        {/* Navy/Gold scholastic stroke underline */}
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#263D5B] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#4A5D78]">
+      <span className="opacity-90">Khởi đầu hành trình</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#263D5B] relative px-1"
+      >
+        <span>Khơi nguồn tri thức – Vững bước tương lai!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#D4AF37] via-[#E5C158] to-[#263D5B] rounded-full" />
+      </span>
+    </div>
+  </div>
+);
+
+export const BackToSchoolHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
+  <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
     <defs>
-      <linearGradient id="bts_sky" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#42A5F5" />
-        <stop offset="100%" stopColor="#1E88E5" />
+      <linearGradient id="bts_desk" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#8D5B2A" />
+        <stop offset="100%" stopColor="#5C3818" />
       </linearGradient>
       <linearGradient id="bts_gold" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#FFD54F" />
-        <stop offset="100%" stopColor="#FFA000" />
+        <stop offset="0%" stopColor="#F9D479" />
+        <stop offset="100%" stopColor="#C8972E" />
+      </linearGradient>
+      <linearGradient id="bts_navy" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#2A4870" />
+        <stop offset="100%" stopColor="#1B2F4A" />
       </linearGradient>
     </defs>
-    {/* Soft cloud backdrop */}
-    <ellipse cx="80" cy="148" rx="60" ry="8" fill="#E3F2FD" />
 
-    {/* Stack of Open Books & Graduation Cap */}
-    <g transform="translate(30, 45)">
-      {/* Book 1 (Navy Blue Hardcover) */}
-      <polygon points="0,55 50,70 100,55 50,42" fill="#1565C0" />
-      <polygon points="0,55 50,70 50,78 0,63" fill="#0D47A1" />
-      <polygon points="50,70 100,55 100,63 50,78" fill="#1976D2" />
-      {/* Pages */}
-      <polygon points="2,54 50,68 98,54 50,44" fill="#FFFFFF" />
+    <ellipse cx="90" cy="148" rx="70" ry="10" fill="#E6DCC8" opacity="0.6" />
 
-      {/* Book 2 (Golden Amber Cover angled) */}
-      <g transform="translate(10, -18)">
-        <polygon points="0,48 40,60 80,48 40,38" fill="url(#bts_gold)" />
-        <polygon points="0,48 40,60 40,66 0,54" fill="#FF8F00" />
-        <polygon points="40,60 80,48 80,54 40,66" fill="#FFA000" />
-        <polygon points="2,47 40,58 78,47 40,40" fill="#FFFDE7" />
+    {/* Vintage Desk Base */}
+    <path d="M15 140 L165 140 L155 148 L25 148 Z" fill="url(#bts_desk)" />
+
+    {/* Stack of Classic Hardcover Books */}
+    <g transform="translate(30, 68)">
+      {/* Book 1 (Navy Oxford) */}
+      <polygon points="0,48 55,62 105,48 55,36" fill="url(#bts_navy)" />
+      <polygon points="0,48 55,62 55,70 0,56" fill="#14243B" />
+      <polygon points="55,62 105,48 105,56 55,70" fill="#20395A" />
+      <polygon points="2,47 55,60 103,47 55,38" fill="#FFFDF8" />
+      {/* Gold foil lines on spine */}
+      <line x1="10" y1="53" x2="35" y2="59" stroke="#E5C158" strokeWidth="1.2" />
+
+      {/* Book 2 (Burgundy Leather) */}
+      <g transform="translate(8, -16)">
+        <polygon points="0,42 45,54 90,42 45,32" fill="#8B2635" />
+        <polygon points="0,42 45,54 45,60 0,48" fill="#5E1621" />
+        <polygon points="45,54 90,42 90,48 45,60" fill="#781F2C" />
+        <polygon points="2,41 45,52 88,41 45,34" fill="#FBF8EE" />
       </g>
 
       {/* Graduation Cap (Mortarboard) */}
       <g transform="translate(18, -48)">
-        {/* Diamond top */}
-        <polygon points="32,0 64,14 32,28 0,14" fill="#283593" />
-        <polygon points="32,2 60,14 32,26 4,14" fill="#303F9F" />
-        {/* Skull cap */}
-        <path d="M16 19 C16 35 48 35 48 19 Z" fill="#1A237E" />
-        {/* Golden tassel */}
-        <path d="M32 14 C38 18 48 24 50 34" stroke="#FFD54F" strokeWidth="2" strokeLinecap="round" fill="none" />
-        <circle cx="50" cy="34" r="2.5" fill="#FFA000" />
+        <polygon points="34,0 68,14 34,28 0,14" fill="#1B2F4A" stroke="#0F1B2B" strokeWidth="0.8" />
+        <polygon points="34,2 64,14 34,26 4,14" fill="#263D5B" />
+        <path d="M18 19 C18 34 50 34 50 19 Z" fill="#14243B" />
+        {/* Golden Silk Tassel */}
+        <circle cx="34" cy="14" r="2.5" fill="url(#bts_gold)" />
+        <path d="M34 14 C42 18 52 24 55 35" stroke="url(#bts_gold)" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+        <polygon points="53,35 57,35 56,42 54,42" fill="#D4AF37" />
       </g>
+    </g>
 
-      {/* Soaring Paper Plane */}
-      <g transform="translate(75, -25) rotate(-15)">
-        <polygon points="0,15 25,0 12,22" fill="#FFFFFF" filter="drop-shadow(0 2px 3px rgba(0,0,0,0.15))" />
-        <polygon points="12,22 25,0 20,24" fill="#E0E0E0" />
-        {/* Trail */}
-        <path d="M-10 25 Q-3 20 5 18" stroke="#90CAF9" strokeWidth="1.5" strokeDasharray="3 2" fill="none" />
+    {/* Vintage Brass Armillary Desk Globe on Right */}
+    <g transform="translate(120, 52)">
+      <circle cx="20" cy="30" r="18" fill="#8AB5DB" stroke="#D4AF37" strokeWidth="1.8" />
+      <path d="M10 28 Q16 20 25 24 T32 38" fill="#9AC29D" opacity="0.8" />
+      <ellipse cx="20" cy="30" rx="18" ry="6" stroke="#D4AF37" strokeWidth="1.5" fill="none" />
+      <line x1="20" y1="10" x2="20" y2="50" stroke="#D4AF37" strokeWidth="1.8" />
+      <path d="M38 30 C38 44 26 49 20 49 L20 62 L12 62 L28 62" stroke="#8D5B2A" strokeWidth="3" strokeLinecap="round" fill="none" />
+    </g>
+
+    {/* Soaring White Paper Airplane with Navy Dash Trail */}
+    <g transform="translate(110, 18) rotate(-12)">
+      <polygon points="0,16 28,0 14,24" fill="#FFFFFF" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.18))" />
+      <polygon points="14,24 28,0 22,26" fill="#DCE5ED" />
+      <path d="M-18 28 Q-8 22 2 18" stroke="#D4AF37" strokeWidth="1.5" strokeDasharray="3 2" fill="none" />
+    </g>
+  </svg>
+);
+
+export const BackToSchoolCornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Antique Brass Library Lamp & Oak Branch */}
+    <path d="M240 0 Q190 10 160 30 T90 55" stroke="#7A4B28" strokeWidth="4" strokeLinecap="round" fill="none" />
+    <path d="M165 28 Q140 15 120 10" stroke="#7A4B28" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+
+    {/* Oak leaves */}
+    <path d="M125 10 C120 5 130 0 138 6 C144 0 152 4 150 12 Z" fill="#9DAF6B" />
+    <path d="M95 55 C90 50 98 45 106 50 C112 45 118 48 116 56 Z" fill="#B48744" />
+
+    {/* Hanging Vintage Brass Pocket Watch */}
+    <g transform="translate(180, 24)">
+      <line x1="0" y1="0" x2="0" y2="28" stroke="#D4AF37" strokeWidth="1.5" strokeDasharray="3 1" />
+      <circle cx="0" cy="38" r="14" fill="#FFFBEA" stroke="#D4AF37" strokeWidth="2.5" />
+      <circle cx="0" cy="38" r="11" stroke="#B8860B" strokeWidth="0.8" fill="none" />
+      <line x1="0" y1="38" x2="0" y2="30" stroke="#263D5B" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="0" y1="38" x2="4" y2="40" stroke="#263D5B" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="0" cy="38" r="1.5" fill="#D4AF37" />
+    </g>
+
+    {/* Academic Gold Laurel Wreath Sprig */}
+    <g transform="translate(130, 36) rotate(-20)">
+      <path d="M0 20 Q15 10 30 18" stroke="#D4AF37" strokeWidth="1.5" fill="none" />
+      <ellipse cx="6" cy="14" rx="4" ry="2" fill="#F4CF68" transform="rotate(-30 6 14)" />
+      <ellipse cx="16" cy="12" rx="4" ry="2" fill="#F4CF68" transform="rotate(-15 16 12)" />
+      <ellipse cx="25" cy="15" rx="4" ry="2" fill="#F4CF68" transform="rotate(10 25 15)" />
+    </g>
+  </svg>
+);
+
+export const BackToSchoolSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(25, 30)">
+      {/* Leather Book Stack */}
+      <rect x="10" y="55" width="85" height="15" rx="2" fill="#263D5B" stroke="#1B2F4A" strokeWidth="1" />
+      <rect x="12" y="57" width="81" height="3" fill="#D4AF37" opacity="0.8" />
+      <rect x="18" y="42" width="75" height="13" rx="2" fill="#8B2635" stroke="#5E1621" strokeWidth="1" />
+      <rect x="20" y="44" width="71" height="3" fill="#FFE5A3" opacity="0.7" />
+      <rect x="25" y="30" width="65" height="12" rx="2" fill="#3D5A45" stroke="#25382B" strokeWidth="1" />
+
+      {/* Bookmark Ribbon cascading */}
+      <path d="M50 30 L50 68 L54 64 L58 68 L58 30" fill="#D4AF37" />
+
+      {/* Brass Compass Tool */}
+      <g transform="translate(105, 35)">
+        <circle cx="20" cy="5" r="4" fill="#D4AF37" />
+        <line x1="20" y1="5" x2="8" y2="45" stroke="#D4AF37" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="20" y1="5" x2="32" y2="45" stroke="#D4AF37" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M12 25 Q20 30 28 25" stroke="#B8860B" strokeWidth="1.2" fill="none" />
       </g>
     </g>
   </svg>
 );
 
-export const BackToSchoolSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Globe, ruler and pencil stand */}
-    <g transform="translate(25, 40)">
-      {/* Stack of colorful study textbooks */}
-      <rect x="10" y="50" width="80" height="14" rx="2" fill="#1976D2" />
-      <rect x="12" y="52" width="76" height="3" fill="#BBDEFB" />
-      <rect x="16" y="38" width="70" height="12" rx="2" fill="#FFA000" />
-      <rect x="18" y="40" width="66" height="3" fill="#FFF9C4" />
-      <rect x="22" y="27" width="60" height="11" rx="2" fill="#388E3C" />
-      <rect x="24" y="29" width="56" height="3" fill="#C8E6C9" />
 
-      {/* Wooden Ruler */}
-      <polygon points="75,10 82,12 62,65 55,63" fill="#FFE082" stroke="#FFA000" strokeWidth="0.8" />
+// =============================================================================
+// 3. MID-AUTUMN ARTWORK (MOONLIT LANTERN GARDEN & JADE PALACE)
+// =============================================================================
 
-      {/* Yellow HB Pencil */}
-      <polygon points="90,15 95,17 78,65 73,63" fill="#FFCA28" />
-      <polygon points="90,15 95,17 93,8" fill="#FFCCBC" />
-      <polygon points="93,8 92.5,6 93.5,6" fill="#37474F" />
+export const MidAutumnCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* Golden Moon Rabbit Seal Stamp */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#C94B42] border border-[#F3C262] shadow-xs flex items-center justify-center rotate-[-2deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#FFF59D]" fill="currentColor">
+          <circle cx="16" cy="16" r="11" fill="none" stroke="#F3C262" strokeWidth="1.2" />
+          <path d="M13 19 C13 14 19 14 19 19 Z" />
+          <ellipse cx="14" cy="11" rx="1.5" ry="4" transform="rotate(-15 14 11)" />
+          <ellipse cx="17" cy="11" rx="1.5" ry="4" transform="rotate(10 17 11)" />
+        </svg>
+      </div>
 
-      {/* Small Desk Globe */}
-      <circle cx="130" cy="40" r="18" fill="#81D4FA" stroke="#0288D1" strokeWidth="1.5" />
-      {/* Continents */}
-      <path d="M120 38 Q125 30 132 35 T138 48 Q128 50 120 38 Z" fill="#A5D6A7" />
-      <path d="M135 26 Q142 28 140 34 Z" fill="#A5D6A7" />
-      {/* Stand */}
-      <path d="M148 40 C148 53 135 58 130 58 L130 68 L122 68 L138 68" stroke="#78909C" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-    </g>
-  </svg>
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(201, 75, 66, 0.18)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#C94B42] leading-tight"
+        >
+          Vui hội Trăng Rằm!
+        </span>
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#C94B42] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#8B423B]">
+      <span className="opacity-90">Đêm hội trăng rằm</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#C94B42] relative px-1"
+      >
+        <span>Ấm áp đoàn viên – Rực rỡ ước mơ!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#F3C262] via-[#FFA726] to-[#C94B42] rounded-full" />
+      </span>
+    </div>
+  </div>
 );
-
-// =============================================================================
-// 3. MID-AUTUMN ARTWORK (MOONLIT LANTERN GARDEN)
-// =============================================================================
 
 export const MidAutumnHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
   <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
     <defs>
-      <radialGradient id="mid_moon" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stopColor="#FFFDE7" />
-        <stop offset="70%" stopColor="#FFF59D" />
-        <stop offset="100%" stopColor="#FBC02D" />
+      <radialGradient id="mid_moon_rich" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stopColor="#FFFEE8" />
+        <stop offset="60%" stopColor="#FFE082" />
+        <stop offset="100%" stopColor="#FFB300" />
       </radialGradient>
-      <filter id="moon_glow" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="6" result="blur" />
+      <filter id="moon_glow_soft" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="5" result="blur" />
         <feComposite in="SourceGraphic" in2="blur" operator="over" />
       </filter>
     </defs>
 
     {/* Luminous Golden Full Moon */}
-    <circle cx="85" cy="70" r="46" fill="url(#mid_moon)" filter="url(#moon_glow)" opacity="0.95" />
-    {/* Subtle Moon craters */}
-    <circle cx="70" cy="55" r="7" fill="#F9A825" opacity="0.15" />
-    <circle cx="95" cy="78" r="9" fill="#F9A825" opacity="0.12" />
-    <circle cx="78" cy="85" r="5" fill="#F9A825" opacity="0.14" />
+    <circle cx="85" cy="65" r="48" fill="url(#mid_moon_rich)" filter="url(#moon_glow_soft)" opacity="0.95" />
+    <path d="M68 45 Q75 35 88 40 T105 52 Q95 65 75 60 Z" fill="#F57F17" opacity="0.12" />
 
-    {/* Vietnamese Traditional 5-pointed Star Lantern (Đèn Ông Sao) */}
-    <g transform="translate(115, 75)">
-      {/* Bamboo handle */}
-      <line x1="-15" y1="45" x2="35" y2="-15" stroke="#8D6E63" strokeWidth="2.5" strokeLinecap="round" />
-      {/* Outer circular bamboo hoop */}
-      <circle cx="0" cy="0" r="26" stroke="#D84315" strokeWidth="2" strokeDasharray="3 2" fill="none" />
-      {/* 5-pointed red star */}
-      <polygon
-        points="0,-24 7,-7 24,-7 11,3 16,20 0,9 -16,20 -11,3 -24,-7 -7,-7"
-        fill="#E53935"
-        stroke="#FFEB3B"
-        strokeWidth="1.5"
-      />
-      {/* Inner star accent */}
-      <polygon
-        points="0,-12 4,-3 12,-3 6,2 8,10 0,5 -8,10 -6,2 -12,-3 -4,-3"
-        fill="#FFEB3B"
-      />
-      {/* Tassels */}
-      <line x1="0" y1="20" x2="-3" y2="35" stroke="#FF5722" strokeWidth="1.5" />
-      <line x1="0" y1="20" x2="3" y2="35" stroke="#FFCA28" strokeWidth="1.5" />
+    {/* Jade Rabbit Silhouette admiring moon */}
+    <g transform="translate(62, 58)">
+      <ellipse cx="14" cy="22" rx="9" ry="11" fill="#FFFFFF" opacity="0.9" />
+      <circle cx="16" cy="11" r="7" fill="#FFFFFF" opacity="0.9" />
+      <ellipse cx="14" cy="4" rx="2" ry="6" fill="#FFFFFF" opacity="0.9" transform="rotate(-15 14 4)" />
+      <ellipse cx="19" cy="4" rx="2" ry="6" fill="#FFFFFF" opacity="0.9" transform="rotate(8 19 4)" />
+      <circle cx="21" cy="10" r="1" fill="#FF8A80" />
     </g>
 
-    {/* Fluffy Autumn Moonlit Clouds */}
+    {/* Vietnamese Traditional Đèn Ông Sao (Star Lantern) */}
+    <g transform="translate(125, 75)">
+      <line x1="-20" y1="52" x2="35" y2="-15" stroke="#A1887F" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="0" cy="0" r="28" stroke="#D84315" strokeWidth="2.5" strokeDasharray="4 2" fill="none" />
+      <polygon
+        points="0,-26 8,-8 26,-8 12,3 18,22 0,10 -18,22 -12,3 -26,-8 -8,-8"
+        fill="#E53935"
+        stroke="#FFEB3B"
+        strokeWidth="2"
+      />
+      <polygon
+        points="0,-13 4,-3 13,-3 6,2 9,11 0,5 -9,11 -6,2 -13,-3 -4,-3"
+        fill="#FFD54F"
+      />
+      <line x1="0" y1="22" x2="-4" y2="42" stroke="#FF5722" strokeWidth="2" />
+      <line x1="0" y1="22" x2="4" y2="42" stroke="#FFCA28" strokeWidth="2" />
+    </g>
+
+    {/* Floating Mid-Autumn Clouds */}
     <path
-      d="M20 125 C30 115 50 115 60 122 C70 110 95 110 105 120 C115 112 135 112 145 125 Z"
-      fill="#FFF8E1"
-      opacity="0.85"
+      d="M15 125 C30 110 55 112 68 120 C80 108 108 108 120 120 C135 112 155 115 168 126 Z"
+      fill="#FFF9E6"
+      opacity="0.9"
     />
   </svg>
 );
 
-export const MidAutumnSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Mooncakes and Tea cup */}
-    <g transform="translate(35, 30)">
+export const MidAutumnCornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Moonlit Bamboo Sprig & Hanging Paper Lantern */}
+    <path d="M240 0 Q180 20 140 45 T70 70" stroke="#4E7055" strokeWidth="4" strokeLinecap="round" fill="none" />
+    <path d="M150 40 Q130 15 110 10" stroke="#4E7055" strokeWidth="2.5" fill="none" />
+
+    {/* Bamboo leaves */}
+    <path d="M110 10 Q90 5 80 15 Q100 15 110 10 Z" fill="#6B9674" />
+    <path d="M140 45 Q120 40 110 50 Q130 50 140 45 Z" fill="#588562" />
+    <path d="M70 70 Q50 65 40 75 Q60 75 70 70 Z" fill="#6B9674" />
+
+    {/* Hanging Red Oval Lantern */}
+    <g transform="translate(180, 30)">
+      <line x1="0" y1="0" x2="0" y2="20" stroke="#C94B42" strokeWidth="1.5" />
+      <ellipse cx="0" cy="38" rx="14" ry="18" fill="#C94B42" stroke="#FFD54F" strokeWidth="1.5" />
+      <ellipse cx="0" cy="38" rx="7" ry="18" fill="#E53935" />
+      <rect x="-10" y="18" width="20" height="4" rx="1.5" fill="#FFA000" />
+      <rect x="-10" y="54" width="20" height="4" rx="1.5" fill="#FFA000" />
+      <line x1="0" y1="58" x2="0" y2="75" stroke="#FFD54F" strokeWidth="2" />
+    </g>
+  </svg>
+);
+
+export const MidAutumnSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(30, 25)">
+      {/* Lacquer Tray */}
+      <ellipse cx="70" cy="75" rx="65" ry="24" fill="#8B2635" stroke="#C94B42" strokeWidth="2" />
+      <ellipse cx="70" cy="73" rx="60" ry="20" fill="#5E1621" />
+
       {/* Baked Mooncake (Bánh Nướng) */}
-      <ellipse cx="45" cy="55" rx="30" ry="18" fill="#BF360C" />
-      <ellipse cx="45" cy="48" rx="28" ry="16" fill="#D84315" />
-      <ellipse cx="45" cy="44" rx="24" ry="13" fill="#E64A19" />
-      {/* Traditional petal patterns on mooncake */}
-      <circle cx="45" cy="44" r="7" stroke="#FFCC80" strokeWidth="1.5" fill="none" />
-      <circle cx="45" cy="44" r="2" fill="#FFE082" />
-      <path d="M45 33 L45 37 M45 51 L45 55 M34 44 L38 44 M52 44 L56 44" stroke="#FFCC80" strokeWidth="1.5" strokeLinecap="round" />
+      <ellipse cx="45" cy="65" rx="28" ry="16" fill="#C96825" stroke="#8D420F" strokeWidth="1.5" />
+      <ellipse cx="45" cy="60" rx="24" ry="12" fill="#E07F38" />
+      <circle cx="45" cy="60" r="7" stroke="#FFE082" strokeWidth="1.5" fill="none" />
+      <circle cx="45" cy="60" r="2.5" fill="#FFF59D" />
 
       {/* Snowskin Mooncake (Bánh Dẻo) */}
-      <g transform="translate(60, 10)">
-        <ellipse cx="40" cy="50" rx="24" ry="14" fill="#E0F2F1" opacity="0.9" />
-        <ellipse cx="40" cy="45" rx="22" ry="12" fill="#FFFFFF" />
-        <circle cx="40" cy="45" r="5" stroke="#80CBC4" strokeWidth="1.2" fill="none" />
-      </g>
+      <ellipse cx="95" cy="62" rx="24" ry="14" fill="#E8F5E9" stroke="#C8E6C9" strokeWidth="1.5" />
+      <ellipse cx="95" cy="58" rx="20" ry="10" fill="#FFFFFF" />
+      <circle cx="95" cy="58" r="5" stroke="#A5D6A7" strokeWidth="1.2" fill="none" />
 
-      {/* Teacup */}
-      <ellipse cx="125" cy="65" rx="14" ry="7" fill="#8D6E63" />
-      <ellipse cx="125" cy="63" rx="12" ry="5" fill="#FFE082" />
+      {/* Steaming Celadon Teacup */}
+      <ellipse cx="125" cy="45" rx="12" ry="7" fill="#80CBC4" stroke="#4DB6AC" strokeWidth="1.5" />
+      <ellipse cx="125" cy="43" rx="10" ry="5" fill="#FFE082" />
+      <path d="M125 38 Q127 30 123 24" stroke="#FFF" strokeWidth="1.2" strokeLinecap="round" opacity="0.7" fill="none" />
     </g>
   </svg>
 );
 
+
 // =============================================================================
-// 4. HALLOWEEN ARTWORK (ENCHANTED AUTUMN NIGHT)
+// 4. HALLOWEEN ARTWORK (ENCHANTED ACADEMY & AUTUMN HARVEST)
 // =============================================================================
 
-export const HalloweenHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-40 h-36' }) => (
-  <svg viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+export const HalloweenCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* Magic Witch Hat / Pumpkin Seal Stamp */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#2D1E45] border border-[#FFA726] shadow-xs flex items-center justify-center rotate-[-3deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#FFA726]" fill="currentColor">
+          <polygon points="16,4 12,18 20,18" />
+          <ellipse cx="16" cy="18" rx="10" ry="3" />
+          <circle cx="16" cy="17" r="1.5" fill="#FFF9C4" />
+        </svg>
+      </div>
+
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(112, 81, 127, 0.2)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#DF7A28] leading-tight"
+        >
+          Mùa Lễ Hội Kỳ Bí!
+        </span>
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#DF7A28] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#664673]">
+      <span className="opacity-90">Đêm nhiệm màu</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#DF7A28] relative px-1"
+      >
+        <span>Bí ngô rực sáng – Khám phá tri thức!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#FFA726] via-[#BA68C8] to-[#DF7A28] rounded-full" />
+      </span>
+    </div>
+  </div>
+);
+
+export const HalloweenHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
+  <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
     <defs>
-      <linearGradient id="hall_pumpkin" x1="0%" y1="0%" x2="100%" y2="100%">
+      <linearGradient id="hall_pumpkin_rich" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stopColor="#FFA726" />
-        <stop offset="100%" stopColor="#F57C00" />
+        <stop offset="100%" stopColor="#E65100" />
       </linearGradient>
     </defs>
-    {/* Crescent Moon & Stars */}
-    <path d="M120 20 C105 25 95 40 100 55 C85 45 88 25 105 18 C112 15 118 16 120 20 Z" fill="#FFE082" />
-    <polygon points="75,25 77,30 82,31 78,34 79,39 75,36 71,39 72,34 68,31 73,30" fill="#FFE082" />
-    <polygon points="135,50 136,53 139,54 137,56 137,59 135,57 133,59 133,56 131,54 134,53" fill="#FFE082" />
+
+    {/* Crescent Moon & Magical Twinkling Stars */}
+    <path d="M135 25 C120 30 112 45 116 60 C102 50 105 30 122 22 C127 20 133 21 135 25 Z" fill="#FFE082" />
+    <polygon points="90,30 92,35 97,36 93,39 94,44 90,41 86,44 87,39 83,36 88,35" fill="#FFE082" />
+    <polygon points="145,55 146,58 149,59 147,61 147,64 145,62 143,64 143,61 141,59 144,58" fill="#FFE082" />
 
     {/* Friendly Jack-o'-lantern Pumpkin */}
-    <g transform="translate(35, 65)">
-      {/* Stem */}
-      <path d="M42 5 C43 -4 48 -5 52 -3 C50 2 48 5 46 6 Z" fill="#558B2F" />
+    <g transform="translate(45, 65)">
+      {/* Green Curved Stem */}
+      <path d="M42 4 C43 -5 50 -6 54 -4 C52 1 48 4 46 5 Z" fill="#558B2F" />
 
-      {/* Pumpkin body lobes */}
-      <ellipse cx="25" cy="35" rx="18" ry="24" fill="#EF6C00" />
-      <ellipse cx="65" cy="35" rx="18" ry="24" fill="#EF6C00" />
-      <ellipse cx="34" cy="35" rx="18" ry="27" fill="url(#hall_pumpkin)" />
-      <ellipse cx="56" cy="35" rx="18" ry="27" fill="url(#hall_pumpkin)" />
+      {/* Pumpkin Lobes */}
+      <ellipse cx="22" cy="35" rx="18" ry="24" fill="#E65100" />
+      <ellipse cx="68" cy="35" rx="18" ry="24" fill="#E65100" />
+      <ellipse cx="32" cy="35" rx="18" ry="27" fill="url(#hall_pumpkin_rich)" />
+      <ellipse cx="58" cy="35" rx="18" ry="27" fill="url(#hall_pumpkin_rich)" />
       <ellipse cx="45" cy="35" rx="17" ry="28" fill="#FFA726" />
 
-      {/* Happy Glowing Carved Eyes */}
-      <polygon points="34,26 40,22 41,29" fill="#FFF9C4" />
-      <polygon points="56,26 50,22 49,29" fill="#FFF9C4" />
-      {/* Small nose */}
-      <polygon points="45,32 42,37 48,37" fill="#FFF9C4" />
-      {/* Smiling toothy mouth */}
-      <path d="M30 42 Q45 56 60 42 Q52 49 45 45 Q38 49 30 42 Z" fill="#FFF9C4" />
+      {/* Glowing Carved Eyes */}
+      <polygon points="34,26 40,22 41,29" fill="#FFFDE7" />
+      <polygon points="56,26 50,22 49,29" fill="#FFFDE7" />
+      <polygon points="45,32 42,37 48,37" fill="#FFFDE7" />
+      <path d="M30 42 Q45 56 60 42 Q52 49 45 45 Q38 49 30 42 Z" fill="#FFFDE7" />
     </g>
 
-    {/* Friendly Floating Little Ghost */}
-    <g transform="translate(90, 42)">
-      <path
-        d="M20 0 C10 0 0 10 0 25 C0 35 5 38 3 42 C1 46 8 43 11 44 C14 45 16 43 18 45 C20 47 24 43 28 42 C26 36 28 30 28 25 C28 10 30 0 20 0 Z"
-        fill="#FFFFFF"
-        opacity="0.95"
-        filter="drop-shadow(0 2px 4px rgba(112, 81, 127, 0.25))"
-      />
-      {/* Friendly eyes & blush */}
-      <circle cx="9" cy="18" r="2" fill="#4A148C" />
-      <circle cx="17" cy="18" r="2" fill="#4A148C" />
-      <ellipse cx="13" cy="24" rx="2" ry="3" fill="#4A148C" />
-      <circle cx="6" cy="22" r="2" fill="#FF8A80" opacity="0.6" />
-      <circle cx="20" cy="22" r="2" fill="#FF8A80" opacity="0.6" />
-    </g>
-  </svg>
-);
+    {/* Friendly Floating Wizard Owl with Witch Hat */}
+    <g transform="translate(100, 38)">
+      {/* Owl Body */}
+      <ellipse cx="20" cy="35" rx="14" ry="18" fill="#5D4037" />
+      <ellipse cx="20" cy="38" rx="9" ry="12" fill="#D7CCC8" />
+      {/* Large Glowing Eyes */}
+      <circle cx="15" cy="30" r="5" fill="#FFE082" />
+      <circle cx="25" cy="30" r="5" fill="#FFE082" />
+      <circle cx="15" cy="30" r="2.5" fill="#212121" />
+      <circle cx="25" cy="30" r="2.5" fill="#212121" />
+      <polygon points="20,33 18,37 22,37" fill="#FFB300" />
 
-export const HalloweenSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <g transform="translate(40, 30)">
-      {/* Two resting pumpkins with autumn oak leaves */}
-      <ellipse cx="40" cy="55" rx="25" ry="18" fill="#F57C00" />
-      <ellipse cx="40" cy="53" rx="20" ry="17" fill="#FFA726" />
-      <path d="M40 37 Q42 30 45 32" stroke="#558B2F" strokeWidth="3" fill="none" />
-
-      {/* Mini pumpkin on side */}
-      <ellipse cx="75" cy="62" rx="18" ry="13" fill="#E65100" />
-      <ellipse cx="75" cy="60" rx="14" ry="12" fill="#FFB74D" />
-
-      {/* Magical Wand & Stars */}
-      <line x1="85" y1="20" x2="115" y2="60" stroke="#7E57C2" strokeWidth="2.5" strokeLinecap="round" />
-      <polygon points="85,20 83,16 88,18 90,14 91,19 96,19 92,22 93,27 89,24 86,26" fill="#FFD54F" />
+      {/* Purple Wizard Hat */}
+      <polygon points="20,5 10,22 30,22" fill="#4A148C" />
+      <ellipse cx="20" cy="22" rx="15" ry="3" fill="#6A1B9A" />
+      <rect x="12" y="19" width="16" height="3" fill="#FFA726" />
     </g>
   </svg>
 );
 
+export const HalloweenCornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Twisting Enchanted Autumn Bough */}
+    <path d="M240 0 Q190 15 150 40 T70 65" stroke="#3E2723" strokeWidth="4.5" strokeLinecap="round" fill="none" />
+    <path d="M160 35 Q135 15 110 20" stroke="#3E2723" strokeWidth="2.5" fill="none" />
+
+    {/* Dangling Glowing Mini Pumpkin */}
+    <g transform="translate(180, 25)">
+      <line x1="0" y1="0" x2="0" y2="25" stroke="#795548" strokeWidth="1.5" />
+      <ellipse cx="0" cy="35" rx="11" ry="9" fill="#FFA726" stroke="#E65100" strokeWidth="1.2" />
+      <path d="M-4 35 Q0 38 4 35" stroke="#5D4037" strokeWidth="1" fill="none" />
+    </g>
+
+    {/* Dangling Magic Potion Bottle */}
+    <g transform="translate(125, 30)">
+      <line x1="0" y1="0" x2="0" y2="30" stroke="#795548" strokeWidth="1.2" />
+      <rect x="-3" y="30" width="6" height="3" fill="#8D6E63" />
+      <path d="M-3 33 L-7 46 C-7 50 7 50 7 46 L3 33 Z" fill="#BA68C8" stroke="#4A148C" strokeWidth="1.2" />
+      <circle cx="0" cy="42" r="2" fill="#FFF" opacity="0.6" />
+    </g>
+  </svg>
+);
+
+export const HalloweenSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(40, 25)">
+      {/* Heirloom Pumpkins & Magic Spellbook */}
+      <polygon points="15,65 75,78 135,65 75,54" fill="#3E2723" />
+      <polygon points="18,63 75,75 132,63 75,56" fill="#4A148C" />
+
+      {/* Pumpkin sitting on book */}
+      <ellipse cx="65" cy="45" rx="22" ry="16" fill="#F57C00" />
+      <ellipse cx="65" cy="43" rx="18" ry="15" fill="#FFA726" />
+      <path d="M65 28 Q67 22 70 24" stroke="#558B2F" strokeWidth="3" fill="none" />
+
+      {/* Magic Wand with Gold Star */}
+      <line x1="105" y1="15" x2="135" y2="65" stroke="#7E57C2" strokeWidth="3" strokeLinecap="round" />
+      <polygon points="105,15 103,11 108,13 110,9 111,14 116,14 112,17 113,22 109,19 106,21" fill="#FFD54F" />
+    </g>
+  </svg>
+);
+
+
 // =============================================================================
-// 5. WOMEN'S DAY 8/3 ARTWORK (BLOOMING GRACE)
+// 5. WOMEN'S DAY 8/3 ARTWORK (HAUTE PARFUMERIE & LUXURY FLORAL ATELIER)
 // =============================================================================
+
+export const WomensDay83CalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* French Ribbon / Peony Atelier Seal */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#C95E73] border border-[#E6C994] shadow-xs flex items-center justify-center rotate-[-2deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#FFF5F6]" fill="currentColor">
+          <circle cx="16" cy="16" r="11" fill="none" stroke="#E6C994" strokeWidth="1.2" />
+          <path d="M12 16 C12 12 20 12 20 16 C20 20 12 20 12 16 Z" fill="#FFF5F6" />
+          <circle cx="16" cy="16" r="2.5" fill="#E6C994" />
+        </svg>
+      </div>
+
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(201, 94, 115, 0.18)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#C95E73] leading-tight"
+        >
+          Chúc mừng Ngày Quốc tế Phụ nữ 8/3!
+        </span>
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#C95E73] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#8C3A4B]">
+      <span className="opacity-90">Trao gửi yêu thương</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#C95E73] relative px-1"
+      >
+        <span>Tôn vinh vẻ đẹp – Tỏa sáng tri thức!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#E6C994] via-[#F48FB1] to-[#C95E73] rounded-full" />
+      </span>
+    </div>
+  </div>
+);
 
 export const WomensDay83HeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
   <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Elegant Rose Bouquet & Champagne Ribbon */}
-    <g transform="translate(45, 25)">
-      {/* Big Central Blooming Rose */}
-      <circle cx="50" cy="55" r="28" fill="#F8BBD0" opacity="0.5" />
+    <defs>
+      <linearGradient id="rose_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#F8BBD0" />
+        <stop offset="100%" stopColor="#C2185B" />
+      </linearGradient>
+    </defs>
+
+    {/* Luxury French Floral Atelier Bouquet */}
+    <g transform="translate(45, 20)">
+      {/* Central Velvety Rose/Peony */}
+      <circle cx="50" cy="55" r="28" fill="#F8BBD0" opacity="0.6" />
       <circle cx="50" cy="55" r="22" fill="#F06292" />
       <circle cx="50" cy="55" r="16" fill="#E91E63" />
       <circle cx="50" cy="55" r="10" fill="#C2185B" />
-      {/* Rose swirl petals */}
-      <path d="M45 50 Q50 42 58 48 Q64 56 54 62 Q42 62 42 54" stroke="#FFF" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+      <path d="M45 50 Q50 42 58 48 Q64 56 54 62 Q42 62 42 54" stroke="#FFF" strokeWidth="1.8" strokeLinecap="round" fill="none" />
 
-      {/* Secondary Peonies */}
-      <circle cx="22" cy="70" r="16" fill="#F48FB1" />
-      <circle cx="22" cy="70" r="10" fill="#EC407A" />
-      <circle cx="78" cy="70" r="16" fill="#FF80AB" />
-      <circle cx="78" cy="70" r="10" fill="#F50057" />
+      {/* Side Peonies */}
+      <circle cx="20" cy="68" r="16" fill="#F48FB1" />
+      <circle cx="20" cy="68" r="10" fill="#EC407A" />
+      <circle cx="80" cy="68" r="16" fill="#FF80AB" />
+      <circle cx="80" cy="68" r="10" fill="#F50057" />
 
-      {/* Delicate botanical leaves */}
-      <path d="M10 65 Q-5 50 15 45 Q22 55 10 65 Z" fill="#81C784" />
-      <path d="M85 65 Q105 50 85 45 Q78 55 85 65 Z" fill="#81C784" />
-      <path d="M50 24 Q55 5 45 10 Q42 20 50 24 Z" fill="#A5D6A7" />
+      {/* Botanical Eucalyptus Leaves */}
+      <path d="M8 62 Q-6 48 12 42 Q20 52 8 62 Z" fill="#81C784" />
+      <path d="M88 62 Q108 48 88 42 Q80 52 88 62 Z" fill="#81C784" />
 
-      {/* Elegant Ribbon Stems */}
-      <path d="M42 85 C35 110 20 125 15 130" stroke="#CDAA78" strokeWidth="3" strokeLinecap="round" fill="none" />
-      <path d="M58 85 C65 110 80 125 85 130" stroke="#CDAA78" strokeWidth="3" strokeLinecap="round" fill="none" />
-      {/* Bow */}
-      <ellipse cx="44" cy="88" rx="7" ry="4" fill="#D4AF37" />
-      <ellipse cx="56" cy="88" rx="7" ry="4" fill="#D4AF37" />
-      <circle cx="50" cy="88" r="3" fill="#B8860B" />
+      {/* Elegant Perfume Flacon on side */}
+      <g transform="translate(75, 80)">
+        <rect x="0" y="8" width="22" height="28" rx="4" fill="#FFF9F9" stroke="#E6C994" strokeWidth="1.5" />
+        <rect x="7" y="2" width="8" height="6" fill="#D4AF37" />
+        <circle cx="11" cy="22" r="5" fill="#F8BBD0" opacity="0.5" />
+      </g>
+
+      {/* Satin Ribbon Bow */}
+      <path d="M42 85 C35 110 20 125 15 130" stroke="#D4AF37" strokeWidth="3" strokeLinecap="round" fill="none" />
+      <path d="M58 85 C65 110 80 125 85 130" stroke="#D4AF37" strokeWidth="3" strokeLinecap="round" fill="none" />
+      <ellipse cx="44" cy="88" rx="8" ry="5" fill="#D4AF37" />
+      <ellipse cx="56" cy="88" rx="8" ry="5" fill="#D4AF37" />
+      <circle cx="50" cy="88" r="3.5" fill="#B8860B" />
     </g>
   </svg>
 );
 
-export const WomensDay83SidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <g transform="translate(45, 30)">
-      {/* Tiered floral gift box */}
-      <rect x="25" y="45" width="60" height="30" rx="3" fill="#FFF0F2" stroke="#F48FB1" strokeWidth="1.5" />
-      <path d="M25 58 L85 58" stroke="#CDAA78" strokeWidth="2" />
-      <path d="M55 45 L55 75" stroke="#CDAA78" strokeWidth="2" />
+export const WomensDay83CornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* French Rose Arch & Ribbon */}
+    <path d="M240 0 Q180 15 140 40 T60 65" stroke="#E6C994" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+
+    {/* Blush Peonies */}
+    <g transform="translate(180, 20)">
+      <circle cx="0" cy="0" r="15" fill="#F8BBD0" />
+      <circle cx="0" cy="0" r="10" fill="#E91E63" />
+      <circle cx="0" cy="0" r="5" fill="#C2185B" />
+    </g>
+    <g transform="translate(130, 42)">
+      <circle cx="0" cy="0" r="12" fill="#FF80AB" />
+      <circle cx="0" cy="0" r="8" fill="#F50057" />
+    </g>
+    <g transform="translate(80, 60)">
+      <circle cx="0" cy="0" r="9" fill="#F48FB1" />
+      <circle cx="0" cy="0" r="5" fill="#E91E63" />
+    </g>
+  </svg>
+);
+
+export const WomensDay83SidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(45, 25)">
+      {/* Parisian Hatbox Flower Arrangement */}
+      <rect x="25" y="48" width="60" height="32" rx="4" fill="#FFF0F2" stroke="#F48FB1" strokeWidth="1.5" />
+      <path d="M25 60 L85 60" stroke="#D4AF37" strokeWidth="2" />
+      <circle cx="55" cy="60" r="4" fill="#D4AF37" />
 
       {/* Roses in box */}
-      <circle cx="42" cy="40" r="12" fill="#E91E63" />
+      <circle cx="42" cy="40" r="13" fill="#E91E63" />
       <circle cx="42" cy="40" r="7" fill="#C2185B" />
-      <circle cx="65" cy="38" r="11" fill="#F06292" />
-      <circle cx="65" cy="38" r="6" fill="#D81B60" />
-      <circle cx="54" cy="28" r="9" fill="#FF80AB" />
-      {/* Leaves */}
-      <path d="M28 35 Q20 25 32 26 Z" fill="#81C784" />
-      <path d="M78 35 Q86 25 74 26 Z" fill="#81C784" />
+      <circle cx="68" cy="38" r="12" fill="#F06292" />
+      <circle cx="68" cy="38" r="6" fill="#D81B60" />
+      <circle cx="55" cy="28" r="10" fill="#FF80AB" />
     </g>
   </svg>
 );
 
+
 // =============================================================================
-// 6. VIETNAMESE WOMEN'S DAY 20/10 ARTWORK (VIETNAMESE FLORAL ELEGANCE)
+// 6. VIETNAMESE WOMEN'S DAY 20/10 ARTWORK (VIETNAMESE LOTUS & LACQUER SILK)
 // =============================================================================
+
+export const WomensDay2010CalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* Imperial Vietnamese Lotus Seal Stamp */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#9E2935] border border-[#C49746] shadow-xs flex items-center justify-center rotate-[-2deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#FFF9E6]" fill="currentColor">
+          <circle cx="16" cy="16" r="11" fill="none" stroke="#C49746" strokeWidth="1.2" />
+          <path d="M16 8 C14 14 10 18 16 22 C22 18 18 14 16 8 Z" fill="#FFF9E6" />
+        </svg>
+      </div>
+
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(158, 41, 53, 0.2)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#9E2935] leading-tight"
+        >
+          Chúc mừng Ngày Phụ nữ Việt Nam 20/10!
+        </span>
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#9E2935] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#73222B]">
+      <span className="opacity-90">Tôn vinh nét đẹp truyền thống</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#9E2935] relative px-1"
+      >
+        <span>Duyên dáng Việt Nam – Vẹn tròn tri thức!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#C49746] via-[#D15B77] to-[#9E2935] rounded-full" />
+      </span>
+    </div>
+  </div>
+);
 
 export const WomensDay2010HeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
   <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Pink Vietnamese Lotus Blossom in Full Bloom */}
-    <g transform="translate(40, 30)">
+    {/* Pink Vietnamese Lotus Blossom (Hoa Sen Hồng) with Traditional Ceramic Base */}
+    <g transform="translate(45, 25)">
       {/* Outer Lotus Petals */}
       <path d="M50 85 C15 70 10 40 45 35 C40 55 45 75 50 85 Z" fill="#F48FB1" opacity="0.85" />
       <path d="M50 85 C85 70 90 40 55 35 C60 55 55 75 50 85 Z" fill="#F48FB1" opacity="0.85" />
@@ -637,230 +950,444 @@ export const WomensDay2010HeroArtwork: React.FC<{ className?: string }> = ({ cla
       <path d="M50 85 C72 65 72 30 50 15 C45 35 48 70 50 85 Z" fill="#D81B60" />
 
       {/* Center Lotus Bud Petal */}
-      <path d="M50 85 C42 60 42 22 50 10 C58 22 58 60 50 85 Z" fill="#C2185B" />
+      <path d="M50 85 C42 60 42 22 50 10 C58 22 58 60 50 85 Z" fill="#9E2935" />
       {/* Golden Lotus Center / Stamen */}
-      <ellipse cx="50" cy="55" rx="5" ry="3" fill="#FFD54F" />
+      <ellipse cx="50" cy="55" rx="6" ry="4" fill="#FFD54F" />
 
       {/* Lotus Pod / Green Base */}
-      <ellipse cx="50" cy="88" rx="16" ry="6" fill="#66BB6A" />
-      {/* Stem */}
-      <path d="M50 94 Q48 115 52 135" stroke="#388E3C" strokeWidth="3" strokeLinecap="round" fill="none" />
+      <ellipse cx="50" cy="88" rx="16" ry="6" fill="#43A047" />
+      <path d="M50 94 Q48 115 52 135" stroke="#2E7D32" strokeWidth="3.5" strokeLinecap="round" fill="none" />
 
-      {/* Delicate Lotus Leaf */}
-      <ellipse cx="20" cy="115" rx="18" ry="7" fill="#81C784" />
-      <ellipse cx="80" cy="118" rx="18" ry="7" fill="#81C784" />
+      {/* Floating Vietnamese Silk Ribbon & Lotus Leaf */}
+      <ellipse cx="18" cy="115" rx="18" ry="7" fill="#66BB6A" opacity="0.9" />
+      <ellipse cx="82" cy="118" rx="18" ry="7" fill="#66BB6A" opacity="0.9" />
+      <path d="M15 95 Q50 120 85 95" stroke="#C49746" strokeWidth="2.5" fill="none" />
     </g>
   </svg>
 );
 
-export const WomensDay2010SidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Ceramic vase with lotus and silk ribbon */}
-    <g transform="translate(60, 25)">
-      {/* Vase */}
-      <path d="M25 45 C15 55 12 75 25 85 C32 85 48 85 55 85 C68 75 65 55 55 45 Z" fill="#FFF9C4" stroke="#C9A66B" strokeWidth="1.5" />
-      {/* Lotus flower */}
-      <circle cx="40" cy="30" r="14" fill="#F06292" />
-      <circle cx="40" cy="30" r="9" fill="#C2185B" />
-      <circle cx="40" cy="30" r="3" fill="#FFD54F" />
-      {/* Buds & Leaves */}
-      <ellipse cx="20" cy="38" rx="6" ry="10" fill="#E91E63" />
-      <path d="M55 35 Q65 25 60 40 Z" fill="#66BB6A" />
+export const WomensDay2010CornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Vietnamese Lotus Pond Arch & Lacquer Silk Drape */}
+    <path d="M240 0 Q180 20 140 45 T70 70" stroke="#9E2935" strokeWidth="3" strokeLinecap="round" fill="none" />
+
+    {/* Lotus Blossoms */}
+    <g transform="translate(170, 25)">
+      <circle cx="0" cy="0" r="14" fill="#F48FB1" />
+      <circle cx="0" cy="0" r="8" fill="#C2185B" />
+      <circle cx="0" cy="0" r="3" fill="#FFD54F" />
+    </g>
+    <g transform="translate(115, 50)">
+      <circle cx="0" cy="0" r="10" fill="#EC407A" />
+      <circle cx="0" cy="0" r="5" fill="#9E2935" />
+    </g>
+
+    {/* Lotus Leaf dewdrops */}
+    <ellipse cx="75" cy="72" rx="14" ry="6" fill="#43A047" />
+    <circle cx="75" cy="71" r="2" fill="#E8F5E9" />
+  </svg>
+);
+
+export const WomensDay2010SidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(55, 25)">
+      {/* Bat Trang Ceramic Vase */}
+      <path d="M25 45 C15 55 12 75 25 85 C32 85 48 85 55 85 C68 75 65 55 55 45 Z" fill="#FFF9E6" stroke="#C49746" strokeWidth="1.8" />
+      {/* Lotus Blooms in Vase */}
+      <circle cx="40" cy="28" r="15" fill="#F06292" />
+      <circle cx="40" cy="28" r="9" fill="#9E2935" />
+      <circle cx="40" cy="28" r="3" fill="#FFD54F" />
+      {/* Folded Silk Scarf draped */}
+      <path d="M15 80 Q35 90 55 80 L60 95 L20 95 Z" fill="#C49746" opacity="0.8" />
     </g>
   </svg>
 );
+
 
 // =============================================================================
 // 7. TEACHERS' DAY 20/11 ARTWORK (THE ART OF APPRECIATION)
 // =============================================================================
 
+export const TeachersDayCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* Scholastic Laurel & Chalkboard Seal */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#2F6B55] border border-[#D4AF37] shadow-xs flex items-center justify-center rotate-[-2deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#FAF6EC]" fill="none" stroke="currentColor">
+          <circle cx="16" cy="16" r="11" strokeWidth="1.2" strokeDasharray="2 1" />
+          <path d="M11 20 Q16 12 21 20" stroke="#D4AF37" strokeWidth="1.5" />
+          <line x1="16" y1="10" x2="16" y2="15" stroke="#FAF6EC" strokeWidth="1.5" />
+        </svg>
+      </div>
+
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(47, 107, 85, 0.18)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#2F6B55] leading-tight"
+        >
+          Tri ân Ngày Nhà giáo Việt Nam 20/11!
+        </span>
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#2F6B55] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#1F4C3B]">
+      <span className="opacity-90">Truyền thống tôn sư</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#2F6B55] relative px-1"
+      >
+        <span>Tôn sư trọng đạo – Ngàn lời tri ân!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#D4AF37] via-[#557866] to-[#2F6B55] rounded-full" />
+      </span>
+    </div>
+  </div>
+);
+
 export const TeachersDayHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
   <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <g transform="translate(35, 30)">
-      {/* Open Leather-bound Book with gold leaf edge */}
-      <polygon points="5,60 50,75 95,60 50,48" fill="#557866" />
-      <polygon points="5,60 50,75 50,83 5,68" fill="#3B5347" />
-      <polygon points="50,75 95,60 95,68 50,83" fill="#476556" />
-      {/* Parchment Pages */}
-      <polygon points="8,59 50,73 92,59 50,50" fill="#FFFBEA" />
-      {/* Page lines */}
-      <line x1="20" y1="60" x2="42" y2="67" stroke="#BCA16D" strokeWidth="1" />
-      <line x1="20" y1="64" x2="38" y2="70" stroke="#BCA16D" strokeWidth="1" />
-      <line x1="58" y1="67" x2="80" y2="60" stroke="#BCA16D" strokeWidth="1" />
-      <line x1="62" y1="71" x2="80" y2="65" stroke="#BCA16D" strokeWidth="1" />
+    <g transform="translate(35, 25)">
+      {/* Open Leather Lesson Plan Book */}
+      <polygon points="5,60 50,75 95,60 50,48" fill="#2F6B55" />
+      <polygon points="5,60 50,75 50,83 5,68" fill="#1F4C3B" />
+      <polygon points="50,75 95,60 95,68 50,83" fill="#255845" />
+      <polygon points="8,59 50,73 92,59 50,50" fill="#FAF6EC" />
+      {/* Score "10" in Red Ink */}
+      <text x="35" y="64" fill="#C43A48" fontSize="9" fontWeight="bold" fontFamily="serif">10</text>
+      <line x1="20" y1="68" x2="42" y2="72" stroke="#D4AF37" strokeWidth="1" />
+      <line x1="58" y1="72" x2="80" y2="66" stroke="#D4AF37" strokeWidth="1" />
 
-      {/* Elegant Vintage Fountain Pen resting on book */}
-      <g transform="translate(25, 20) rotate(35)">
-        <rect x="0" y="0" width="6" height="55" rx="3" fill="#2E3B32" />
+      {/* Vintage Gold Fountain Pen */}
+      <g transform="translate(25, 18) rotate(35)">
+        <rect x="0" y="0" width="6" height="55" rx="3" fill="#1F4C3B" />
         <rect x="0" y="15" width="6" height="5" fill="#D4AF37" />
-        {/* Golden Nib */}
         <polygon points="3,-12 0,0 6,0" fill="#FFD54F" stroke="#BCA16D" strokeWidth="0.8" />
-        <line x1="3" y1="-10" x2="3" y2="-2" stroke="#3E2723" strokeWidth="0.8" />
       </g>
 
-      {/* Graduation Red Ribbon / Bookmark */}
-      <path d="M50 50 C50 65 52 85 45 95 L50 92 L55 95 C53 85 50 65 50 50 Z" fill="#C62828" />
-
-      {/* Bouquet of Gratitude Flowers */}
-      <circle cx="85" cy="40" r="9" fill="#FF8A80" />
-      <circle cx="85" cy="40" r="4" fill="#D32F2F" />
-      <circle cx="98" cy="46" r="8" fill="#FFD54F" />
-      <path d="M80 48 Q75 35 88 38 Z" fill="#81C784" />
+      {/* Bouquet of Brilliant Yellow Sunflowers & Red Carnations */}
+      <g transform="translate(75, 25)">
+        {/* Sunflower */}
+        <circle cx="15" cy="15" r="14" fill="#FFA000" />
+        <circle cx="15" cy="15" r="7" fill="#5D4037" />
+        {/* Red Rose */}
+        <circle cx="2" cy="28" r="9" fill="#C43A48" />
+        <circle cx="2" cy="28" r="5" fill="#8B1E2B" />
+        {/* Leaves */}
+        <path d="M-5 22 Q-12 10 0 15 Z" fill="#66BB6A" />
+      </g>
     </g>
   </svg>
 );
 
-export const TeachersDaySidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <g transform="translate(45, 30)">
-      {/* Inkpot & Feather / Pen */}
-      <rect x="35" y="48" width="28" height="25" rx="4" fill="#37474F" stroke="#78909C" strokeWidth="1.5" />
-      <rect x="42" y="44" width="14" height="4" rx="1" fill="#CFD8DC" />
-      {/* Rolled Diploma scroll with red ribbon */}
-      <rect x="70" y="40" width="45" height="15" rx="3" fill="#FFF9C4" stroke="#FFE082" strokeWidth="1" />
-      <rect x="88" y="38" width="8" height="19" rx="1" fill="#C62828" />
-      {/* Fountain pen leaning in inkpot */}
-      <line x1="49" y1="46" x2="25" y2="15" stroke="#BCA16D" strokeWidth="3" strokeLinecap="round" />
-      <polygon points="25,15 22,12 28,14" fill="#D4AF37" />
+export const TeachersDayCornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Chalkboard Corner & Golden Sunflowers Garland */}
+    <path d="M240 0 Q180 15 140 40 T70 65" stroke="#2F6B55" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+
+    {/* Sunflowers */}
+    <g transform="translate(170, 25)">
+      <circle cx="0" cy="0" r="13" fill="#FFA000" />
+      <circle cx="0" cy="0" r="6" fill="#5D4037" />
+    </g>
+    <g transform="translate(115, 48)">
+      <circle cx="0" cy="0" r="10" fill="#FFB300" />
+      <circle cx="0" cy="0" r="4.5" fill="#5D4037" />
+    </g>
+    <circle cx="70" cy="65" r="6" fill="#C43A48" />
+  </svg>
+);
+
+export const TeachersDaySidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(45, 25)">
+      {/* Inkpot, Diploma scroll with red seal */}
+      <rect x="35" y="52" width="28" height="25" rx="4" fill="#263D5B" stroke="#78909C" strokeWidth="1.5" />
+      <rect x="70" y="44" width="45" height="15" rx="3" fill="#FAF6EC" stroke="#D4AF37" strokeWidth="1" />
+      <rect x="88" y="42" width="8" height="19" rx="1" fill="#C43A48" />
+      <line x1="49" y1="50" x2="25" y2="18" stroke="#D4AF37" strokeWidth="3" strokeLinecap="round" />
     </g>
   </svg>
 );
 
+
 // =============================================================================
-// 8. CHRISTMAS ARTWORK (A COZY WINTER CELEBRATION)
+// 8. CHRISTMAS ARTWORK (VICTORIAN HEARTH & WINTER NOEL - RED/GREEN/GOLD)
 // =============================================================================
+
+export const ChristmasCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* Holly Wreath & Gold Bell Seal */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#A62B38] border border-[#C9A658] shadow-xs flex items-center justify-center rotate-[-2deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#FFFBF2]" fill="currentColor">
+          <circle cx="16" cy="16" r="11" fill="none" stroke="#C9A658" strokeWidth="1.2" />
+          <circle cx="14" cy="15" r="2.5" fill="#2E6B4E" />
+          <circle cx="18" cy="15" r="2.5" fill="#2E6B4E" />
+          <circle cx="16" cy="18" r="2" fill="#FFD54F" />
+        </svg>
+      </div>
+
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(166, 43, 56, 0.2)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#A62B38] leading-tight"
+        >
+          Giáng Sinh An Lành!
+        </span>
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#A62B38] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#701E27]">
+      <span className="opacity-90">Mùa đông ấm áp</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#A62B38] relative px-1"
+      >
+        <span>Mùa đông ấm áp – Vạn sự an lành!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#C9A658] via-[#2E6B4E] to-[#A62B38] rounded-full" />
+      </span>
+    </div>
+  </div>
+);
 
 export const ChristmasHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
   <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Decorated Christmas Tree & Wrapped Gift Boxes */}
-    <g transform="translate(45, 18)">
-      {/* Tree Top Star */}
+    {/* Victorian Christmas Tree (Red, Forest Green, Gold) */}
+    <g transform="translate(45, 15)">
+      {/* Top Star */}
       <polygon points="45,0 48,8 56,9 50,15 52,23 45,18 38,23 40,15 34,9 42,8" fill="#FFD54F" />
 
       {/* Layer 1 (Top) */}
-      <polygon points="45,15 62,35 28,35" fill="#2E7D32" />
-      <polygon points="45,15 58,35 32,35" fill="#388E3C" />
+      <polygon points="45,15 62,35 28,35" fill="#2E6B4E" />
+      <polygon points="45,15 58,35 32,35" fill="#3D8B66" />
 
       {/* Layer 2 (Middle) */}
-      <polygon points="45,30 70,55 20,55" fill="#1B5E20" />
-      <polygon points="45,30 65,55 25,55" fill="#2E7D32" />
+      <polygon points="45,30 70,55 20,55" fill="#20523B" />
+      <polygon points="45,30 65,55 25,55" fill="#2E6B4E" />
 
       {/* Layer 3 (Bottom) */}
-      <polygon points="45,48 78,78 12,78" fill="#1B5E20" />
-      <polygon points="45,48 72,78 18,78" fill="#2E7D32" />
+      <polygon points="45,48 78,78 12,78" fill="#173F2D" />
+      <polygon points="45,48 72,78 18,78" fill="#20523B" />
 
-      {/* Tree Trunk */}
+      {/* Trunk */}
       <rect x="39" y="78" width="12" height="14" fill="#5D4037" />
 
-      {/* Tree Ornaments & Baubles */}
-      <circle cx="38" cy="28" r="3" fill="#E53935" />
+      {/* Red & Gold Baubles */}
+      <circle cx="38" cy="28" r="3" fill="#A62B38" />
       <circle cx="52" cy="32" r="2.5" fill="#FFD54F" />
-      <circle cx="32" cy="48" r="3" fill="#FFD54F" />
-      <circle cx="58" cy="50" r="3" fill="#E53935" />
-      <circle cx="45" cy="42" r="2.5" fill="#42A5F5" />
-      <circle cx="28" cy="68" r="3.5" fill="#E53935" />
+      <circle cx="32" cy="48" r="3.5" fill="#FFD54F" />
+      <circle cx="58" cy="50" r="3" fill="#A62B38" />
+      <circle cx="28" cy="68" r="3.5" fill="#A62B38" />
       <circle cx="62" cy="70" r="3.5" fill="#FFD54F" />
-      <circle cx="45" cy="64" r="3" fill="#AB47BC" />
 
-      {/* Wrapped Gift Boxes under tree */}
+      {/* Festive Wrapped Presents */}
       <g transform="translate(62, 70)">
-        <rect x="0" y="0" width="22" height="22" rx="2" fill="#C62828" />
-        <rect x="9" y="0" width="4" height="22" fill="#FFD54F" />
-        <rect x="0" y="9" width="22" height="4" fill="#FFD54F" />
+        <rect x="0" y="0" width="22" height="22" rx="2" fill="#A62B38" />
+        <rect x="9" y="0" width="4" height="22" fill="#C9A658" />
+        <rect x="0" y="9" width="22" height="4" fill="#C9A658" />
       </g>
-      <g transform="translate(6, 75)">
-        <rect x="0" y="0" width="18" height="17" rx="2" fill="#1976D2" />
-        <rect x="7" y="0" width="4" height="17" fill="#FFFFFF" />
-        <rect x="0" y="7" width="18" height="4" fill="#FFFFFF" />
+      <g transform="translate(8, 75)">
+        <rect x="0" y="0" width="18" height="17" rx="2" fill="#2E6B4E" />
+        <rect x="7" y="0" width="4" height="17" fill="#FFFBF2" />
+        <rect x="0" y="7" width="18" height="4" fill="#FFFBF2" />
       </g>
     </g>
   </svg>
 );
 
-export const ChristmasSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <g transform="translate(35, 30)">
-      {/* Evergreen pine branch with holly berries and pinecone */}
-      <path d="M15 65 Q55 45 95 60 Q120 70 145 65" stroke="#2E7D32" strokeWidth="4" strokeLinecap="round" fill="none" />
-      <path d="M35 55 Q50 35 65 48" stroke="#1B5E20" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-      <path d="M75 58 Q90 38 105 52" stroke="#1B5E20" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+export const ChristmasCornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Snow-dusted Pine Garland with Red Holly Berries */}
+    <path d="M240 0 Q180 15 140 38 T70 60" stroke="#2E6B4E" strokeWidth="4.5" strokeLinecap="round" fill="none" />
+    <path d="M150 35 Q130 18 110 25" stroke="#173F2D" strokeWidth="2.5" fill="none" />
 
-      {/* Red Holly Berries */}
-      <circle cx="60" cy="46" r="4.5" fill="#D32F2F" />
-      <circle cx="67" cy="43" r="4" fill="#E53935" />
-      <circle cx="65" cy="50" r="4" fill="#C62828" />
+    {/* Red Berries Clusters */}
+    <circle cx="160" cy="30" r="4.5" fill="#A62B38" />
+    <circle cx="166" cy="27" r="4" fill="#D32F2F" />
+    <circle cx="164" cy="35" r="4" fill="#8B1E2B" />
 
-      {/* Hanging Glass Bauble with gold cap */}
-      <line x1="110" y1="58" x2="110" y2="72" stroke="#FFD54F" strokeWidth="1" />
-      <rect x="108" y="71" width="4" height="2" fill="#FFD54F" />
-      <circle cx="110" cy="80" r="8" fill="#C62828" />
-      <circle cx="108" cy="78" r="2" fill="#FFFFFF" opacity="0.8" />
+    {/* Hanging Gold Bauble */}
+    <g transform="translate(185, 25)">
+      <line x1="0" y1="0" x2="0" y2="20" stroke="#C9A658" strokeWidth="1.2" />
+      <circle cx="0" cy="30" r="10" fill="#A62B38" stroke="#C9A658" strokeWidth="1.5" />
+      <circle cx="-3" cy="27" r="2.5" fill="#FFF" opacity="0.6" />
     </g>
   </svg>
 );
 
+export const ChristmasSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(35, 25)">
+      {/* Pine Boughs, Cinnamon Sticks & Candle */}
+      <path d="M15 65 Q55 45 95 60 Q120 70 145 65" stroke="#2E6B4E" strokeWidth="4" strokeLinecap="round" fill="none" />
+      <circle cx="60" cy="46" r="4.5" fill="#A62B38" />
+      <circle cx="67" cy="43" r="4" fill="#D32F2F" />
+
+      {/* Glowing Candle */}
+      <rect x="95" y="45" width="16" height="30" rx="3" fill="#FFFBF2" stroke="#E0D6C3" strokeWidth="1" />
+      <polygon points="103,32 99,44 107,44" fill="#FFA000" />
+      <circle cx="103" cy="40" r="2.5" fill="#FFD54F" />
+    </g>
+  </svg>
+);
+
+
 // =============================================================================
-// 9. NEW YEAR ARTWORK (NEW HORIZONS)
+// 9. NEW YEAR ARTWORK (NEW HORIZONS & CHAMPAGNE GALA)
 // =============================================================================
+
+export const NewYearCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`flex flex-col select-none relative ${className}`} role="heading" aria-level={1}>
+    <div className="flex items-center gap-3">
+      {/* Art Deco Midnight Stars 2026 Seal */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#17233F] border border-[#D8B46A] shadow-xs flex items-center justify-center rotate-[-2deg]">
+        <svg viewBox="0 0 32 32" className="w-5 h-5 text-[#D8B46A]" fill="currentColor">
+          <circle cx="16" cy="16" r="11" fill="none" stroke="#D8B46A" strokeWidth="1.2" />
+          <polygon points="16,8 18,13 23,14 19,18 20,23 16,20 12,23 13,18 9,14 14,13" />
+        </svg>
+      </div>
+
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: SERIF_HEADING_FONT,
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(23, 35, 63, 0.2)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#D8B46A] leading-tight"
+        >
+          Chào Đón Năm Mới!
+        </span>
+        <svg viewBox="0 0 240 12" fill="none" className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#D8B46A] opacity-80">
+          <path d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z" fill="currentColor" />
+        </svg>
+      </div>
+    </div>
+
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#8C7443]">
+      <span className="opacity-90">Khởi đầu rực rỡ</span>
+      <span
+        style={{ fontFamily: SERIF_HEADING_FONT, fontStyle: 'italic' }}
+        className="font-black text-[#D8B46A] relative px-1"
+      >
+        <span>Khởi đầu rực rỡ – Vạn sự hanh thông!</span>
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#D8B46A] via-[#E0E6ED] to-[#17233F] rounded-full" />
+      </span>
+    </div>
+  </div>
+);
 
 export const NewYearHeroArtwork: React.FC<{ className?: string }> = ({ className = 'w-44 h-36' }) => (
   <svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    {/* Sparkling Midnight Clock Tower & Elegant Fireworks */}
-    <g transform="translate(35, 20)">
-      {/* Fireworks Burst */}
+    {/* Sparkling Midnight Clock & Fireworks */}
+    <g transform="translate(35, 18)">
+      {/* Fireworks Starburst */}
       <g transform="translate(100, 30)">
-        <circle cx="0" cy="0" r="3" fill="#FFD54F" />
-        <line x1="0" y1="-8" x2="0" y2="-18" stroke="#FFD54F" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="0" y1="8" x2="0" y2="18" stroke="#FFD54F" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="-8" y1="0" x2="-18" y2="0" stroke="#FFD54F" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="8" y1="0" x2="18" y2="0" stroke="#FFD54F" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="-6" y1="-6" x2="-14" y2="-14" stroke="#90CAF9" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="6" y1="-6" x2="14" y2="-14" stroke="#90CAF9" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="-6" y1="6" x2="-14" y2="14" stroke="#90CAF9" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="6" y1="6" x2="14" y2="14" stroke="#90CAF9" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="0" cy="0" r="3" fill="#D8B46A" />
+        <line x1="0" y1="-8" x2="0" y2="-18" stroke="#D8B46A" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="0" y1="8" x2="0" y2="18" stroke="#D8B46A" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="-8" y1="0" x2="-18" y2="0" stroke="#D8B46A" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="8" y1="0" x2="18" y2="0" stroke="#D8B46A" strokeWidth="1.5" strokeLinecap="round" />
       </g>
 
-      {/* Midnight Countdown Clock Face */}
+      {/* Midnight Clock Face */}
       <g transform="translate(45, 60)">
-        <circle cx="0" cy="0" r="32" fill="#1A237E" stroke="#CBAA65" strokeWidth="3" />
-        <circle cx="0" cy="0" r="28" fill="#283593" />
-        {/* Roman numerals / markers */}
-        <line x1="0" y1="-24" x2="0" y2="-21" stroke="#FFD54F" strokeWidth="2" />
-        <line x1="24" y1="0" x2="21" y2="0" stroke="#FFD54F" strokeWidth="2" />
-        <line x1="0" y1="24" x2="0" y2="21" stroke="#FFD54F" strokeWidth="2" />
-        <line x1="-24" y1="0" x2="-21" y2="0" stroke="#FFD54F" strokeWidth="2" />
-
-        {/* Clock Hands pointing to 12:00 */}
-        <line x1="0" y1="0" x2="0" y2="-18" stroke="#FFD54F" strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx="0" cy="0" r="32" fill="#17233F" stroke="#D8B46A" strokeWidth="3" />
+        <circle cx="0" cy="0" r="28" fill="#1F2E52" />
+        {/* Hands pointing to 12:00 */}
+        <line x1="0" y1="0" x2="0" y2="-18" stroke="#D8B46A" strokeWidth="2.5" strokeLinecap="round" />
         <line x1="0" y1="0" x2="-2" y2="-14" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
-        <circle cx="0" cy="0" r="3.5" fill="#CBAA65" />
+        <circle cx="0" cy="0" r="3.5" fill="#D8B46A" />
       </g>
 
-      {/* Gold Celebration Streamers */}
-      <path d="M10 90 Q30 75 50 95 T90 85" stroke="#CBAA65" strokeWidth="2" strokeDasharray="4 2" fill="none" />
-      <path d="M20 100 Q45 85 70 105 T110 95" stroke="#90CAF9" strokeWidth="1.5" fill="none" />
+      {/* Champagne Flutes clinking */}
+      <g transform="translate(100, 75)">
+        <path d="M-8 0 L-4 16 L-4 28 M-10 28 L2 28" stroke="#D8B46A" strokeWidth="1.5" strokeLinecap="round" />
+        <path d="M12 0 L8 16 L8 28 M2 28 L14 28" stroke="#D8B46A" strokeWidth="1.5" strokeLinecap="round" />
+      </g>
     </g>
   </svg>
 );
 
-export const NewYearSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-32' }) => (
-  <svg viewBox="0 0 200 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <g transform="translate(45, 30)">
-      {/* Golden Clock and celebration stars */}
-      <circle cx="50" cy="45" r="22" fill="#0D1B2A" stroke="#CBAA65" strokeWidth="2" />
+export const NewYearCornerDecor: React.FC<{ className?: string }> = ({ className = 'w-48 h-32' }) => (
+  <svg viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Cascading Gold Streamers & Midnight Stars */}
+    <path d="M240 0 Q180 15 140 40 T70 65" stroke="#D8B46A" strokeWidth="2.5" strokeDasharray="5 2" fill="none" />
+    <polygon points="180,25 182,30 187,31 183,34 184,39 180,36 176,39 177,34 173,31 178,30" fill="#D8B46A" />
+    <polygon points="130,45 131,48 134,49 132,51 132,54 130,52 128,54 128,51 126,49 129,48" fill="#D8B46A" />
+  </svg>
+);
+
+export const NewYearSidebarDecor: React.FC<{ className?: string }> = ({ className = 'w-full h-34' }) => (
+  <svg viewBox="0 0 200 130" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <g transform="translate(45, 25)">
+      {/* Golden Clock & Champagne Flutes */}
+      <circle cx="50" cy="45" r="22" fill="#17233F" stroke="#D8B46A" strokeWidth="2" />
       <line x1="50" y1="45" x2="50" y2="30" stroke="#FFD54F" strokeWidth="2" strokeLinecap="round" />
       <line x1="50" y1="45" x2="48" y2="34" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="50" cy="45" r="2.5" fill="#FFD54F" />
-
-      {/* Bursting Stars */}
-      <polygon points="90,20 92,26 98,28 93,31 94,37 90,34 86,37 87,31 82,28 88,26" fill="#CBAA65" />
-      <polygon points="20,25 21,29 25,30 22,32 23,36 20,34 17,36 18,32 15,30 19,29" fill="#90CAF9" />
+      <circle cx="50" cy="45" r="2.5" fill="#D8B46A" />
+      <polygon points="90,20 92,26 98,28 93,31 94,37 90,34 86,37 87,31 82,28 88,26" fill="#D8B46A" />
     </g>
   </svg>
 );
 
+
 // =============================================================================
-// 10. SHARED EMPTY STATE CLIPBOARD ILLUSTRATION (THEME-AWARE)
+// 10. NON-INTRUSIVE SEASONAL PAGE DECORATION (FOR LEARNING PAGES)
+// =============================================================================
+
+export const SeasonalPageDecoration: React.FC<{ themeId: SeasonalThemeId }> = ({ themeId }) => {
+  if (themeId === 'default') return null;
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden select-none opacity-25">
+      {/* Top right ambient festival aura */}
+      <div
+        className="absolute -top-24 -right-24 w-96 h-96 rounded-full blur-3xl"
+        style={{
+          background:
+            themeId === 'tet'
+              ? 'radial-gradient(circle, rgba(185,39,53,0.15) 0%, rgba(243,194,98,0.08) 70%, transparent 100%)'
+              : themeId === 'back_to_school'
+              ? 'radial-gradient(circle, rgba(38,61,91,0.15) 0%, rgba(212,175,55,0.08) 70%, transparent 100%)'
+              : themeId === 'mid_autumn'
+              ? 'radial-gradient(circle, rgba(201,75,66,0.15) 0%, rgba(243,194,98,0.1) 70%, transparent 100%)'
+              : themeId === 'halloween'
+              ? 'radial-gradient(circle, rgba(223,122,40,0.15) 0%, rgba(112,81,127,0.1) 70%, transparent 100%)'
+              : themeId === 'womens_day_8_3'
+              ? 'radial-gradient(circle, rgba(201,94,115,0.15) 0%, rgba(230,201,148,0.08) 70%, transparent 100%)'
+              : themeId === 'vietnamese_womens_day_20_10'
+              ? 'radial-gradient(circle, rgba(158,41,53,0.15) 0%, rgba(196,151,70,0.08) 70%, transparent 100%)'
+              : themeId === 'teachers_day_20_11'
+              ? 'radial-gradient(circle, rgba(47,107,85,0.15) 0%, rgba(212,175,55,0.08) 70%, transparent 100%)'
+              : themeId === 'christmas'
+              ? 'radial-gradient(circle, rgba(166,43,56,0.15) 0%, rgba(46,107,78,0.1) 70%, transparent 100%)'
+              : 'radial-gradient(circle, rgba(216,180,106,0.15) 0%, rgba(23,35,63,0.1) 70%, transparent 100%)',
+        }}
+      />
+    </div>
+  );
+};
+
+
+// =============================================================================
+// 11. SHARED EMPTY STATE CLIPBOARD ILLUSTRATION (THEME-AWARE)
 // =============================================================================
 
 export const ThemeEmptyStateArtwork: React.FC<{
@@ -872,23 +1399,23 @@ export const ThemeEmptyStateArtwork: React.FC<{
       case 'tet':
         return '#B92735';
       case 'back_to_school':
-        return '#3976C6';
+        return '#263D5B';
       case 'mid_autumn':
-        return '#C77A35';
+        return '#C94B42';
       case 'halloween':
-        return '#70517F';
+        return '#DF7A28';
       case 'womens_day_8_3':
         return '#C95E73';
       case 'vietnamese_womens_day_20_10':
-        return '#B95F66';
+        return '#9E2935';
       case 'teachers_day_20_11':
-        return '#557866';
+        return '#2F6B55';
       case 'christmas':
-        return '#47745D';
+        return '#A62B38';
       case 'new_year':
-        return '#526A91';
+        return '#D8B46A';
       default:
-        return '#3B82F6';
+        return '#2563EB';
     }
   };
 
@@ -896,10 +1423,8 @@ export const ThemeEmptyStateArtwork: React.FC<{
 
   return (
     <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-      {/* Soft shadow */}
       <ellipse cx="50" cy="88" rx="35" ry="6" fill="#E2E8F0" opacity="0.6" />
 
-      {/* Background themed floral/sparkle accents */}
       {themeId === 'tet' && (
         <g opacity="0.6">
           <circle cx="25" cy="55" r="4" fill="#FF80AB" />
@@ -911,16 +1436,15 @@ export const ThemeEmptyStateArtwork: React.FC<{
 
       {/* Main Clipboard Body */}
       <rect x="25" y="20" width="50" height="65" rx="6" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="2" />
-      {/* Top Clip */}
       <rect x="38" y="14" width="24" height="12" rx="3" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="1.5" />
       <circle cx="50" cy="18" r="2.5" fill="#94A3B8" />
 
-      {/* Task Checklist Lines */}
+      {/* Lines */}
       <line x1="34" y1="38" x2="66" y2="38" stroke="#E2E8F0" strokeWidth="2.5" strokeLinecap="round" />
       <line x1="34" y1="48" x2="66" y2="48" stroke="#E2E8F0" strokeWidth="2.5" strokeLinecap="round" />
       <line x1="34" y1="58" x2="56" y2="58" stroke="#E2E8F0" strokeWidth="2.5" strokeLinecap="round" />
 
-      {/* Prominent Checkmark */}
+      {/* Checkmark */}
       <path
         d="M42 62 L48 68 L62 50"
         stroke={accent}
@@ -932,29 +1456,25 @@ export const ThemeEmptyStateArtwork: React.FC<{
   );
 };
 
+
 // =============================================================================
-// 11. STAT CARD VECTOR ILLUSTRATIONS (FOR DASHBOARD STAT CARDS)
+// 12. STAT CARD VECTOR ILLUSTRATIONS (FOR DASHBOARD STAT CARDS)
 // =============================================================================
 
 export const StatCardBookIllustration: React.FC<{ className?: string }> = ({ className = 'w-16 h-14' }) => (
   <svg viewBox="0 0 80 60" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
     <ellipse cx="40" cy="52" rx="32" ry="5" fill="#E2E8F0" opacity="0.6" />
-    {/* Left pages */}
     <path d="M40 46 C30 43 18 44 8 48 L10 18 C20 15 32 15 40 19 Z" fill="#FFF9F2" stroke="#F0D8CC" strokeWidth="1.2" />
     <path d="M40 44 C31 41 20 42 10 46 L11 19 C20 16 32 16 40 20 Z" fill="#FFFFFF" />
-    {/* Right pages */}
     <path d="M40 46 C50 43 62 44 72 48 L70 18 C60 15 48 15 40 19 Z" fill="#FFF9F2" stroke="#F0D8CC" strokeWidth="1.2" />
     <path d="M40 44 C49 41 60 42 70 46 L69 19 C60 16 48 16 40 20 Z" fill="#FFFFFF" />
-    {/* Spine */}
     <path d="M39 20 L41 20 L41 46 L39 46 Z" fill="#E6C8B8" />
-    {/* Page lines */}
     <line x1="16" y1="24" x2="34" y2="24" stroke="#F5DACB" strokeWidth="1.2" strokeLinecap="round" />
     <line x1="16" y1="29" x2="32" y2="29" stroke="#F5DACB" strokeWidth="1.2" strokeLinecap="round" />
     <line x1="16" y1="34" x2="28" y2="34" stroke="#F5DACB" strokeWidth="1.2" strokeLinecap="round" />
     <line x1="46" y1="24" x2="64" y2="24" stroke="#F5DACB" strokeWidth="1.2" strokeLinecap="round" />
     <line x1="48" y1="29" x2="64" y2="29" stroke="#F5DACB" strokeWidth="1.2" strokeLinecap="round" />
     <line x1="52" y1="34" x2="64" y2="34" stroke="#F5DACB" strokeWidth="1.2" strokeLinecap="round" />
-    {/* Ribbon bookmark */}
     <path d="M40 19 L40 48 L44 44 L48 48 L48 20" fill="#B92735" opacity="0.9" />
   </svg>
 );
@@ -1015,7 +1535,7 @@ export const StatCardCalendarIllustration: React.FC<{ className?: string }> = ({
     <circle cx="52" cy="36" r="1.5" fill="#F0D8CC" />
     <g transform="rotate(30 54 40)">
       <rect x="52" y="32" width="4" height="16" rx="1" fill="#FFC107" stroke="#FFA000" strokeWidth="0.6" />
-      <polygon points="52,48 56,48 54,52" fill="#FFE0B2" stroke="#FFA000" strokeWidth="0.6" />
+      <polygon points="52,48 56,48 54,52" fill="#FFE082" stroke="#FFA000" strokeWidth="0.6" />
       <polygon points="53,50 55,50 54,52" fill="#212121" />
     </g>
   </svg>

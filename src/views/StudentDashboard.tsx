@@ -2,6 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { useSeasonalTheme } from '../theme/SeasonalThemeContext';
+import { getThemeArtwork } from '../theme/themes';
 import {
   BookOpen,
   Clock,
@@ -28,6 +29,7 @@ export const StudentDashboard: React.FC = () => {
   const { t, formatCurrency, formatNumber } = useI18n();
   const { activeThemeId, currentTheme } = useSeasonalTheme();
   const isDefaultTheme = activeThemeId === 'default';
+  const { HeroMascot, HeroBranch } = getThemeArtwork(activeThemeId);
 
   if (!currentUser) return null;
 
@@ -87,37 +89,62 @@ export const StudentDashboard: React.FC = () => {
         </div>
       ) : (
         <div
-          className="relative overflow-hidden rounded-2xl p-6 border shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition-all"
+          className="relative overflow-hidden rounded-2xl md:rounded-3xl p-5 md:p-8 border shadow-xs flex flex-col md:flex-row items-center justify-between gap-6 transition-all"
           style={{
             background: currentTheme.bannerGradient,
             borderColor: currentTheme.palette.border,
           }}
         >
-          <div className="space-y-1 z-10">
-            <h1
-              className="text-2xl font-bold tracking-tight"
-              style={{
-                color: currentTheme.palette.primary,
-                fontFamily: currentTheme.typography.displayFont,
-              }}
-            >
-              {currentTheme.hero.title}
-            </h1>
-            <p
-              className="text-xs sm:text-sm font-medium"
-              style={{ color: currentTheme.palette.textSecondary }}
-            >
-              {currentTheme.hero.subtitle}
-            </p>
+          {HeroBranch && (
+            <div className="absolute -top-1 -right-1 pointer-events-none z-0 opacity-90 hidden sm:block">
+              <HeroBranch />
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row items-center gap-5 z-10 w-full md:w-auto text-center sm:text-left">
+            {HeroMascot && (
+              <div className="shrink-0 transition-transform hover:scale-105 duration-300">
+                <HeroMascot />
+              </div>
+            )}
+
+            <div className="space-y-1.5 max-w-xl">
+              {currentTheme.hero.titleCustomComponent ? (
+                currentTheme.hero.titleCustomComponent
+              ) : (
+                <h1
+                  className="text-2xl md:text-3xl font-extrabold tracking-tight"
+                  style={{
+                    color: currentTheme.palette.primary,
+                    fontFamily: currentTheme.typography.displayFont,
+                  }}
+                >
+                  {currentTheme.hero.title}
+                </h1>
+              )}
+
+              <p
+                className="text-xs md:text-sm italic font-medium leading-relaxed"
+                style={{
+                  color: currentTheme.palette.textSecondary,
+                  fontFamily: currentTheme.typography.displayFont,
+                }}
+              >
+                {currentTheme.hero.subtitle}
+              </p>
+            </div>
           </div>
-          <button
-            onClick={() => setActiveTab('find_course')}
-            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold text-white shadow-xs transition-colors shrink-0 z-10"
-            style={{ backgroundColor: currentTheme.palette.primary }}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>{t('nav.findCourse')}</span>
-          </button>
+
+          <div className="flex items-center space-x-3 shrink-0 z-10 w-full sm:w-auto justify-center sm:justify-end">
+            <button
+              onClick={() => setActiveTab('find_course')}
+              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold text-white shadow-xs transition-all hover:opacity-95 shrink-0 z-10 cursor-pointer"
+              style={{ backgroundColor: currentTheme.palette.primary }}
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>{t('nav.findCourse')}</span>
+            </button>
+          </div>
         </div>
       )}
 
