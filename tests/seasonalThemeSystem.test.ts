@@ -104,4 +104,32 @@ describe('Seasonal Theme Design System (Benchmark: Approved Vietnamese Tết Sta
     assert.ok(teachersDay.labelVi.includes('20/11'));
     assert.ok(teachersDay.hero.title.includes('20/11'));
   });
+
+  test('enforces Be Vietnam Pro as the mandatory body font across all 10 themes', () => {
+    for (const id of allThemeIds) {
+      const theme = seasonalThemesData[id];
+      assert.ok(
+        theme.typography.bodyFont.includes('Be Vietnam Pro'),
+        `Theme ${id} bodyFont must include Be Vietnam Pro`
+      );
+    }
+  });
+
+  test('restores original Default UI baseline matching authoritative screenshot', () => {
+    const def = seasonalThemesData.default;
+    assert.strictEqual(def.id, 'default');
+    assert.strictEqual(def.palette.sidebarBg, '#0B1528', 'Default sidebarBg must match original dark navy #0B1528');
+    assert.strictEqual(def.palette.cardSurface, '#FFFFFF', 'Default cardSurface must be pure white');
+    assert.strictEqual(def.palette.primary, '#2563EB', 'Default primary must be blue #2563EB');
+    assert.strictEqual(def.palette.mainBg, '#F8FAFC', 'Default mainBg must be slate-50 #F8FAFC');
+    assert.ok(def.typography.displayFont.includes('Be Vietnam Pro'), 'Default display font must be Be Vietnam Pro');
+    assert.ok(def.typography.bodyFont.includes('Be Vietnam Pro'), 'Default body font must be Be Vietnam Pro');
+  });
+
+  test('guarantees Christmas theme has balanced festive palette and is not monochromatic blue', () => {
+    const xmas = seasonalThemesData.christmas;
+    assert.strictEqual(xmas.palette.primary, '#2E6B4E', 'Christmas primary must be pine evergreen');
+    assert.strictEqual(xmas.palette.secondary, '#A62B38', 'Christmas secondary must be cranberry/burgundy red');
+    assert.strictEqual(xmas.palette.supporting, '#C9A658', 'Christmas supporting must be champagne gold');
+  });
 });

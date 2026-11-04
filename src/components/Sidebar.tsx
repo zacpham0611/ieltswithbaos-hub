@@ -77,24 +77,24 @@ export const Sidebar: React.FC = () => {
     <aside
       className="no-print w-64 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] border-r transition-colors duration-200"
       style={{
-        backgroundColor: currentTheme.palette.sidebarBg,
-        borderColor: currentTheme.palette.border,
-        color: currentTheme.palette.textMain,
+        backgroundColor: isDefaultTheme ? '#0B1528' : currentTheme.palette.sidebarBg,
+        borderColor: isDefaultTheme ? '#1E293B' : currentTheme.palette.border,
+        color: isDefaultTheme ? '#F8FAFC' : currentTheme.palette.textMain,
       }}
     >
       {/* Workspace branding header in sidebar */}
       <div
         className="p-4 border-b transition-colors"
-        style={{ borderColor: currentTheme.palette.border }}
+        style={{ borderColor: isDefaultTheme ? '#1E293B' : currentTheme.palette.border }}
       >
         <div className="flex items-center space-x-2">
           <div
             className="w-2.5 h-2.5 rounded-full"
-            style={{ backgroundColor: currentTheme.palette.primary }}
+            style={{ backgroundColor: isDefaultTheme ? '#3B82F6' : currentTheme.palette.primary }}
           />
           <span
             className="text-xs font-bold uppercase tracking-wider"
-            style={{ color: currentTheme.palette.primary }}
+            style={{ color: isDefaultTheme ? '#60A5FA' : currentTheme.palette.primary }}
           >
             {currentUser.role === 'teacher'
               ? t('nav.teacherWorkspace')
@@ -104,7 +104,7 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center space-x-1.5 mt-1.5">
           <p
             className="text-xs font-bold truncate"
-            style={{ color: currentTheme.palette.textMain }}
+            style={{ color: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.textMain }}
           >
             {currentUser.name}
           </p>
@@ -121,23 +121,31 @@ export const Sidebar: React.FC = () => {
             <button
               key={item.id}
               onClick={() => handleNav(item.id)}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all"
+              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all cursor-pointer group"
               style={{
-                backgroundColor: isActive ? currentTheme.palette.primary : 'transparent',
-                color: isActive ? '#FFFFFF' : currentTheme.palette.textMain,
+                backgroundColor: isActive
+                  ? isDefaultTheme ? '#2563EB' : currentTheme.palette.primary
+                  : 'transparent',
+                color: isActive
+                  ? '#FFFFFF'
+                  : isDefaultTheme
+                  ? '#94A3B8'
+                  : currentTheme.palette.textMain,
                 fontWeight: isActive ? 600 : 500,
-                boxShadow: isActive ? '0 2px 8px rgba(0, 0, 0, 0.12)' : 'none',
+                boxShadow: isActive ? '0 2px 8px rgba(0, 0, 0, 0.15)' : 'none',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
                   e.currentTarget.style.backgroundColor = isDefaultTheme
                     ? 'rgba(255, 255, 255, 0.08)'
                     : `${currentTheme.palette.primary}12`;
+                  e.currentTarget.style.color = isDefaultTheme ? '#FFFFFF' : currentTheme.palette.primary;
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
                   e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = isDefaultTheme ? '#94A3B8' : currentTheme.palette.textMain;
                 }
               }}
             >
@@ -156,9 +164,11 @@ export const Sidebar: React.FC = () => {
               </div>
               {item.badge && (
                 <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+                  className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shadow-2xs"
                   style={{
-                    backgroundColor: isActive
+                    backgroundColor: item.badge === 'AI' && isDefaultTheme
+                      ? '#DC2626'
+                      : isActive
                       ? 'rgba(255, 255, 255, 0.25)'
                       : currentTheme.palette.primary,
                     color: '#FFFFFF',
@@ -173,23 +183,24 @@ export const Sidebar: React.FC = () => {
       </nav>
 
       {/* Sidebar Seasonal Artwork or Default Info Badge */}
-      {SidebarBottom ? (
+      {!isDefaultTheme && SidebarBottom ? (
         <div className="p-2 flex items-center justify-center overflow-hidden">
           <SidebarBottom />
         </div>
       ) : (
         <div
-          className="p-4 border-t text-[11px] opacity-75"
+          className="p-4 border-t text-[11px] transition-colors"
           style={{
-            borderColor: currentTheme.palette.border,
-            backgroundColor: 'rgba(0, 0, 0, 0.05)',
+            borderColor: isDefaultTheme ? '#1E293B' : currentTheme.palette.border,
+            color: isDefaultTheme ? '#64748B' : currentTheme.palette.textSecondary,
+            backgroundColor: isDefaultTheme ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.03)',
           }}
         >
           <div className="flex items-center justify-between">
-            <span>{t('nav.privacyEnforced')}</span>
+            <span className="font-medium">{t('nav.privacyEnforced')}</span>
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
           </div>
-          <p className="text-[10px] mt-1 opacity-80">
+          <p className="text-[10px] mt-1 opacity-80 leading-normal">
             {currentUser.role === 'teacher'
               ? t('nav.privacyTeacherNote')
               : t('nav.privacyStudentNote')}

@@ -26,7 +26,8 @@ export const StudentDashboard: React.FC = () => {
     setSelectedReportId,
   } = useApp();
   const { t, formatCurrency, formatNumber } = useI18n();
-  const { currentTheme } = useSeasonalTheme();
+  const { activeThemeId, currentTheme } = useSeasonalTheme();
+  const isDefaultTheme = activeThemeId === 'default';
 
   if (!currentUser) return null;
 
@@ -65,40 +66,60 @@ export const StudentDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Festive Hero Greeting for Student */}
-      <div
-        className="relative overflow-hidden rounded-2xl p-6 border shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition-all"
-        style={{
-          background: currentTheme.bannerGradient,
-          borderColor: currentTheme.palette.border,
-        }}
-      >
-        <div className="space-y-1 z-10">
-          <h1
-            className="text-2xl font-bold tracking-tight"
-            style={{
-              color: currentTheme.palette.primary,
-              fontFamily: currentTheme.typography.displayFont,
-            }}
+      {/* Header Greeting: Default clean vs. Seasonal banner */}
+      {isDefaultTheme ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              {t('dashboard.studentTitle') || 'Không gian học tập'}
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1 font-normal">
+              {t('dashboard.studentSubtitle') || 'Theo dõi tiến độ bài tập, nhận xét của giáo viên và mục tiêu IELTS.'}
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab('find_course')}
+            className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-2xs shrink-0 cursor-pointer"
           >
-            {currentTheme.hero.title}
-          </h1>
-          <p
-            className="text-xs sm:text-sm font-medium"
-            style={{ color: currentTheme.palette.textSecondary }}
-          >
-            {currentTheme.hero.subtitle}
-          </p>
+            <BookOpen className="w-4 h-4" />
+            <span>{t('nav.findCourse')}</span>
+          </button>
         </div>
-        <button
-          onClick={() => setActiveTab('find_course')}
-          className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold text-white shadow-xs transition-colors shrink-0 z-10"
-          style={{ backgroundColor: currentTheme.palette.primary }}
+      ) : (
+        <div
+          className="relative overflow-hidden rounded-2xl p-6 border shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition-all"
+          style={{
+            background: currentTheme.bannerGradient,
+            borderColor: currentTheme.palette.border,
+          }}
         >
-          <BookOpen className="w-4 h-4" />
-          <span>{t('nav.findCourse')}</span>
-        </button>
-      </div>
+          <div className="space-y-1 z-10">
+            <h1
+              className="text-2xl font-bold tracking-tight"
+              style={{
+                color: currentTheme.palette.primary,
+                fontFamily: currentTheme.typography.displayFont,
+              }}
+            >
+              {currentTheme.hero.title}
+            </h1>
+            <p
+              className="text-xs sm:text-sm font-medium"
+              style={{ color: currentTheme.palette.textSecondary }}
+            >
+              {currentTheme.hero.subtitle}
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab('find_course')}
+            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold text-white shadow-xs transition-colors shrink-0 z-10"
+            style={{ backgroundColor: currentTheme.palette.primary }}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>{t('nav.findCourse')}</span>
+          </button>
+        </div>
+      )}
 
       {/* Top Cards: Enrolled courses, Assignments due, Monthly Reports, Tuition balance */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

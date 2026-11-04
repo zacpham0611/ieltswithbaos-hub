@@ -9,35 +9,73 @@ import type { SeasonalThemeId } from './types';
  * Authentic Vietnamese Brush Calligraphy for Tết Hero Greeting
  * Matches the approved master design reference screenshot exactly.
  */
+/**
+ * Authentic Vietnamese Brush Calligraphy for Tết Hero Greeting (Thư Pháp Việt)
+ * Features traditional calligraphic strokes, artist red seal (ấn triện), and golden flourishes.
+ */
 export const TetCalligraphyTitle: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <div className={`flex flex-col select-none ${className}`}>
-    {/* Main headline: Chào mừng thầy cô trở lại! */}
-    <div className="relative inline-block">
-      <span
-        style={{
-          fontFamily: "'Playfair Display', 'Cormorant Garamond', serif",
-          fontStyle: 'italic',
-          letterSpacing: '-0.02em',
-        }}
-        className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-[#B92735] drop-shadow-xs leading-tight"
-      >
-        Chào mừng thầy cô trở lại!
-      </span>
+  <div
+    className={`flex flex-col select-none relative ${className}`}
+    role="heading"
+    aria-level={1}
+    aria-label="Chào mừng thầy cô trở lại! Chúc một năm mới An Khang – Thịnh Vượng!"
+  >
+    {/* Decorative Top Flourish & Artist Seal */}
+    <div className="flex items-center gap-3">
+      {/* Traditional Red Seal Stamp (Ấn Triện Thư Pháp "Phúc - Xuân") */}
+      <div className="shrink-0 w-8 h-8 rounded-md bg-[#B92735] border border-[#F3C262] shadow-xs flex items-center justify-center rotate-[-3deg] hover:rotate-0 transition-transform">
+        <svg viewBox="0 0 32 32" className="w-6 h-6 text-[#FFF7EF]" fill="currentColor">
+          {/* Traditional Seal Script Glyphs representing "Xuân" / "Phúc" */}
+          <rect x="2" y="2" width="28" height="28" rx="2" fill="none" stroke="#F3C262" strokeWidth="1.2" strokeDasharray="1 1" />
+          <path d="M7 8 H25 M16 8 V16 M9 16 H23 M11 19 H21 M13 22 H19 M16 22 V27" stroke="#FFF7EF" strokeWidth="1.6" strokeLinecap="round" />
+          <circle cx="16" cy="12" r="1.5" fill="#F3C262" />
+        </svg>
+      </div>
+
+      {/* Main Calligraphy Headline: Chào mừng thầy cô trở lại! */}
+      <div className="relative inline-block">
+        <span
+          style={{
+            fontFamily: "'Playfair Display', 'Cormorant Garamond', 'Be Vietnam Pro', serif",
+            fontStyle: 'italic',
+            letterSpacing: '-0.015em',
+            textShadow: '0 2px 4px rgba(185, 39, 53, 0.15)',
+          }}
+          className="text-2xl sm:text-3xl md:text-4xl font-black text-[#B92735] leading-tight flex items-baseline gap-1"
+        >
+          <span>Chào mừng thầy cô trở lại!</span>
+        </span>
+
+        {/* Dynamic Calligraphy Brush Stroke Underline */}
+        <svg
+          viewBox="0 0 240 12"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="w-48 sm:w-64 h-2.5 mt-0.5 text-[#B92735] opacity-80"
+        >
+          <path
+            d="M2 6 Q 60 1, 120 7 Q 180 11, 238 4 Q 190 8, 120 5 Q 50 3, 2 6 Z"
+            fill="currentColor"
+          />
+        </svg>
+      </div>
     </div>
 
-    {/* Subtitle with calligraphy emphasis: Chúc một năm mới An Khang – Thịnh Vượng! */}
-    <p className="mt-1 text-xs sm:text-sm md:text-base font-semibold text-[#8B3A3E] flex flex-wrap items-center gap-1.5">
-      <span>Chúc một năm mới</span>
+    {/* Subtitle with Thư Pháp Emphasis: Chúc một năm mới An Khang – Thịnh Vượng! */}
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs sm:text-sm md:text-base font-semibold text-[#8B3A3E]">
+      <span className="opacity-90">Chúc một năm mới</span>
       <span
         style={{
-          fontFamily: "'Playfair Display', serif",
+          fontFamily: "'Playfair Display', 'Be Vietnam Pro', serif",
           fontStyle: 'italic',
         }}
-        className="font-black text-[#B92735] underline decoration-[#D6A64F] decoration-2 underline-offset-4"
+        className="font-black text-[#B92735] relative px-1"
       >
-        An Khang – Thịnh Vượng!
+        <span>An Khang – Thịnh Vượng!</span>
+        {/* Gold calligraphic ribbon flourish */}
+        <span className="absolute bottom-0 left-0 w-full h-[2.5px] bg-gradient-to-r from-[#D6A64F] via-[#F3C262] to-[#B92735] rounded-full" />
       </span>
-    </p>
+    </div>
   </div>
 );
 

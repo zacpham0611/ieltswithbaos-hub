@@ -48,12 +48,14 @@ export const Navbar: React.FC = () => {
   const myNotifications = notifications.filter((n) => n.userId === currentUser.id);
   const unreadCount = myNotifications.filter((n) => !n.read).length;
 
+  const isDefaultTheme = activeThemeId === 'default';
+
   return (
     <header
       className="no-print h-16 px-4 md:px-8 flex items-center justify-between sticky top-0 z-30 transition-colors duration-200 border-b"
       style={{
-        backgroundColor: currentTheme.palette.mainBg,
-        borderColor: currentTheme.palette.border,
+        backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.mainBg,
+        borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
       }}
     >
@@ -61,9 +63,9 @@ export const Navbar: React.FC = () => {
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-2.5">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm transition-transform hover:scale-105"
+            className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-lg shadow-xs transition-transform hover:scale-105"
             style={{
-              backgroundColor: currentTheme.palette.primary,
+              backgroundColor: isDefaultTheme ? '#2563EB' : currentTheme.palette.primary,
               color: '#FFFFFF',
             }}
           >
@@ -71,17 +73,21 @@ export const Navbar: React.FC = () => {
           </div>
           <div className="flex flex-col">
             <span
-              className="font-bold tracking-tight text-base leading-tight uppercase"
+              className="font-extrabold tracking-tight text-base leading-tight uppercase"
               style={{
-                color: currentTheme.palette.primary,
+                color: isDefaultTheme ? '#0F172A' : currentTheme.palette.primary,
                 letterSpacing: '0.02em',
               }}
             >
               {t('common.appName')}
             </span>
             <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
-              style={{ color: currentTheme.palette.textSecondary }}
+              className="text-[11px] font-bold uppercase tracking-wider"
+              style={{
+                color: isDefaultTheme
+                  ? (currentUser.role === 'teacher' ? '#B91C1C' : '#2563EB')
+                  : currentTheme.palette.textSecondary,
+              }}
             >
               {currentUser.role === 'teacher'
                 ? t('nav.teacherWorkspace')
@@ -220,9 +226,9 @@ export const Navbar: React.FC = () => {
         <div className="relative">
           <button
             onClick={() => setShowNotifMenu(!showNotifMenu)}
-            className="relative p-2 rounded-lg transition-colors"
+            className="relative p-2 rounded-lg transition-colors hover:bg-black/5"
             style={{
-              color: currentTheme.palette.primary,
+              color: isDefaultTheme ? '#EF4444' : currentTheme.palette.primary,
               backgroundColor: 'transparent',
             }}
             title={t('nav.notifications')}
@@ -231,7 +237,7 @@ export const Navbar: React.FC = () => {
             {unreadCount > 0 && (
               <span
                 className="absolute top-1 right-1 w-4 h-4 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white"
-                style={{ backgroundColor: currentTheme.palette.primary }}
+                style={{ backgroundColor: isDefaultTheme ? '#EF4444' : currentTheme.palette.primary }}
               >
                 {unreadCount}
               </span>
@@ -291,17 +297,16 @@ export const Navbar: React.FC = () => {
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center space-x-2.5 p-1 rounded-lg transition-colors border"
+            className="flex items-center space-x-2.5 p-1 rounded-lg transition-colors hover:bg-black/5"
             style={{
-              backgroundColor: currentTheme.palette.cardSurface,
-              borderColor: currentTheme.palette.border,
+              backgroundColor: isDefaultTheme ? 'transparent' : currentTheme.palette.cardSurface,
+              borderColor: isDefaultTheme ? 'transparent' : currentTheme.palette.border,
             }}
           >
             <img
               src={currentUser.avatar}
               alt={currentUser.name}
-              className="w-8 h-8 rounded-full object-cover border"
-              style={{ borderColor: currentTheme.palette.border }}
+              className="w-8 h-8 rounded-full object-cover border border-slate-200"
             />
             <div className="hidden md:flex flex-col text-left pr-1">
               <span className="text-xs font-bold leading-tight" style={{ color: currentTheme.palette.textMain }}>

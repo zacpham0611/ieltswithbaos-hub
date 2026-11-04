@@ -31,8 +31,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(185, 39, 53, 0.08)',
     },
     typography: {
-      displayFont: "'Playfair Display', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Playfair Display', 'Be Vietnam Pro', Georgia, serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Chào mừng thầy cô trở lại!',
@@ -73,7 +73,7 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
     },
     typography: {
       displayFont: "'Fredoka', system-ui, sans-serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Chào mừng năm học mới rực rỡ!',
@@ -113,8 +113,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(194, 94, 0, 0.08)',
     },
     typography: {
-      displayFont: "'Cinzel', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Cormorant Garamond', 'Be Vietnam Pro', Georgia, serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Tết Đoàn Viên – Trăng Rằm Ấm Áp',
@@ -154,8 +154,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(107, 70, 193, 0.08)',
     },
     typography: {
-      displayFont: "'Cinzel', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Cinzel', 'Be Vietnam Pro', Georgia, serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Mùa Phép Thuật & Đột Phá Điểm Số',
@@ -195,8 +195,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(197, 48, 89, 0.08)',
     },
     typography: {
-      displayFont: "'Cormorant Garamond', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Playfair Display', 'Be Vietnam Pro', Georgia, serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Tôn Vinh Phái Đẹp – Nở Rộ Tri Thức',
@@ -236,8 +236,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(184, 58, 75, 0.08)',
     },
     typography: {
-      displayFont: "'Playfair Display', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Lora', 'Be Vietnam Pro', serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Duyên Dáng Việt Nam – Rạng Rỡ 20/10',
@@ -277,8 +277,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(47, 107, 85, 0.08)',
     },
     typography: {
-      displayFont: "'Lora', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Lora', 'Be Vietnam Pro', Georgia, serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Tri Ân Người Gieo Hạt – Ngày Nhà Giáo 20/11',
@@ -318,8 +318,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(46, 107, 78, 0.08)',
     },
     typography: {
-      displayFont: "'Cinzel', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Cinzel', 'Be Vietnam Pro', Georgia, serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Giáng Sinh An Lành & Ấm Áp',
@@ -359,8 +359,8 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
       shadow: '0 4px 20px -2px rgba(55, 80, 122, 0.08)',
     },
     typography: {
-      displayFont: "'Playfair Display', Georgia, serif",
-      bodyFont: "'Plus Jakarta Sans', system-ui, sans-serif",
+      displayFont: "'Playfair Display', 'Be Vietnam Pro', Georgia, serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
       title: 'Chào Năm Mới – Khởi Đầu Thành Công Mới',
@@ -384,37 +384,37 @@ export const seasonalThemesData: Record<SeasonalThemeId, SeasonalThemeData> = {
     name: 'Mặc định (Hiện đại)',
     labelVi: 'Mặc định (Giao diện Tiêu chuẩn)',
     labelEn: 'Standard Theme',
-    visualIdentity: 'Thiết kế hiện đại, trung tính, tối ưu cho môi trường giáo dục tiêu chuẩn',
+    visualIdentity: 'Thiết kế hiện đại, trung tính, thanh lịch với tông Navy đậm nguyên bản',
     palette: {
       mainBg: '#F8FAFC',
       secondaryBg: '#F1F5F9',
-      sidebarBg: '#0F172A',
+      sidebarBg: '#0B1528',
       cardSurface: '#FFFFFF',
       primary: '#2563EB',
-      secondary: '#475569',
+      secondary: '#64748B',
       supporting: '#E2E8F0',
       accent: '#3B82F6',
       textMain: '#0F172A',
       textSecondary: '#64748B',
       border: '#E2E8F0',
-      shadow: '0 4px 12px -2px rgba(15, 23, 42, 0.06)',
+      shadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)',
     },
     typography: {
-      displayFont: "'Inter', system-ui, sans-serif",
-      bodyFont: "'Inter', system-ui, sans-serif",
+      displayFont: "'Be Vietnam Pro', system-ui, sans-serif",
+      bodyFont: "'Be Vietnam Pro', system-ui, sans-serif",
     },
     hero: {
-      title: 'Chào mừng thầy cô trở lại!',
-      subtitle: 'Hệ thống quản lý giảng dạy và luyện thi IELTS toàn diện.',
+      title: 'Bảng điều khiển Giáo viên',
+      subtitle: 'Tổng quan không gian giảng dạy và tiến độ lớp học',
       aiButtonText: 'Trợ lý AI Giảng dạy',
       createButtonText: 'Tạo khóa học mới',
     },
-    bannerGradient: 'linear-gradient(135deg, #EFF6FF 0%, #F8FAFC 100%)',
+    bannerGradient: '#FFFFFF',
     bottomBanner: {
       title: 'Vận hành Tháng & Đối soát',
       subtitle: 'Soạn báo cáo đánh giá định kỳ dựa trên bằng chứng học tập thật tế và lập phiếu học phí minh bạch. Mọi thông tin đều được cập nhật chính xác.',
-      badgeIconColor: '#2563EB',
-      gradient: 'linear-gradient(90deg, #1E293B 0%, #334155 100%)',
+      badgeIconColor: '#38BDF8',
+      gradient: 'linear-gradient(90deg, #0B1528 0%, #16243E 100%)',
       button1Text: 'Quản lý báo cáo',
       button2Text: 'Kiểm tra phiếu học phí',
     },

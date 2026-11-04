@@ -77,84 +77,110 @@ export const TeacherDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* =====================================================================
-          1. FESTIVE SEASONAL HERO BANNER (MATCHES APPROVED TẾT MASTER REFERENCE)
+          1. HEADER AREA: ORIGINAL CLEAN DEFAULT HEADER vs. SEASONAL HERO BANNER
           ===================================================================== */}
-      <div
-        className="relative overflow-hidden rounded-2xl md:rounded-3xl border p-5 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 transition-all shadow-xs"
-        style={{
-          background: currentTheme.bannerGradient,
-          borderColor: currentTheme.palette.border,
-        }}
-      >
-        {/* Subtle decorative branch in top-right corner if theme has one */}
-        {HeroBranch && (
-          <div className="absolute -top-1 -right-1 pointer-events-none z-0 opacity-90 hidden sm:block">
-            <HeroBranch />
+      {isDefaultTheme ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900">
+              Bảng điều khiển Giáo viên
+            </h1>
+            <p className="text-xs md:text-sm text-slate-500 mt-1 font-normal">
+              Tổng quan không gian giảng dạy và tiến độ lớp học
+            </p>
           </div>
-        )}
-
-        {/* Mascot + Typography Container */}
-        <div className="flex flex-col sm:flex-row items-center gap-5 z-10 w-full md:w-auto text-center sm:text-left">
-          {HeroMascot && (
-            <div className="shrink-0 transition-transform hover:scale-105 duration-300">
-              <HeroMascot />
+          <div className="flex items-center space-x-3 shrink-0">
+            <button
+              onClick={() => setActiveTab('ai_assistant')}
+              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-indigo-50/90 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 transition-colors shadow-2xs cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Trợ lý AI Giảng dạy</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('courses')}
+              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-2xs cursor-pointer"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>Tạo khóa học mới</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="relative overflow-hidden rounded-2xl md:rounded-3xl border p-5 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 transition-all shadow-xs"
+          style={{
+            background: currentTheme.bannerGradient,
+            borderColor: currentTheme.palette.border,
+          }}
+        >
+          {HeroBranch && (
+            <div className="absolute -top-1 -right-1 pointer-events-none z-0 opacity-90 hidden sm:block">
+              <HeroBranch />
             </div>
           )}
 
-          <div className="space-y-1.5 max-w-xl">
-            {currentTheme.hero.titleCustomComponent ? (
-              currentTheme.hero.titleCustomComponent
-            ) : (
-              <h1
-                className="text-2xl md:text-3xl font-extrabold tracking-tight"
+          <div className="flex flex-col sm:flex-row items-center gap-5 z-10 w-full md:w-auto text-center sm:text-left">
+            {HeroMascot && (
+              <div className="shrink-0 transition-transform hover:scale-105 duration-300">
+                <HeroMascot />
+              </div>
+            )}
+
+            <div className="space-y-1.5 max-w-xl">
+              {currentTheme.hero.titleCustomComponent ? (
+                currentTheme.hero.titleCustomComponent
+              ) : (
+                <h1
+                  className="text-2xl md:text-3xl font-extrabold tracking-tight"
+                  style={{
+                    color: currentTheme.palette.primary,
+                    fontFamily: currentTheme.typography.displayFont,
+                  }}
+                >
+                  {currentTheme.hero.title}
+                </h1>
+              )}
+
+              <p
+                className="text-xs md:text-sm italic font-medium leading-relaxed"
                 style={{
-                  color: currentTheme.palette.primary,
+                  color: currentTheme.palette.textSecondary,
                   fontFamily: currentTheme.typography.displayFont,
                 }}
               >
-                {currentTheme.hero.title}
-              </h1>
-            )}
+                {currentTheme.hero.subtitle}
+              </p>
+            </div>
+          </div>
 
-            <p
-              className="text-xs md:text-sm italic font-medium leading-relaxed"
+          <div className="flex items-center space-x-3 shrink-0 z-10 w-full sm:w-auto justify-center sm:justify-end">
+            <button
+              onClick={() => setActiveTab('ai_assistant')}
+              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold transition-all shadow-xs hover:opacity-90 hover:shadow-sm"
               style={{
-                color: currentTheme.palette.textSecondary,
-                fontFamily: currentTheme.typography.displayFont,
+                backgroundColor: currentTheme.palette.secondaryBg,
+                color: currentTheme.palette.primary,
+                border: `1px solid ${currentTheme.palette.border}`,
               }}
             >
-              {currentTheme.hero.subtitle}
-            </p>
+              <Sparkles className="w-3.5 h-3.5" style={{ color: currentTheme.palette.primary }} />
+              <span>{currentTheme.hero.aiButtonText}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('courses')}
+              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold text-white transition-all shadow-xs hover:opacity-95 hover:shadow-sm"
+              style={{
+                backgroundColor: currentTheme.palette.primary,
+              }}
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>{currentTheme.hero.createButtonText}</span>
+            </button>
           </div>
         </div>
-
-        {/* Right CTA Action Buttons */}
-        <div className="flex items-center space-x-3 shrink-0 z-10 w-full sm:w-auto justify-center sm:justify-end">
-          <button
-            onClick={() => setActiveTab('ai_assistant')}
-            className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold transition-all shadow-xs hover:opacity-90 hover:shadow-sm"
-            style={{
-              backgroundColor: isDefaultTheme ? '#EEF2FF' : currentTheme.palette.secondaryBg,
-              color: currentTheme.palette.primary,
-              border: `1px solid ${currentTheme.palette.border}`,
-            }}
-          >
-            <Sparkles className="w-3.5 h-3.5" style={{ color: currentTheme.palette.primary }} />
-            <span>{currentTheme.hero.aiButtonText}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('courses')}
-            className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-full text-xs font-semibold text-white transition-all shadow-xs hover:opacity-95 hover:shadow-sm"
-            style={{
-              backgroundColor: currentTheme.palette.primary,
-            }}
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>{currentTheme.hero.createButtonText}</span>
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* =====================================================================
           2. THREE STATISTICS CARDS (COURSES, STUDENTS, TO REVIEW)
@@ -165,14 +191,14 @@ export const TeacherDashboard: React.FC = () => {
           onClick={() => setActiveTab('courses')}
           className="relative overflow-hidden p-5 rounded-2xl border transition-all cursor-pointer group shadow-xs hover:shadow-md"
           style={{
-            backgroundColor: currentTheme.palette.cardSurface,
-            borderColor: currentTheme.palette.border,
+            backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.cardSurface,
+            borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
           }}
         >
           <div className="flex items-center justify-between mb-2">
             <span
               className="text-[11px] font-bold uppercase tracking-wider"
-              style={{ color: currentTheme.palette.textMain }}
+              style={{ color: isDefaultTheme ? '#64748B' : currentTheme.palette.textMain }}
             >
               Khóa học đang dạy
             </span>
@@ -183,19 +209,27 @@ export const TeacherDashboard: React.FC = () => {
 
           <div
             className="text-3xl font-extrabold tracking-tight mt-1"
-            style={{ color: currentTheme.palette.textMain }}
+            style={{ color: isDefaultTheme ? '#0F172A' : currentTheme.palette.textMain }}
           >
             {formatNumber(myCourses.length)}
           </div>
 
-          <p className="text-[11px] mt-1 font-medium text-emerald-600 flex items-center space-x-1">
-            <span>↑ 0% so với tháng trước</span>
-          </p>
+          {isDefaultTheme ? (
+            <p className="text-[11px] mt-1.5 font-normal text-slate-400">
+              0 đã lưu trữ
+            </p>
+          ) : (
+            <p className="text-[11px] mt-1 font-medium text-emerald-600 flex items-center space-x-1">
+              <span>↑ 0% so với tháng trước</span>
+            </p>
+          )}
 
-          {/* Bottom right 3D Book Illustration */}
-          <div className="absolute -bottom-1 -right-1 pointer-events-none opacity-90 group-hover:scale-105 transition-transform">
-            <StatCardBookIllustration />
-          </div>
+          {/* Bottom right 3D Book Illustration in seasonal themes */}
+          {!isDefaultTheme && (
+            <div className="absolute -bottom-1 -right-1 pointer-events-none opacity-90 group-hover:scale-105 transition-transform">
+              <StatCardBookIllustration />
+            </div>
+          )}
         </div>
 
         {/* Card 2: Học viên */}
@@ -203,37 +237,45 @@ export const TeacherDashboard: React.FC = () => {
           onClick={() => setActiveTab('courses')}
           className="relative overflow-hidden p-5 rounded-2xl border transition-all cursor-pointer group shadow-xs hover:shadow-md"
           style={{
-            backgroundColor: currentTheme.palette.cardSurface,
-            borderColor: currentTheme.palette.border,
+            backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.cardSurface,
+            borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
           }}
         >
           <div className="flex items-center justify-between mb-2">
             <span
               className="text-[11px] font-bold uppercase tracking-wider"
-              style={{ color: currentTheme.palette.textMain }}
+              style={{ color: isDefaultTheme ? '#64748B' : currentTheme.palette.textMain }}
             >
               Học viên
             </span>
-            <div className="w-6 h-6 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center">
+            <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <Users className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
             </div>
           </div>
 
           <div
             className="text-3xl font-extrabold tracking-tight mt-1"
-            style={{ color: currentTheme.palette.textMain }}
+            style={{ color: isDefaultTheme ? '#0F172A' : currentTheme.palette.textMain }}
           >
             {formatNumber(distinctStudentIds.length)}
           </div>
 
-          <p className="text-[11px] mt-1 font-medium text-emerald-600 flex items-center space-x-1">
-            <span>↑ 0% so với tháng trước</span>
-          </p>
+          {isDefaultTheme ? (
+            <p className="text-[11px] mt-1.5 font-normal text-slate-400">
+              Từ các giáo viên độc lập
+            </p>
+          ) : (
+            <p className="text-[11px] mt-1 font-medium text-emerald-600 flex items-center space-x-1">
+              <span>↑ 0% so với tháng trước</span>
+            </p>
+          )}
 
-          {/* Bottom right 3D Cute Students Illustration */}
-          <div className="absolute -bottom-1 -right-1 pointer-events-none opacity-95 group-hover:scale-105 transition-transform">
-            <StatCardStudentsIllustration />
-          </div>
+          {/* Bottom right 3D Cute Students Illustration in seasonal themes */}
+          {!isDefaultTheme && (
+            <div className="absolute -bottom-1 -right-1 pointer-events-none opacity-95 group-hover:scale-105 transition-transform">
+              <StatCardStudentsIllustration />
+            </div>
+          )}
         </div>
 
         {/* Card 3: Cần xem xét */}
@@ -241,14 +283,14 @@ export const TeacherDashboard: React.FC = () => {
           onClick={() => setActiveTab('assignments')}
           className="relative overflow-hidden p-5 rounded-2xl border transition-all cursor-pointer group shadow-xs hover:shadow-md"
           style={{
-            backgroundColor: currentTheme.palette.cardSurface,
-            borderColor: currentTheme.palette.border,
+            backgroundColor: isDefaultTheme ? '#FFFFFF' : currentTheme.palette.cardSurface,
+            borderColor: isDefaultTheme ? '#E2E8F0' : currentTheme.palette.border,
           }}
         >
           <div className="flex items-center justify-between mb-2">
             <span
               className="text-[11px] font-bold uppercase tracking-wider"
-              style={{ color: currentTheme.palette.textMain }}
+              style={{ color: isDefaultTheme ? '#64748B' : currentTheme.palette.textMain }}
             >
               Cần xem xét
             </span>
@@ -259,19 +301,21 @@ export const TeacherDashboard: React.FC = () => {
 
           <div
             className="text-3xl font-extrabold tracking-tight mt-1"
-            style={{ color: currentTheme.palette.textMain }}
+            style={{ color: isDefaultTheme ? '#0F172A' : currentTheme.palette.textMain }}
           >
             {formatNumber(totalToReview)}
           </div>
 
-          <p className="text-[11px] mt-1 font-medium text-amber-700">
-            {formatNumber(pendingSubmissions.length)} bài nộp - {formatNumber(pendingRequests.length)} yêu cầu
+          <p className="text-[11px] mt-1.5 font-medium text-amber-600">
+            {formatNumber(pendingSubmissions.length)} bài nộp · {formatNumber(pendingRequests.length)} yêu cầu
           </p>
 
-          {/* Bottom right 3D Calendar Illustration */}
-          <div className="absolute -bottom-1 -right-1 pointer-events-none opacity-90 group-hover:scale-105 transition-transform">
-            <StatCardCalendarIllustration />
-          </div>
+          {/* Bottom right 3D Calendar Illustration in seasonal themes */}
+          {!isDefaultTheme && (
+            <div className="absolute -bottom-1 -right-1 pointer-events-none opacity-90 group-hover:scale-105 transition-transform">
+              <StatCardCalendarIllustration />
+            </div>
+          )}
         </div>
       </div>
 
@@ -311,10 +355,12 @@ export const TeacherDashboard: React.FC = () => {
           <div className="py-6 flex-1 flex flex-col items-center justify-center text-center">
             {totalToReview === 0 && pendingStatements.length === 0 ? (
               <div className="space-y-3">
-                <ThemeEmptyStateArtwork themeId={activeThemeId} className="w-24 h-24 mx-auto" />
+                {!isDefaultTheme && (
+                  <ThemeEmptyStateArtwork themeId={activeThemeId} className="w-24 h-24 mx-auto" />
+                )}
                 <p
-                  className="text-xs font-medium"
-                  style={{ color: currentTheme.palette.textSecondary }}
+                  className="text-xs font-normal"
+                  style={{ color: isDefaultTheme ? '#94A3B8' : currentTheme.palette.textSecondary }}
                 >
                   Tuyệt vời! Hiện không có công việc nào đang chờ xử lý.
                 </p>
@@ -448,19 +494,30 @@ export const TeacherDashboard: React.FC = () => {
       <div
         className="relative overflow-hidden rounded-2xl md:rounded-3xl p-5 md:p-6 text-white shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-5 transition-all"
         style={{
-          background: currentTheme.bottomBanner.gradient,
+          background: isDefaultTheme
+            ? 'linear-gradient(90deg, #0B1528 0%, #16243E 100%)'
+            : currentTheme.bottomBanner.gradient,
         }}
       >
         {/* Left Side: Medal icon + Description */}
         <div className="flex items-center space-x-4 max-w-2xl z-10">
-          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0 border border-white/30 shadow-xs">
-            <Award className="w-6 h-6 text-amber-200" />
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border shadow-xs"
+            style={{
+              backgroundColor: isDefaultTheme ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.2)',
+              borderColor: isDefaultTheme ? 'rgba(96, 165, 250, 0.3)' : 'rgba(255, 255, 255, 0.3)',
+            }}
+          >
+            <Award
+              className="w-6 h-6"
+              style={{ color: isDefaultTheme ? '#60A5FA' : '#FDE68A' }}
+            />
           </div>
           <div className="space-y-1">
             <h3 className="text-sm md:text-base font-bold tracking-tight text-white">
               {currentTheme.bottomBanner.title}
             </h3>
-            <p className="text-xs text-white/90 leading-relaxed">
+            <p className="text-xs text-white/90 leading-relaxed font-normal">
               {currentTheme.bottomBanner.subtitle}
             </p>
           </div>
@@ -470,20 +527,36 @@ export const TeacherDashboard: React.FC = () => {
         <div className="flex items-center space-x-3 shrink-0 z-10 w-full sm:w-auto justify-end">
           <button
             onClick={() => setActiveTab('assessments')}
-            className="px-4 py-2 rounded-full text-xs font-bold transition-all shadow-xs hover:bg-white/90"
-            style={{
-              backgroundColor: '#FFFFFF',
-              color: currentTheme.palette.primary,
-            }}
+            className={`px-4 py-2.5 text-xs font-semibold transition-all shadow-xs cursor-pointer ${
+              isDefaultTheme
+                ? 'rounded-lg bg-blue-600 hover:bg-blue-500 text-white'
+                : 'rounded-full bg-white hover:bg-white/90 text-primary'
+            }`}
+            style={
+              !isDefaultTheme
+                ? {
+                    backgroundColor: '#FFFFFF',
+                    color: currentTheme.palette.primary,
+                  }
+                : undefined
+            }
           >
             {currentTheme.bottomBanner.button1Text}
           </button>
           <button
             onClick={() => setActiveTab('tuition')}
-            className="px-4 py-2 rounded-full text-xs font-bold transition-all text-white shadow-xs hover:opacity-90"
-            style={{
-              backgroundColor: currentTheme.palette.primary,
-            }}
+            className={`px-4 py-2.5 text-xs font-semibold transition-all shadow-xs cursor-pointer ${
+              isDefaultTheme
+                ? 'rounded-lg bg-[#1E293B] hover:bg-[#334155] text-white border border-slate-700'
+                : 'rounded-full text-white hover:opacity-90'
+            }`}
+            style={
+              !isDefaultTheme
+                ? {
+                    backgroundColor: currentTheme.palette.primary,
+                  }
+                : undefined
+            }
           >
             {currentTheme.bottomBanner.button2Text}
           </button>

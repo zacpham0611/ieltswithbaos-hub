@@ -6,12 +6,13 @@ interface SeasonalThemeContextType {
   activeThemeId: SeasonalThemeId;
   currentTheme: SeasonalThemeConfig;
   setTheme: (themeId: SeasonalThemeId) => void;
+  resetToDefault: () => void;
   availableThemes: SeasonalThemeConfig[];
   isSeasonalActive: boolean;
 }
 
 const STORAGE_KEY = 'ielts_seasonal_theme';
-const DEFAULT_THEME_ID: SeasonalThemeId = 'tet';
+const DEFAULT_THEME_ID: SeasonalThemeId = 'default';
 
 const SeasonalThemeContext = createContext<SeasonalThemeContextType | undefined>(undefined);
 
@@ -29,16 +30,29 @@ export const SeasonalThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   });
 
   const currentTheme = useMemo(() => {
-    return seasonalThemes[activeThemeId] || seasonalThemes.tet;
+    return seasonalThemes[activeThemeId] || seasonalThemes.default;
   }, [activeThemeId]);
 
   const setTheme = (themeId: SeasonalThemeId) => {
     if (!seasonalThemes[themeId]) return;
     setActiveThemeId(themeId);
     try {
-      localStorage.setItem(STORAGE_KEY, themeId);
+      if (themeId === 'default') {
+        localStorage.removeItem(STORAGE_KEY);
+      } else {
+        localStorage.setItem(STORAGE_KEY, themeId);
+      }
     } catch {
       // Ignore storage write errors
+    }
+  };
+
+  const resetToDefault = () => {
+    setActiveThemeId('default');
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
     }
   };
 
@@ -74,6 +88,7 @@ export const SeasonalThemeProvider: React.FC<{ children: React.ReactNode }> = ({
         activeThemeId,
         currentTheme,
         setTheme,
+        resetToDefault,
         availableThemes,
         isSeasonalActive,
       }}
