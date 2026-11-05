@@ -1280,12 +1280,43 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3 mb-2">
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-2.5 flex-1 flex-wrap">
                           <span className="w-7 h-7 rounded-lg bg-blue-100 text-blue-800 font-bold text-sm flex items-center justify-center shrink-0">
                             {qNum}
                           </span>
-                          <span className="text-sm md:text-base font-semibold text-slate-900 leading-snug whitespace-pre-line">
-                            {renderCleanMarkdown(q.prompt || (q as any).question || (q as any).questionText, qNum)}
+                          <span className="text-sm md:text-base font-semibold text-slate-900 leading-snug whitespace-pre-line flex-1">
+                            {(() => {
+                              const rawPrompt = q.prompt || (q as any).question || (q as any).questionText || '';
+                              const isCompletion =
+                                q.type === 'sentence_completion' ||
+                                q.type === 'summary_completion' ||
+                                q.type === 'note_completion' ||
+                                q.type === 'table_completion' ||
+                                q.type === 'flowchart_completion' ||
+                                q.type === 'fill_in_the_blank';
+                              const blankRegex = /(\[\d+\]|\[blank\]|(?:\b\d{1,2}\s*)?[\.\_\…\–\-]{3,}|_{2,})/;
+                              if (isCompletion && blankRegex.test(rawPrompt)) {
+                                const parts = rawPrompt.split(blankRegex);
+                                let blankRendered = false;
+                                return parts.map((part: string, pIdx: number) => {
+                                  if (!blankRendered && blankRegex.test(part)) {
+                                    blankRendered = true;
+                                    return (
+                                      <input
+                                        key={`input_${pIdx}`}
+                                        type="text"
+                                        value={studentAns}
+                                        onChange={(e) => handleReadingAnswerChange(q.id, e.target.value)}
+                                        placeholder={`Answer (${qNum})...`}
+                                        className="inline-block mx-1.5 px-3 py-1 text-xs md:text-sm rounded-lg border-2 border-blue-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 outline-hidden font-bold bg-blue-50/50 text-blue-900 min-w-[130px] max-w-[200px] shadow-2xs"
+                                      />
+                                    );
+                                  }
+                                  return <React.Fragment key={pIdx}>{renderCleanMarkdown(part, qNum)}</React.Fragment>;
+                                });
+                              }
+                              return renderCleanMarkdown(rawPrompt, qNum);
+                            })()}
                           </span>
                         </div>
 
@@ -1494,14 +1525,15 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                         </div>
                       )}
 
-                      {/* Completion Answer Fields */}
+                      {/* Completion Answer Fields (Rendered ONLY if not already rendered inline inside prompt) */}
                       {(q.type === 'sentence_completion' ||
                         q.type === 'summary_completion' ||
                         q.type === 'note_completion' ||
                         q.type === 'table_completion' ||
                         q.type === 'flowchart_completion' ||
                         q.type === 'fill_in_the_blank' ||
-                        q.type === 'short_answer') && (
+                        q.type === 'short_answer') &&
+                        !/(\[\d+\]|\[blank\]|(?:\b\d{1,2}\s*)?[\.\_\…\–\-]{3,}|_{2,})/.test(q.prompt || (q as any).question || (q as any).questionText || '') && (
                         <div className="mt-3 pl-2 sm:pl-8 flex flex-wrap items-center gap-3">
                           <span className="text-xs md:text-sm font-bold text-slate-700">Answer:</span>
                           <input

@@ -535,6 +535,18 @@ export function detectQuestionType(
     return 'true_false_not_given';
   }
 
+  // Short-answer questions (evaluated before completion to prevent answer-space underscores from converting to sentence completion)
+  if (
+    combined.includes('short-answer') ||
+    combined.includes('short answer') ||
+    combined.includes('answer the questions below') ||
+    combined.includes('answer the question below') ||
+    combined.includes('câu hỏi ngắn') ||
+    combined.includes('trả lời câu hỏi')
+  ) {
+    return 'short_answer';
+  }
+
   // Multiple Select & Multiple Choice (evaluated early if explicit MCQ indicators or options exist)
   if (
     /(?:choose|select|which|write)\s+(?:the\s+)?(two|three|four|five|six|[2-9])\b/i.test(combined) ||
@@ -568,45 +580,70 @@ export function detectQuestionType(
   }
 
   // Matching variations
-  if (combined.includes('list of headings') || combined.includes('correct heading') || combined.includes('heading for each paragraph')) {
+  if (
+    combined.includes('list of headings') ||
+    combined.includes('correct heading') ||
+    combined.includes('heading for each paragraph') ||
+    combined.includes('choose the correct heading')
+  ) {
     return 'matching_headings';
   }
   if (
+    combined.includes('sentence ending') ||
+    combined.includes('sentence endings') ||
+    combined.includes('correct ending') ||
+    combined.includes('complete each sentence with the correct ending') ||
+    combined.includes('nối đoạn câu với phần kết thúc') ||
+    combined.includes('nối câu với phần kết thúc')
+  ) {
+    return 'matching_sentence_endings';
+  }
+  if (
     combined.includes('matching features') ||
-    combined.includes('match each statement with the correct person') ||
-    combined.includes('match each statement with the correct company') ||
+    combined.includes('nối đặc điểm') ||
+    combined.includes('classification') ||
+    combined.includes('classify the following') ||
+    combined.includes('categorisation') ||
+    combined.includes('categorization') ||
+    combined.includes('matching lists') ||
+    combined.includes('match each bird') ||
+    combined.includes('match each person') ||
+    combined.includes('match each researcher') ||
+    combined.includes('match each scientist') ||
+    combined.includes('match each author') ||
     combined.includes('match each statement with the correct') ||
     combined.includes('list of researchers') ||
     combined.includes('list of people') ||
     combined.includes('list of companies') ||
-    combined.includes('nối nhận định với')
+    combined.includes('list of points') ||
+    combined.includes('list of birds') ||
+    combined.includes('types of birds') ||
+    combined.includes('nối nhận định với') ||
+    /match\s+each\s+[^.]+?\s+with\s+(?:its\s+)?(?:the\s+)?(?:correct\s+)?(?:point|feature|person|category|item|statement|list)\b/i.test(combined)
   ) {
     return 'matching_features';
   }
   if (
-    combined.includes('which paragraph contains') ||
-    combined.includes('which section contains') ||
-    combined.includes('which paragraph mentions') ||
-    combined.includes('which paragraph gives') ||
-    combined.includes('information to paragraph') ||
-    combined.includes('paragraphs a-') ||
-    combined.includes('paragraph a-') ||
-    combined.includes('paragraphs a–') ||
-    combined.includes('sections, a–') ||
-    combined.includes('sections, a-') ||
-    combined.includes('write the correct letter, a-') ||
-    combined.includes('write the correct letter a-') ||
-    combined.includes('write the correct letter, a–') ||
-    (combined.includes('in boxes') && combined.includes('on your answer sheet') && (combined.includes('a-') || combined.includes('a–'))) ||
-    combined.includes('nb you may use any letter more than once') ||
-    combined.includes('you may use any letter more than once') ||
     combined.includes('matching information') ||
-    combined.includes('nối thông tin với đoạn văn')
+    combined.includes('nối thông tin với đoạn văn') ||
+    combined.includes('thematic summary') ||
+    combined.includes('match the paragraph') ||
+    combined.includes('match each paragraph') ||
+    ((combined.includes('paragraph') || combined.includes('section') || combined.includes('đoạn văn')) &&
+      (combined.includes('which paragraph contains') ||
+        combined.includes('which section contains') ||
+        combined.includes('which paragraph mentions') ||
+        combined.includes('which paragraph gives') ||
+        combined.includes('information to paragraph') ||
+        combined.includes('paragraph with its') ||
+        (combined.includes('paragraphs a-') && combined.includes('contains')) ||
+        (combined.includes('paragraph a-') && combined.includes('contains')) ||
+        (combined.includes('paragraphs a–') && combined.includes('contains')) ||
+        (combined.includes('sections, a–') && combined.includes('contains')) ||
+        (combined.includes('sections, a-') && combined.includes('contains')) ||
+        (combined.includes('nb you may use any letter more than once') && (combined.includes('paragraph') || combined.includes('section')))))
   ) {
     return 'matching_information';
-  }
-  if (combined.includes('sentence ending') || combined.includes('correct ending') || combined.includes('complete each sentence with the correct ending')) {
-    return 'matching_sentence_endings';
   }
 
   // Form Completion
@@ -640,7 +677,12 @@ export function detectQuestionType(
   if (combined.includes('complete the table') || combined.includes('table completion') || combined.includes('table below')) {
     return 'table_completion';
   }
-  if (combined.includes('flow-chart') || combined.includes('flowchart')) {
+  if (
+    /fl\s*ow\s*[-–]?\s*chart/i.test(combined) ||
+    combined.includes('flow-chart') ||
+    combined.includes('flowchart') ||
+    combined.includes('sơ đồ dòng')
+  ) {
     return 'flowchart_completion';
   }
   if (combined.includes('label the diagram') || combined.includes('diagram label') || combined.includes('diagram below')) {
@@ -802,7 +844,12 @@ export function inferUnlabelledQuestionType(
   if (combined.includes('complete the table') || combined.includes('table completion') || combined.includes('table below')) {
     return 'table_completion';
   }
-  if (combined.includes('flow-chart') || combined.includes('flowchart')) {
+  if (
+    /fl\s*ow\s*[-–]?\s*chart/i.test(combined) ||
+    combined.includes('flow-chart') ||
+    combined.includes('flowchart') ||
+    combined.includes('sơ đồ dòng')
+  ) {
     return 'flowchart_completion';
   }
   if (combined.includes('complete the sentence') || combined.includes('sentences below')) {
@@ -818,6 +865,27 @@ export function inferUnlabelledQuestionType(
   }
 
   return detectQuestionType(prompt, instructionContext, options);
+}
+
+/**
+ * Detects whether a line is an IELTS question-type banner/header
+ * (e.g. "01. Multiple Choice TYPE-01", "17. Classification TYPE-17", "TYPE-10", etc.)
+ * so it is not incorrectly matched as a real test question.
+ */
+export function isTypeBannerLine(line: string): boolean {
+  const cleaned = line.replace(/^[\|\s]+|[\|\s]+$/g, '').trim();
+  if (!cleaned) return false;
+  if (/^TYPE-\d+$/i.test(cleaned) || /TYPE-\d+/i.test(cleaned)) return true;
+  if (
+    /^(?:\d{1,2}\.)?\s*(?:Multiple Choice|Identifying Information|Identifying Writer|Matching Headings|Matching Information|Matching Features|Matching Sentence Endings|Matching Paragraph|Matching Lists|Sentence Completion|Summary Completion|Note Completion|Table Completion|Flow-?chart Completion|Diagram Labell?ing|Short-?answer Questions|Classification|Categorisation|Categorization)\b/i.test(
+      cleaned
+    ) &&
+    (/(?:TYPE-\d+|Single Choice|Multiple Select|True\s*\/\s*False|Yes\s*\/\s*No|List\s+of|With\s+a\s+Box|From\s+Passage)/i.test(cleaned) ||
+      /^\d{1,2}\.\s+(?:Multiple Choice|Identifying Information|Identifying Writer's Views|Matching Headings|Matching Information|Matching Features|Matching Sentence Endings|Sentence Completion|Summary Completion|Note Completion|Table Completion|Flow-?chart Completion|Diagram Labelling|Short-?answer Questions|Classification|Matching Lists)/i.test(cleaned))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -872,7 +940,8 @@ export function parseAnswerText(text: string): Record<string, ExtractedAnswerIte
         ? line.substring(current.markerEnd, next.index).trim()
         : line.substring(current.markerEnd).trim();
 
-      const cleanSegment = rawSegment.replace(/[,;]+$/, '').trim();
+      let cleanSegment = rawSegment.replace(/[,;]+$/, '').trim();
+      cleanSegment = cleanSegment.replace(/^\|+|\|+$/g, '').trim();
       if (!cleanSegment) continue;
 
       let answer = cleanSegment;
@@ -892,14 +961,16 @@ export function parseAnswerText(text: string): Record<string, ExtractedAnswerIte
         }
       }
 
+      answer = answer.replace(/^\|+|\|+$/g, '').trim();
+
       // Normalization of common IELTS answer formats
       const lower = answer.toLowerCase();
-      if (lower === 't' || lower === 'true') answer = 'TRUE';
-      else if (lower === 'f' || lower === 'false') answer = 'FALSE';
+      if (lower === 'true') answer = 'TRUE';
+      else if (lower === 'false') answer = 'FALSE';
       else if (lower === 'ng' || lower === 'not given') answer = 'NOT GIVEN';
-      else if (lower === 'y' || lower === 'yes') answer = 'YES';
-      else if (lower === 'n' || lower === 'no') answer = 'NO';
-      else if (/^[a-h]$/i.test(answer)) answer = answer.toUpperCase();
+      else if (lower === 'yes') answer = 'YES';
+      else if (lower === 'no') answer = 'NO';
+      else if (/^[a-p]$/i.test(answer)) answer = answer.toUpperCase();
 
       results[current.qNum] = {
         qNum: current.qNum,
@@ -1176,14 +1247,19 @@ function extractPassageHtml(
   return qSplit !== -1 ? rawSlice.slice(0, qSplit) : rawSlice;
 }
 
-export function parseDocumentStructure(rawText: string, fallbackName: string, htmlContent?: string): DocumentStructure {
+export function parseDocumentStructure(
+  rawText: string,
+  fallbackName: string = 'Untitled Document',
+  htmlContent?: string
+): DocumentStructure {
+  const safeFallback = fallbackName || 'Untitled Document';
   const cleanRaw = normalizeOcrText(rawText)
     .replace(/\r\n/g, '\n')
     .replace(/\[\-\-\- Page \d+ \-\-\-\]/g, '')
     .replace(/\[page \d+\]/gi, '');
   const lines = cleanRaw.split('\n').map((l) => l.trim()).filter(Boolean);
 
-  const title = fallbackName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+  const title = safeFallback.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
   let detectedSkill: AssignmentSkill = 'reading';
 
   const lowerAll = rawText.toLowerCase();
@@ -1214,14 +1290,16 @@ export function parseDocumentStructure(rawText: string, fallbackName: string, ht
   }
   let answerKeyStartIndex = -1;
   const answerKeyHeaderRegex =
-    /^(?:#+\s*)?(?:(?:ielts\s+)?reading\s+)?(?:answer\s*keys?|answers?|correct\s*answers?|dap\s*an|đáp\s*án|key\s*\/?\s*answers?)(?:\s*(?:&|and|\+)\s*(?:explanations?|giải\s*thích|citations?))?[:\s]*$/i;
+    /^(?:#+\s*)?(?:(?:ielts\s+)?(?:reading|listening)\s+)?(?:answer\s*keys?|answers?|correct\s*answers?|dap\s*an|đáp\s*án|key\s*\/?\s*answers?)(?:\s*(?:&|and|\+|\:|\-|\–)\s*(?:explanations?|giải\s*thích|citations?|key|reading|listening|answers?|[^\n]+))?[:\s]*$/i;
 
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i].trim();
     if (
       answerKeyHeaderRegex.test(l) ||
-      l.toLowerCase().startsWith('answer key:') ||
-      l.toLowerCase().startsWith('đáp án:') ||
+      l.toLowerCase().startsWith('answer key') ||
+      l.toLowerCase().startsWith('đáp án') ||
+      l.toLowerCase().startsWith('key reading') ||
+      l.toLowerCase().startsWith('reading answer key') ||
       l.toLowerCase().startsWith('answers:') ||
       l.toLowerCase().startsWith('correct answers:')
     ) {
@@ -2021,18 +2099,32 @@ function parseSinglePassage(
   const groupRanges: { title: string; lines: string[] }[] = [];
   let currentGroupTitle = 'Questions';
   let currentGroupLines: string[] = [];
+  let pendingBanners: string[] = [];
 
   for (const qLine of questionLines) {
+    if (isTypeBannerLine(qLine)) {
+      pendingBanners.push(qLine);
+      continue;
+    }
+
     const qGroupMatch = qLine.match(/^(?:dạng\s+câu\s+hỏi.*)?(q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+(?:[\s\-\–to\,and\&]+\d+)?)/i);
     if (qGroupMatch) {
       if (currentGroupLines.length > 0) {
         groupRanges.push({ title: currentGroupTitle, lines: currentGroupLines });
       }
       currentGroupTitle = qGroupMatch[1];
-      currentGroupLines = [];
+      currentGroupLines = [...pendingBanners];
+      pendingBanners = [];
     } else {
+      if (pendingBanners.length > 0) {
+        currentGroupLines.push(...pendingBanners);
+        pendingBanners = [];
+      }
       currentGroupLines.push(qLine);
     }
+  }
+  if (pendingBanners.length > 0) {
+    currentGroupLines.push(...pendingBanners);
   }
   if (currentGroupLines.length > 0) {
     groupRanges.push({ title: currentGroupTitle, lines: currentGroupLines });
@@ -2064,7 +2156,8 @@ function parseSinglePassage(
     let preInFeatures = false;
     let preInHeadings = false;
     let preInSentenceEndings = false;
-    for (const l of gRange.lines) {
+    for (const rawL of gRange.lines) {
+      const l = rawL.replace(/^\|\s*|\s*\|$/g, '').trim();
       if (/list\s+of\s+headings/i.test(l)) {
         preInHeadings = true;
         preInWordBox = false;
@@ -2075,7 +2168,10 @@ function parseSinglePassage(
         inlineHeadings.forEach((h) => headingsList.push(h.trim()));
         continue;
       }
-      if (/list\s+of\s+(?:sentence\s+endings|endings)|sentence\s+endings/i.test(l)) {
+      if (
+        /list\s+of\s+(?:sentence\s+endings|endings)|sentence\s+endings/i.test(l) ||
+        /complete\s+each\s+sentence\s+with\s+the\s+correct\s+ending/i.test(l)
+      ) {
         preInSentenceEndings = true;
         preInWordBox = false;
         preInFeatures = false;
@@ -2089,7 +2185,13 @@ function parseSinglePassage(
         preInSentenceEndings = false;
         continue;
       }
-      if (/^list\s+of\s+(?:researchers|people|scientists|authors|experts|theories|categories|features|companies|organizations|names|places|statements|items)/i.test(l.trim())) {
+      if (
+        /^list\s+of\s+(?:points|researchers|people|scientists|authors|experts|theories|categories|features|companies|organizations|names|places|statements|items)/i.test(l) ||
+        /^(?:points|features|researchers)\s+which\s+the\s+author\s+wishes/i.test(l) ||
+        /classify\s+the\s+following/i.test(l) ||
+        /belonging\s+to\s*:/i.test(l) ||
+        /^list(?:\s+\d+)?[:\s]+(?:innovation\s+categories|categories|items|features|theories)/i.test(l)
+      ) {
         preInFeatures = true;
         preInWordBox = false;
         preInHeadings = false;
@@ -2113,12 +2215,20 @@ function parseSinglePassage(
         }
       }
       if (preInFeatures) {
+        // Also check if line contains multiple options like "A Accidental Inventions B Commercial Brands"
+        const inlineOpts = Array.from(l.matchAll(/(?:^|\s)([A-P])(?:[\.\:\)]|\s+)(.*?)(?=(?:\s+[A-P](?:[\.\:\)]|\s+)|\s*$))/gi));
+        if (inlineOpts.length >= 2) {
+          for (const m of inlineOpts) {
+            featuresList.push(`${m[1].toUpperCase()}. ${m[2].trim()}`);
+          }
+          continue;
+        }
         const featMatch = l.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
         if (featMatch && featMatch[2].trim()) {
           featuresList.push(`${featMatch[1].toUpperCase()}. ${featMatch[2].trim()}`);
         } else if (/^([A-P])$/i.test(l)) {
           const letterMatch = l.match(/^([A-P])$/i)!;
-          const nextL = gRange.lines[gRange.lines.indexOf(l) + 1]?.trim();
+          const nextL = gRange.lines[gRange.lines.indexOf(rawL) + 1]?.replace(/^\|\s*|\s*\|$/g, '').trim();
           if (nextL && !/^[A-P]$/i.test(nextL) && !/^(?:Questions?|\d{1,2}[\.\:\)])/i.test(nextL) && !/list\s+of/i.test(nextL)) {
             featuresList.push(`${letterMatch[1].toUpperCase()}. ${nextL}`);
           }
@@ -2160,6 +2270,15 @@ function parseSinglePassage(
         continue;
       }
 
+      // Skip question-type banner headers so they are never parsed as questions
+      if (isTypeBannerLine(line)) {
+        const detectedType = detectQuestionType('', line);
+        if (detectedType && detectedType !== 'short_answer') {
+          detectedGroupMetaType = detectedType;
+        }
+        continue;
+      }
+
       // Check for Word Limit in instruction
       const wl = extractWordLimitInfo(line);
       if (wl.limitStr) {
@@ -2168,17 +2287,58 @@ function parseSinglePassage(
         continue;
       }
 
+      const unpipedLine = line.replace(/^\|\s*|\s*\|$/g, '').trim();
+      const isTableOrHeader =
+        line.trim().startsWith('|') ||
+        /^(?:list\s+of\s+(?:headings|words|terms|researchers|people|categories|features|companies|organizations|names|places|points)|points\s+which\s+the\s+author|letter\s+person|person\s+letter|letter|person)[:\s]*$/i.test(unpipedLine);
+
+      if (isTableOrHeader && currentQ) {
+        finalizeQuestion(
+          currentQ,
+          groupQuestions,
+          effectiveAnswerKeys,
+          groupInstructions.join(' '),
+          wordLimitInfo,
+          effectiveDetails
+        );
+        currentQ = null;
+      }
+
       // Skip list declaration headers and items if already extracted in pre-pass
-      if (/^(?:list\s+of\s+(?:headings|words|terms|researchers|people|categories|features|companies|organizations|names|places)|letter\s+person|person\s+letter|letter|person)[:\s]*$/i.test(line.trim())) {
+      if (/^(?:list\s+of\s+(?:headings|words|terms|researchers|people|categories|features|companies|organizations|names|places|points)|points\s+which\s+the\s+author|letter\s+person|person\s+letter|letter|person)[:\s]*$/i.test(unpipedLine)) {
         continue;
       }
-      if (optionsBox.length > 0 || featuresList.length > 0) {
-        const itemMatch = line.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+      if (optionsBox.length > 0 || featuresList.length > 0 || sentenceEndingsList.length > 0) {
+        const itemMatch = unpipedLine.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
         if (itemMatch) {
           const letter = itemMatch[1].toUpperCase();
-          const isBoxItem = optionsBox.some((o) => o.startsWith(letter)) || featuresList.some((f) => f.startsWith(letter));
-          // If this is a word/feature box item and not currently parsing MCQ options
+          const isBoxItem =
+            optionsBox.some((o) => o.startsWith(letter)) ||
+            featuresList.some((f) => f.startsWith(letter)) ||
+            sentenceEndingsList.some((s) => s.startsWith(letter));
+          // If this is a word/feature/sentence endings box item and not currently parsing MCQ options
           if (isBoxItem && (!currentQ || currentQ.type !== 'multiple_choice')) {
+            continue;
+          }
+        }
+      }
+
+      // Check for table rows containing options (e.g. | A ... |)
+      if (line.trim().startsWith('|')) {
+        const optRowMatch = unpipedLine.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+        if (optRowMatch) {
+          const letter = optRowMatch[1].toUpperCase();
+          const text = optRowMatch[2].trim();
+          const combinedContext = `${gRange.title} ${groupInstructions.join(' ')}`.toLowerCase();
+          if (combinedContext.includes('sentence ending') || combinedContext.includes('ending') || combinedContext.includes('kết thúc')) {
+            if (!sentenceEndingsList.some((s) => s.startsWith(letter))) {
+              sentenceEndingsList.push(`${letter}. ${text}`);
+            }
+            continue;
+          } else if (combinedContext.includes('feature') || combinedContext.includes('point') || combinedContext.includes('đặc điểm')) {
+            if (!featuresList.some((f) => f.startsWith(letter))) {
+              featuresList.push(`${letter}. ${text}`);
+            }
             continue;
           }
         }
@@ -2188,29 +2348,49 @@ function parseSinglePassage(
       let qNum: string | null = null;
       let qPrompt = '';
       let embeddedAnswer: string | null = null;
+      let multiQNums: number[] | null = null;
 
-      const stdMatch = line.match(stdQRegex);
-      if (stdMatch) {
-        const n = parseInt(stdMatch[1], 10);
-        if (n >= 1 && n <= 40) {
-          qNum = stdMatch[1];
-          qPrompt = stdMatch[2] || line;
+      const rangeQMatch = line.match(/^(?:Questions?\s+)?(\d{1,2})\s*[\–\-\—\s+to\s+]+\s*(\d{1,2})(?:[\.\:\)]|\s+(?=[A-Za-z0-9\(\"\'\_\—\–\.\…]))\s*(.*)/i);
+      if (rangeQMatch) {
+        const rStart = parseInt(rangeQMatch[1], 10);
+        const rEnd = parseInt(rangeQMatch[2], 10);
+        if (rEnd > rStart && rEnd - rStart <= 5 && rEnd <= 40) {
+          qNum = rangeQMatch[1];
+          qPrompt = rangeQMatch[3] || line;
+          multiQNums = [];
+          for (let n = rStart; n <= rEnd; n++) multiQNums.push(n);
         }
-      } else {
-        const bulletMatch = line.match(bulletQRegex);
-        if (bulletMatch) {
-          const n = parseInt(bulletMatch[1], 10);
+      }
+
+      if (!qNum) {
+        const stdMatch = line.match(stdQRegex);
+        if (stdMatch) {
+          const n = parseInt(stdMatch[1], 10);
           if (n >= 1 && n <= 40) {
-            qNum = bulletMatch[1];
-            qPrompt = line;
+            qNum = stdMatch[1];
+            qPrompt = stdMatch[2] || line;
+          }
+        } else {
+          const bulletMatch = line.match(bulletQRegex);
+          if (bulletMatch) {
+            const n = parseInt(bulletMatch[1], 10);
+            if (n >= 1 && n <= 40) {
+              qNum = bulletMatch[1];
+              qPrompt = line;
+            }
           }
         }
       }
 
+      if (qPrompt) {
+        qPrompt = qPrompt.replace(/\[\s*\d{1,2}\s*\]\s*$/, '').trim();
+      }
+
       // Check for inline blanks (e.g. Summary Completion: "...in the 33 ……………. Another variable...")
-      const inlineMatches = Array.from(line.matchAll(/(?:^|\s)(\d{1,2})\s*(?:[\.|\_|\…|\–|\-]{2,}|_{2,})/g));
-      if (!stdMatch && inlineMatches.length > 0) {
-        inlineCompletionPassages.push(line);
+      const inlineMatches = Array.from(line.matchAll(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g));
+      if (!qNum && inlineMatches.length > 0) {
+        const normalizedLine = line.replace(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g, ' [$1$2] ');
+        inlineCompletionPassages.push(normalizedLine.trim());
         if (currentQ && currentQ.prompt) {
           finalizeQuestion(
             currentQ,
@@ -2225,9 +2405,12 @@ function parseSinglePassage(
 
         const sentences = line.split(/(?<=[.!?])\s+/);
         for (const im of inlineMatches) {
-          const blankQNum = im[1];
+          const blankQNum = im[1] || im[2];
           const n = parseInt(blankQNum, 10);
           if (n >= 1 && n <= 40) {
+            if (groupQuestions.some((q) => q.id === `q_${blankQNum}`)) {
+              continue;
+            }
             let matchingSentence = sentences.find((s) => s.includes(im[0])) || line;
             const subSentences = matchingSentence.split(/(?<=[.!?]|\b[\.\_…–\-]{2,}\s+)\s+(?=[A-Z0-9])/);
             const subMatch = subSentences.find((s) => s.includes(im[0]));
@@ -2265,10 +2448,15 @@ function parseSinglePassage(
             ) {
               inlineType = 'form_completion';
             } else if (
+              /fl\s*ow\s*[-–]?\s*chart/i.test(combinedContext) ||
               combinedContext.includes('flow-chart') ||
               combinedContext.includes('flowchart')
             ) {
               inlineType = 'flowchart_completion';
+            } else if (
+              combinedContext.includes('diagram')
+            ) {
+              inlineType = 'diagram_completion';
             } else if (
               combinedContext.includes('complete the sentence') ||
               combinedContext.includes('sentences below')
@@ -2347,6 +2535,7 @@ function parseSinglePassage(
           points: 1,
           source: assignedSource,
           answerKeyConfidence: assignedKey ? 'high' : 'needs_teacher_review',
+          multiQNums: multiQNums || undefined,
         };
         continue;
       }
@@ -2376,7 +2565,18 @@ function parseSinglePassage(
         }
       } else {
         // Collect instruction lines before questions begin
-        groupInstructions.push(line);
+        const isInstruction =
+          /^(?:complete\s+the|choose\s+one\s+word|choose\s+no\s+more|write\s+your\s+answers|write\s+the\s+correct|do\s+the\s+following|in\s+boxes\s+\d+|on\s+your\s+answer\s+sheet)/i.test(line.trim());
+        const isCompletionGroup =
+          /complete\s+the\s+(?:notes|summary|table|flow-chart|form)|note\s+completion|summary\s+completion/i.test(
+            `${gRange.title} ${groupInstructions.join(' ')}`
+          );
+
+        if (isCompletionGroup && !isInstruction && !line.trim().startsWith('|')) {
+          inlineCompletionPassages.push(line.trim());
+        } else {
+          groupInstructions.push(line);
+        }
       }
     }
 
@@ -2594,6 +2794,47 @@ function parseSinglePassage(
     allQuestions.push(...groupQuestions);
   });
 
+  // Rebalance questions across groups if any question fell into another group due to multi-column PDF layout
+  for (let gi = 0; gi < questionGroups.length; gi++) {
+    const g = questionGroups[gi];
+    const rMatch = g.groupTitle.match(/(?:q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s*)(\d{1,2})\s*(?:[\-\–—]|to)\s*(\d{1,2})/i);
+    if (!rMatch) continue;
+    const gStart = parseInt(rMatch[1], 10);
+    const gEnd = parseInt(rMatch[2], 10);
+    if (isNaN(gStart) || isNaN(gEnd) || gStart > gEnd) continue;
+
+    // Check if any other group holds a question that belongs to this group
+    for (let gj = 0; gj < questionGroups.length; gj++) {
+      if (gi === gj) continue;
+      const otherGroup = questionGroups[gj];
+      const misplacedIdxs: number[] = [];
+      otherGroup.questions.forEach((q, idx) => {
+        const qN = parseInt(q.id.replace('q_', ''), 10);
+        if (!isNaN(qN) && qN >= gStart && qN <= gEnd) {
+          misplacedIdxs.push(idx);
+        }
+      });
+      if (misplacedIdxs.length > 0) {
+        misplacedIdxs.reverse().forEach((idx) => {
+          const [movedQ] = otherGroup.questions.splice(idx, 1);
+          movedQ.type = g.questionType;
+          g.questions.push(movedQ);
+        });
+        g.questions.sort((a, b) => {
+          const na = parseInt(a.id.replace('q_', ''), 10) || 0;
+          const nb = parseInt(b.id.replace('q_', ''), 10) || 0;
+          return na - nb;
+        });
+      }
+    }
+  }
+
+  // Refresh allQuestions from questionGroups
+  allQuestions.length = 0;
+  questionGroups.forEach((g) => {
+    allQuestions.push(...g.questions);
+  });
+
   // Sequential fallback mapping (e.g. Passage 2 questions 14-26, but answer key is numbered 1-13)
   const unkeyed = allQuestions.filter((q) => !q.correctAnswer);
   if (unkeyed.length > 0 && effectiveDetails) {
@@ -2639,13 +2880,51 @@ function finalizeQuestion(
   wordLimitInfo: { limitStr?: string; maxWords?: number },
   detectedAnswerDetails?: Record<string, ExtractedAnswerItem>
 ) {
+  const options = q.options && q.options.length > 0 ? q.options : undefined;
+  const multiNums: number[] | undefined = (q as any).multiQNums;
+  if (multiNums && multiNums.length > 1) {
+    for (const n of multiNums) {
+      const subNum = String(n);
+      const detailItem = detectedAnswerDetails ? detectedAnswerDetails[subNum] : undefined;
+      let key = (detailItem?.answer || detectedAnswerKey[subNum] || '').trim();
+      const citation = detailItem?.citation || undefined;
+      const subSource = detailItem || detectedAnswerKey[subNum] ? 'answer_key_extracted' : 'extracted_from_doc';
+      questions.push({
+        id: `q_${subNum}`,
+        type: 'multiple_select',
+        prompt: cleanReadingText(q.prompt) || '',
+        options,
+        wordLimit: q.wordLimit || wordLimitInfo.limitStr,
+        maxWords: q.maxWords || wordLimitInfo.maxWords,
+        correctAnswer: key,
+        citation,
+        explanation: citation ? `Citation: ${citation}` : (key ? 'Extracted from Answer Key.' : 'Extracted Multiple Selection.'),
+        points: q.points || 1,
+        source: subSource,
+        answerKeyConfidence: key ? 'high' : 'needs_teacher_review',
+        needsReview: !key,
+        multipleSelectCount: multiNums.length,
+        isTeacherEdited: false,
+      } as any);
+    }
+    return;
+  }
+
   const qNum = q.id?.replace('q_', '') || `${questions.length + 1}`;
   q.prompt = cleanReadingText(q.prompt);
-  const options = q.options && q.options.length > 0 ? q.options : undefined;
   const qType = q.type || detectQuestionType(q.prompt || '', instructionContext, options);
 
   const detailItem = detectedAnswerDetails ? detectedAnswerDetails[qNum] : undefined;
-  const key = (q.correctAnswer || detailItem?.answer || detectedAnswerKey[qNum] || '').trim();
+  let key = (q.correctAnswer || detailItem?.answer || detectedAnswerKey[qNum] || '').trim();
+  if (qType === 'true_false_not_given') {
+    if (key === 'T') key = 'TRUE';
+    else if (key === 'F') key = 'FALSE';
+    else if (key === 'NG') key = 'NOT GIVEN';
+  } else if (qType === 'yes_no_not_given') {
+    if (key === 'Y') key = 'YES';
+    else if (key === 'N') key = 'NO';
+    else if (key === 'NG') key = 'NOT GIVEN';
+  }
   const citation = q.citation || detailItem?.citation || undefined;
 
   let source: ReadingQuestion['source'] = q.source || 'extracted_from_doc';

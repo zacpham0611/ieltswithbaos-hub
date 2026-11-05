@@ -2596,7 +2596,20 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                     <span className="font-bold text-slate-800 shrink-0">#{idx + 1}</span>
                                     <select
                                       value={q.type}
-                                      onChange={(e) => updateQ({ type: e.target.value as QuestionType })}
+                                      onChange={(e) => {
+                                        const newType = e.target.value as QuestionType;
+                                        const patch: Partial<ReadingQuestion> = { type: newType };
+                                        if (newType === 'matching_features' && (!q.featuresList || q.featuresList.length === 0)) {
+                                          patch.featuresList = q.options && q.options.length > 0 ? [...q.options] : [''];
+                                        }
+                                        if ((newType === 'matching_sentence_endings' || newType === 'multiple_choice' || newType === 'multiple_select') && (!q.options || q.options.length === 0)) {
+                                          patch.options = q.featuresList && q.featuresList.length > 0 ? [...q.featuresList] : ['A. ', 'B. ', 'C. ', 'D. '];
+                                        }
+                                        if (newType === 'true_false_not_given' || newType === 'yes_no_not_given') {
+                                          patch.options = [];
+                                        }
+                                        updateQ(patch);
+                                      }}
                                       className="p-1 border border-slate-300 rounded text-xs bg-white text-slate-900 font-semibold"
                                     >
                                       <option value="multiple_choice">Multiple Choice (Single)</option>
@@ -3069,9 +3082,54 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                         ))}
                                       </div>
                                     )}
-                                    {(q.type === 'matching_information' || q.type === 'matching_sentence_endings') && (
+                                    {q.type === 'matching_sentence_endings' && (
+                                      <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Sentence Endings List</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => updateQ({ options: [...(q.options || []), ''] })}
+                                            className="text-[10px] px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded font-bold"
+                                          >
+                                            + Add Ending
+                                          </button>
+                                        </div>
+                                        {(q.options || []).map((opt, optIdx) => {
+                                          const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]?\s*(.*)$/);
+                                          const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
+                                          const optText = letterMatch ? letterMatch[2] : opt;
+                                          return (
+                                            <div key={optIdx} className="flex items-center space-x-1">
+                                              <span className="text-[10px] text-slate-400 font-bold w-5 shrink-0">{letter}.</span>
+                                              <input
+                                                type="text"
+                                                value={optText}
+                                                onChange={(e) => {
+                                                  const list = [...(q.options || [])];
+                                                  list[optIdx] = `${letter}. ${e.target.value}`;
+                                                  updateQ({ options: list });
+                                                }}
+                                                placeholder={`Ending ${letter}...`}
+                                                className="flex-1 p-1 border border-slate-200 rounded text-xs bg-white"
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => updateQ({ options: (q.options || []).filter((_, i) => i !== optIdx) })}
+                                                className="text-slate-300 hover:text-red-500 p-0.5"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+                                        <div className="bg-slate-50 rounded p-1.5 text-[10px] text-slate-500">
+                                          <span className="font-bold text-slate-600">Answer key: </span>Letter of the matching sentence ending (e.g. A, B, C...)
+                                        </div>
+                                      </div>
+                                    )}
+                                    {q.type === 'matching_information' && (
                                       <div className="bg-slate-50 rounded p-2 text-[10px] text-slate-500">
-                                        <span className="font-bold text-slate-600">Answer key format: </span>{q.type === 'matching_information' ? 'Paragraph letter (e.g. A, B, C…)' : 'Sentence ending label (e.g. A, B, C…)'}
+                                        <span className="font-bold text-slate-600">Answer key format: </span>Paragraph letter (e.g. A, B, C…)
                                       </div>
                                     )}
                                   </div>

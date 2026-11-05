@@ -130,4 +130,85 @@ assert(g2.questions.every((q) => q.type === 'matching_sentence_endings'), 'All Q
 assert(g2.optionsBox !== undefined && g2.optionsBox.length === 5, `Group 2 optionsBox contains 5 sentence endings, got ${g2.optionsBox?.length}`);
 assert(g2.questions[0].options?.length === 5, 'Q5 options contains 5 sentence endings');
 
+// 5. Primary Test Fixture: IELTS Test 2 Reading (40 Questions across 3 Passages)
+const test2ReadingPath = path.join('tests', 'fixtures', 'ielts_test_2_reading.txt');
+if (fs.existsSync(test2ReadingPath)) {
+  const test2Content = fs.readFileSync(test2ReadingPath, 'utf-8');
+  const t2ReadingDoc = parseDocumentStructure(test2Content, 'IELTS_Test2_Reading.txt');
+  assert(t2ReadingDoc.candidateTests.length === 3, `Expected 3 passages, got ${t2ReadingDoc.candidateTests.length}`);
+
+  const p1 = t2ReadingDoc.candidateTests[0];
+  const p2 = t2ReadingDoc.candidateTests[1];
+  const p3 = t2ReadingDoc.candidateTests[2];
+
+  assert(p1.questions.length === 13, `Passage 1 has 13 questions, got ${p1.questions.length}`);
+  assert(p2.questions.length === 13, `Passage 2 has 13 questions, got ${p2.questions.length}`);
+  assert(p3.questions.length === 14, `Passage 3 has 14 questions, got ${p3.questions.length}`);
+
+  // Q1-6: True/False/Not Given
+  const tfGroup = p1.questionGroups[0];
+  assert(tfGroup.questionType === 'true_false_not_given', `Q1-6 type must be true_false_not_given, got ${tfGroup.questionType}`);
+  assert(tfGroup.questions[0].correctAnswer === 'FALSE', `Q1 answer FALSE, got ${tfGroup.questions[0].correctAnswer}`);
+  assert(tfGroup.questions[1].correctAnswer === 'TRUE', `Q2 answer TRUE, got ${tfGroup.questions[1].correctAnswer}`);
+  assert(tfGroup.questions[3].correctAnswer === 'NOT GIVEN', `Q4 answer NOT GIVEN, got ${tfGroup.questions[3].correctAnswer}`);
+
+  // Q7-13: Note Completion with structured groupText
+  const noteGroup = p1.questionGroups[1];
+  assert(noteGroup.questionType === 'note_completion', `Q7-13 type must be note_completion, got ${noteGroup.questionType}`);
+  assert(Boolean(noteGroup.groupText && noteGroup.groupText.includes('[7]')), 'Note completion contains [7] placeholder');
+  assert(Boolean(noteGroup.groupText && noteGroup.groupText.includes('The ships')), 'Note completion preserves subheading The ships');
+  assert(noteGroup.questions[0].correctAnswer === 'sails', `Q7 answer sails, got ${noteGroup.questions[0].correctAnswer}`);
+  assert(noteGroup.questions[6].correctAnswer === 'money', `Q13 answer money, got ${noteGroup.questions[6].correctAnswer}`);
+
+  // Q14-18: Summary Completion with structured groupText
+  const summaryGroup = p2.questionGroups[0];
+  assert(summaryGroup.questionType === 'summary_completion', `Q14-18 type must be summary_completion, got ${summaryGroup.questionType}`);
+  assert(Boolean(summaryGroup.groupText && summaryGroup.groupText.includes('[14]')), 'Summary completion contains [14] placeholder');
+  assert(summaryGroup.questions[0].correctAnswer === 'visual memory', `Q14 answer visual memory, got ${summaryGroup.questions[0].correctAnswer}`);
+  assert(summaryGroup.questions[4].correctAnswer === '(laysan) albatross', `Q18 answer (laysan) albatross, got ${summaryGroup.questions[4].correctAnswer}`);
+
+  // Q19-22: Matching Information
+  const matchInfoGroup = p2.questionGroups[1];
+  assert(matchInfoGroup.questionType === 'matching_information', `Q19-22 type must be matching_information, got ${matchInfoGroup.questionType}`);
+  assert(matchInfoGroup.questions[0].correctAnswer === 'C', `Q19 answer C, got ${matchInfoGroup.questions[0].correctAnswer}`);
+  assert(matchInfoGroup.questions[3].correctAnswer === 'G', `Q22 answer G, got ${matchInfoGroup.questions[3].correctAnswer}`);
+
+  // Q23-26: Matching Features
+  const matchFeatGroup = p2.questionGroups[2];
+  assert(matchFeatGroup.questionType === 'matching_features', `Q23-26 type must be matching_features, got ${matchFeatGroup.questionType}`);
+  assert(matchFeatGroup.optionsBox !== undefined && matchFeatGroup.optionsBox.length === 7, `Q23-26 has 7 features, got ${matchFeatGroup.optionsBox?.length}`);
+  assert(matchFeatGroup.questions[1].correctAnswer === 'F', `Q24 answer F (not FALSE), got ${matchFeatGroup.questions[1].correctAnswer}`);
+  assert(!matchFeatGroup.questions[3].prompt.includes('|'), `Q26 prompt clean without pipe tables: "${matchFeatGroup.questions[3].prompt}"`);
+
+  // Q27-31: Yes/No/Not Given
+  const ynGroup = p3.questionGroups[0];
+  assert(ynGroup.questionType === 'yes_no_not_given', `Q27-31 type must be yes_no_not_given, got ${ynGroup.questionType}`);
+  assert(ynGroup.questions[0].correctAnswer === 'YES', `Q27 answer YES, got ${ynGroup.questions[0].correctAnswer}`);
+  assert(ynGroup.questions[1].correctAnswer === 'NO', `Q28 answer NO, got ${ynGroup.questions[1].correctAnswer}`);
+  assert(ynGroup.questions[4].correctAnswer === 'NOT GIVEN', `Q31 answer NOT GIVEN, got ${ynGroup.questions[4].correctAnswer}`);
+
+  // Q32-35: Matching Sentence Endings
+  const seGroup = p3.questionGroups[1];
+  assert(seGroup.questionType === 'matching_sentence_endings', `Q32-35 type must be matching_sentence_endings, got ${seGroup.questionType}`);
+  assert(seGroup.optionsBox !== undefined && seGroup.optionsBox.length === 8, `Q32-35 has 8 endings, got ${seGroup.optionsBox?.length}`);
+  assert(seGroup.questions[0].correctAnswer === 'F', `Q32 answer F (not FALSE), got ${seGroup.questions[0].correctAnswer}`);
+  assert(seGroup.questions[1].correctAnswer === 'G', `Q33 answer G, got ${seGroup.questions[1].correctAnswer}`);
+  assert(!seGroup.questions[3].prompt.includes('|'), `Q35 prompt clean without pipe tables: "${seGroup.questions[3].prompt}"`);
+
+  // Q36-40: Multiple Choice
+  const mcGroup = p3.questionGroups[2];
+  assert(mcGroup.questionType === 'multiple_choice', `Q36-40 type must be multiple_choice, got ${mcGroup.questionType}`);
+  assert(mcGroup.questions.length === 5, `Q36-40 has 5 questions, got ${mcGroup.questions.length}`);
+  assert(mcGroup.questions[0].correctAnswer === 'B', `Q36 answer B, got ${mcGroup.questions[0].correctAnswer}`);
+  assert(mcGroup.questions[4].correctAnswer === 'B', `Q40 answer B, got ${mcGroup.questions[4].correctAnswer}`);
+
+  // Verify none of the 40 questions have table pipe '|' in their answer key
+  const all40Qs = [...p1.questions, ...p2.questions, ...p3.questions];
+  assert(all40Qs.length === 40, `Total questions extracted = 40, got ${all40Qs.length}`);
+  all40Qs.forEach((q, idx) => {
+    assert(!q.correctAnswer?.includes('|'), `Q${idx + 1} correctAnswer '${q.correctAnswer}' does not contain pipe`);
+  });
+  console.log('[Reading] IELTS Test 2 Reading: All 40 questions and types verified successfully!');
+}
+
 console.log('✅ ALL COMPREHENSIVE READING & LISTENING AUDIT TESTS PASSED WITH 100% SUCCESS!');

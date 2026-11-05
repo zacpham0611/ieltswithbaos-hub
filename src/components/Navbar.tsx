@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import { useSeasonalTheme } from '../theme/SeasonalThemeContext';
@@ -42,6 +42,42 @@ export const Navbar: React.FC = () => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
 
+  const themeRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
+  const userRef = useRef<HTMLDivElement>(null);
+
+  // Close menus when clicking outside or pressing Escape
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (themeRef.current && !themeRef.current.contains(target)) {
+        setShowThemeMenu(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(target)) {
+        setShowNotifMenu(false);
+      }
+      if (userRef.current && !userRef.current.contains(target)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowThemeMenu(false);
+        setShowNotifMenu(false);
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   if (!currentUser) return null;
 
   const isTeacher = currentUser.role === 'teacher';
@@ -53,7 +89,7 @@ export const Navbar: React.FC = () => {
 
   return (
     <header
-      className="no-print h-16 px-4 md:px-8 flex items-center justify-between sticky top-0 z-30 transition-colors duration-200 border-b relative overflow-hidden"
+      className="no-print h-16 px-4 md:px-8 flex items-center justify-between sticky top-0 z-40 transition-colors duration-200 border-b relative"
       style={{
         backgroundColor: isDefaultTheme
           ? '#FFFFFF'
@@ -173,10 +209,14 @@ export const Navbar: React.FC = () => {
       <div className="flex items-center space-x-2 sm:space-x-3 z-10">
         {/* Seasonal Theme Switcher (Available to teachers to manage the global seasonal experience) */}
         {isTeacher && (
-          <div className="relative">
+          <div className="relative" ref={themeRef}>
             <button
-              onClick={() => setShowThemeMenu(!showThemeMenu)}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all shadow-xs"
+              onClick={() => {
+                setShowThemeMenu((prev) => !prev);
+                setShowNotifMenu(false);
+                setShowUserMenu(false);
+              }}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all shadow-xs cursor-pointer"
               style={{
                 backgroundColor: isTetTheme
                   ? 'rgba(255, 255, 255, 0.12)'
@@ -226,7 +266,7 @@ export const Navbar: React.FC = () => {
                           setTheme(theme.id);
                           setShowThemeMenu(false);
                         }}
-                        className="w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors hover:bg-black/5"
+                        className="w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors hover:bg-black/5 cursor-pointer"
                         style={{
                           backgroundColor: isSelected ? `${currentTheme.palette.primary}12` : 'transparent',
                           color: isSelected ? currentTheme.palette.primary : currentTheme.palette.textMain,
@@ -266,7 +306,7 @@ export const Navbar: React.FC = () => {
           <Globe className="w-3.5 h-3.5 opacity-70 ml-1.5 mr-0.5" />
           <button
             onClick={() => setLanguage('vi')}
-            className="px-2 py-0.5 rounded font-bold transition-all text-[11px]"
+            className="px-2 py-0.5 rounded font-bold transition-all text-[11px] cursor-pointer"
             style={{
               backgroundColor: language === 'vi'
                 ? isTetTheme ? '#B9272F' : currentTheme.palette.primary
@@ -280,7 +320,7 @@ export const Navbar: React.FC = () => {
           <span className="opacity-40">|</span>
           <button
             onClick={() => setLanguage('en')}
-            className="px-2 py-0.5 rounded font-bold transition-all text-[11px]"
+            className="px-2 py-0.5 rounded font-bold transition-all text-[11px] cursor-pointer"
             style={{
               backgroundColor: language === 'en'
                 ? isTetTheme ? '#B9272F' : currentTheme.palette.primary
@@ -294,10 +334,14 @@ export const Navbar: React.FC = () => {
         </div>
 
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative" ref={notifRef}>
           <button
-            onClick={() => setShowNotifMenu(!showNotifMenu)}
-            className="relative p-2 rounded-lg transition-colors hover:bg-black/5"
+            onClick={() => {
+              setShowNotifMenu((prev) => !prev);
+              setShowThemeMenu(false);
+              setShowUserMenu(false);
+            }}
+            className="relative p-2 rounded-lg transition-colors hover:bg-black/5 cursor-pointer"
             style={{
               color: isDefaultTheme
                 ? '#EF4444'
@@ -376,10 +420,14 @@ export const Navbar: React.FC = () => {
         </div>
 
         {/* User Profile dropdown */}
-        <div className="relative">
+        <div className="relative" ref={userRef}>
           <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center space-x-2.5 p-1 rounded-lg transition-colors hover:bg-black/5"
+            onClick={() => {
+              setShowUserMenu((prev) => !prev);
+              setShowThemeMenu(false);
+              setShowNotifMenu(false);
+            }}
+            className="flex items-center space-x-2.5 p-1 rounded-lg transition-colors hover:bg-black/5 cursor-pointer"
             style={{
               backgroundColor: isDefaultTheme
                 ? 'transparent'
@@ -452,7 +500,7 @@ export const Navbar: React.FC = () => {
                     setActiveTab('settings');
                     setShowUserMenu(false);
                   }}
-                  className="w-full text-left px-4 py-2 text-xs hover:bg-black/5 flex items-center space-x-2"
+                  className="w-full text-left px-4 py-2 text-xs hover:bg-black/5 flex items-center space-x-2 cursor-pointer"
                   style={{ color: currentTheme.palette.textMain }}
                 >
                   <Settings className="w-4 h-4 opacity-60" />
@@ -460,11 +508,11 @@ export const Navbar: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setShowUserMenu(false);
-                    logout();
+                    await logout();
                   }}
-                  className="w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                  className="w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center space-x-2 cursor-pointer"
                 >
                   <LogOut className="w-4 h-4 text-red-500" />
                   <span>{t('nav.logout')}</span>

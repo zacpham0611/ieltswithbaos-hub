@@ -1,0 +1,248 @@
+[--- Page 1 ---]
+OCR & DOCUMENT PARSING MASTER SPEC
+IELTS Reading Test Form: 18 Question Types Reference
+T à i li ệ u m ẫ u chu ẩ n h ó a to à n b ộ 18 d ạ ng c â u h ỏ i v à bi ế n th ể d ự a tr ê n b à i đ ọ c "The role of
+accidents in business"
+READING PASSAGE 3
+You should spend about 20 minutes on Questions 27–40, which are based on Reading Passage 3.
+The role of accidents in business
+[A] In 1894 Dr John Kellogg and his brother, Will, were supervising a hospital and health spa in
+Michigan. The patients were on a restricted diet. One day, the brothers left cooked wheat untended for
+more than 24 hours. When they returned, they saw what they had done. It was no good to eat, but they
+decided to run the stale wheat through rollers, just to see how it would turn out. Normally, the process
+produced long sheets, but they were surprised to discover that this time the rollers created flat flakes. They
+baked them, and then tried the same thing with corn. From this accidental discovery came the cornflakes
+that generations have now been eating for breakfast.
+[B] Accidents happen; there is nothing predictable and orderly about innovation. Nobel laureate Sir Alan
+Hodgkin, who discovered how nerve cells transmit electrical impulses between the skin and the brain,
+commented: 'I believe that the record of my published papers conveys an impression of directedness and
+planning which does not at all coincide with the actual sequence of events.'
+[C] The same rule applies in business. The mistake that gave us cornflakes keeps repeating itself in the
+history of disruptive innovation, the kind that transforms markets. Louis Daguerre, for instance,
+discovered the technique that gave us photography in the 1830s, when drops of mercury from a shattered
+thermometer produced a photographic image. The microwave was discovered when Percy Spencer, a
+scientist with Raytheon, was testing a new vacuum tube and discovered that the sweet in his pocket had
+melted. The artificial sweetener, saccharin, was the unintentional result of a medical scientist's work on a
+chemical treatment for gastric ulcers. While working for the firm 3M, researcher Art Fry had no idea he
+was taking the first steps towards Post-It Notes when he used bits of adhesive office paper that could be
+easily lifted off the page to replace the scrap paper bookmarks that kept falling out of his hymn book.
+[D] Breakthrough and disruptive innovation are rarely driven by orderly process. Usually they come out
+of a chaotic, haphazard mess, which is why big companies, full of managers schooled in business
+programmes designed to eliminate random variation and mistakes, struggle with them. In these sorts of
+environments, accidents are called failures and are discouraged.
+[E] It is no surprise then that research from the late British economist Paul Geroski and London Business
+School's Constantinos Markides found that companies that were skilled at innovation were usually not that
+skilled when it came to commercialisation, and vice versa. Their book, Fast Second , divides businesses into
+'colonists' and 'consolidators'. Small and nimble, colonists are adept at creating market niches but are
+terrible institution builders. Consolidators, with their strong cultures of discipline and cost control, know
+how to take clever ideas from other firms and turn them into mass-market items. Microsoft is a prime
+instance of this.
+IELTS Reading Complete 18 Question Types Standard Speci fi cation Page 1 of 7
+
+[--- Page 2 ---]
+[F] With companies spending hundreds of billions of dollars on research and development, US academics
+Robert Austin and Lee Devin examined how managers can encourage productive slip-ups. In their article
+Accident, Intention and Expectation in the Innovation Process , they argue that business processes actually
+prevent helpful mis-steps from occurring. According to their catalogue of accidents, not all false steps and
+mishaps are equal. Accidents, they say, come from unlikely mental associations such as memories and
+vague connections, looking for something and finding it in an unexpected way, looking for one thing and
+finding something else, and not looking for anything but finding something valuable.
+[G] Accident-prone innovation, they say, requires companies to get outside the 'cone of expectation'. It
+means throwing together groups from diverse backgrounds, and combining ideas in unpredictable ways.
+Other strategies also include having systems that watch out for accidents and examine them for value,
+generating them when they do not happen often enough, seizing on the useful ones, capturing their
+valuable features, and building on them to add value and give potential for useful accidents.
+[H] All this, however, requires thinking that is often counter-intuitive to the way businesses operate. In
+other words, it is the kind of thinking that goes against the beliefs of most business managers. It runs
+counter to the notion frequently pushed by consultants that you can 'harness' creativity and direct it to line
+up with intention.
+[I] There are tentative signs that more companies are starting to realise that failure can lead to
+commercial gain, and that this is part of the risk-taking that underpins innovation. Australia's largest
+brewing company, for example, made a bad error when it launched a new beer called Empire Lager,
+pitched at younger consumers. Having spent a fortune creating a beer with a sweeter taste, designing a
+great-looking bottle and a television campaign, Foster's was left with a drink that no-one wanted to buy.
+The target market was more interested in brands built up by word of mouth. Instead of wiping the
+unsuccessful product launch, Foster's used this lesson learned to go on and develop other brands instead.
+One of them, Pure Blonde, is now ranked as Australia's fifth-largest beer brand. Unlike Empire Lager,
+there has been almost no promotion and its sales are generated more by word of mouth.
+[J] Other companies are taking similar steps to study their own slip-ups. Intuit, the company behind
+financial tools such as Quicken, holds regular 'When Learning Hurts' sessions. But this sort of
+transformation is never easy. In a market that focuses on the short-term, convincing employees and
+shareholders to tolerate failure and not play it safe is a big thing to ask.
+01. Multiple Choice TYPE-01
+Questions 1 – 2 (Single Choice)
+Choose the correct letter, A , B , C or D . Write the letter in boxes 1 – 2 on your answer sheet.
+1 Dr John Kellogg and his brother discovered corn fl akes after
+A testing a new chemical treatment for gastric ulcers.
+B running cooked wheat left untended through rollers.
+C spilling mercury onto a photographic surface.
+D attempting to create a sweeter beverage for young consumers.
+Questions 3 – 4 (Multiple Select)
+Choose TWO letters, A – E . Write the correct letters in boxes 3 – 4 on your answer sheet.
+IELTS Reading Complete 18 Question Types Standard Speci fi cation Page 2 of 7
+
+[--- Page 3 ---]
+3 – 4 Which TWO types of businesses are outlined in Geroski and Markides' book Fast Second ?
+A Colonists adept at creating market niches
+B Regulators focused on patent enforcement
+C Consolidators skilled at commercialising mass-market items
+D Academic researchers operating inside health spas
+E Consultants specializing in fi nancial tools
+02. Identifying Information (True / False / Not Given) TYPE-02
+Questions 5 – 6
+Do the following statements agree with the information given in the passage? Write:
+TRUE if the statement agrees with the information
+FALSE if the statement contradicts the information
+NOT GIVEN if there is no information on this
+5 Sir Alan Hodgkin stated that his published papers accurately re fl ected the haphazard reality of his
+scienti fi c discoveries. [ 5 ]
+6 Art Fry intentionally set out to create Post-It Notes as a commercial product from the start.
+[ 6 ]
+03. Identifying Writer's Views / Claims (Yes / No / Not Given) TYPE-03
+Questions 7 – 8
+Do the following statements agree with the claims of the writer in the passage? Write:
+YES if the statement agrees with the claims of the writer
+NO if the statement contradicts the claims of the writer
+NOT GIVEN if it is impossible to say what the writer thinks
+7 Traditional corporate training programs often prevent bene fi cial accidental discoveries from taking place.
+[ 7 ]
+8 Business consultants are correct in claiming that creativity can be easily directed toward speci fi c intended
+goals. [ 8 ]
+04. Matching Headings TYPE-04
+Questions 9 – 10
+Choose the correct heading for Paragraphs C and E from the list below. Write i – iv in boxes 9 – 10.
+LIST OF HEADINGS
+i Examples of accidental breakthroughs across various industries
+ii Distinguishing between pioneering creators and mass-market builders
+iii The biological transmission of nerve impulses in humans
+iv How traditional health spas manage patient diets
+IELTS Reading Complete 18 Question Types Standard Speci fi cation Page 3 of 7
+
+[--- Page 4 ---]
+9 Paragraph C [ 9 ]
+10 Paragraph E [ 10 ]
+05. Matching Information TYPE-05
+Questions 11 – 12
+Which paragraph contains the following information? Write the correct letter, A – J , in boxes 11 – 12.
+11 A mention of a fi nancial company that conducts sessions called 'When Learning Hurts'
+[ 11 ]
+12 An explanation of why large companies with rigid management struggle with disruptive innovation
+[ 12 ]
+06. Matching Features TYPE-06
+Questions 13 – 14
+Match each scienti fi c discovery or business theory with the correct person/people ( A – D ).
+LIST OF PEOPLE
+A Louis Daguerre B Percy Spencer
+C Art Fry D Paul Geroski & Constantinos Markides
+13 Discovered photography after mercury spilled from a broken thermometer. [ 13 ]
+14 Divided businesses into 'colonists' and 'consolidators' based on their strengths. [ 14 ]
+07. Matching Sentence Endings TYPE-07
+Questions 15 – 16
+Complete each sentence with the correct ending, A – D , below.
+A can take clever ideas from others and turn them into mass-market successes.
+B requires companies to step outside their 'cone of expectation'.
+C leads to immediate pro fi t without any risk.
+D was designed exclusively for medical clinics.
+15 Consolidator fi rms such as Microsoft [ 15 ]
+16 Fostering an environment prone to productive accidents [ 16 ]
+08. Matching Paragraph Information / Summaries TYPE-08
+Question 17
+Match the paragraph with its primary thematic summary. Write A – J in box 17.
+17 A case study of a brewing company turning a product failure into commercial success
+[ 17 ]
+IELTS Reading Complete 18 Question Types Standard Speci fi cation Page 4 of 7
+
+[--- Page 5 ---]
+09. Sentence Completion
+Questions 18 – 19
+Complete the sentences below. Choose NO MORE THAN TWO WORDS
+18 Art Fry used pieces of adhesive paper to replace scrap paper bookmarks falling from his
+___________ .
+19 Foster's unsuccessful Empire Lager launch was replaced by Pure Blonde, which relies mostly on
+___________ .
+10. Summary Completion (From Passage)
+Questions 20 – 21
+Complete the summary below. Choose ONE WORD ONLY from the passage.
+Accidents in Business Innovation
+Breakthrough innovations rarely follow an orderly process and often arise from a chaotic mess. Many large
+companies struggle with accidental discoveries because their managers are trained to eliminate mistakes,
+treating accidents as [20] ___________ . However, researchers suggest that companies should encourage
+productive slip-ups by combining diverse ideas and stepping outside their cone of
+11. Summary Completion with a Box
+Questions 22 – 23
+Complete the summary using the list of words, A – F , below. Write the correct letter in boxes 22
+A niche B commercialisation
+D consolidators E medical
+According to Geroski and Markides, fi rms skilled at innovation often lack abilities in mass
+[ 22 ] . While small 'colonist' fi rms excel at creating market niches, disciplined
+[ 23 ] excel at turning clever ideas into mass-market products.
+12. Note Completion
+
+TYPE-09
+from the passage.
+TYPE-10
+from the passage.
+[21] ___________ .
+TYPE-11
+– 23.
+C deliberate
+F failure
+[22]
+[23]
+TYPE-12
+
+Questions 24 – 25
+Complete the notes below. Choose NO MORE THAN TWO WORDS from the passage.
+IELTS Reading Complete 18 Question Types Standard Speci fi cation Page 5 of 7
+
+[--- Page 6 ---]
+Case Study: Foster's Brewing Company
+Empire Lager: launched with heavy TV promotion, but turned out to be an unsuccessful [24]
+___________ .
+Pure Blonde: developed using lessons learned; currently ranked as Australia's fi fth-largest [25]
+___________ .
+13. Table Completion TYPE-13
+Questions 26 – 27
+Complete the table below. Choose ONE WORD ONLY from the passage.
+Inventor / Researcher Accidental Trigger Resulting Innovation
+Percy Spencer Melted sweet in pocket The [26] ___________
+Intuit Company Studying internal slip-ups 'When [27] ___________ Hurts' sessions
+14. Flow-chart Completion TYPE-14
+Questions 28 – 29
+Complete the fl ow-chart below. Choose NO MORE THAN TWO WORDS from the passage.
+Cooked wheat left untended for over 24 hours
+↓
+Stale wheat run through [28] ___________
+↓
+Creation of fl at [29] ___________ instead of long sheets
+15. Diagram Labelling TYPE-15
+Questions 30 – 31
+Label the diagram below. Choose NO MORE THAN TWO WORDS from the passage.
+30. Standard corporate boundary: Cone of ___________
+[ INNOVATION
+FRAMEWORK MODEL ]
+31. Target outcome zone: Productive ___________
+IELTS Reading Complete 18 Question Types Standard Speci fi cation Page 6 of 7
+
+[--- Page 7 ---]
+16. Short-answer Questions TYPE-16
+Questions 32 – 33
+Answer the questions below. Choose NO MORE THAN TWO WORDS from the passage.
+32 What chemical treatment research led to the accidental creation of saccharin? ___________
+33 What modern software fi rm is cited as a prime example of a 'consolidator'? ___________
+17. Classification TYPE-17
+Questions 34 – 35
+Classify the following characteristics as belonging to:
+A Colonists
+B Consolidators
+C Both Colonists and Consolidators
+34 Small and nimble, but terrible at building institutions. [ 34 ]
+35 Possess strong cultures of discipline and cost control. [ 35 ]
+18. Matching Lists / Categorisation TYPE-18
+Questions 36 – 37
+Match each item ( 36 – 37 ) with its corresponding category from List 1 below.
+LIST 1: INNOVATION CATEGORIES
+A Accidental Inventions B Commercial Brands
+36 Post-It Notes [ 36 ]
+37 Pure Blonde [ 37 ]
+IELTS Reading Complete 18 Question Types Standard Speci fi cation Page 7 of 7

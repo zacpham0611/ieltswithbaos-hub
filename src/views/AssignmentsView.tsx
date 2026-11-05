@@ -3715,12 +3715,29 @@ export const AssignmentsView: React.FC = () => {
                               )}
 
                               {/* 3. Compact Answer Fields (showing ONLY Question Number + Input, strictly one per row) */}
-                              <div className="space-y-2.5 pt-1">
-                                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                                  Answer Fields:
-                                </div>
-                                <div className="flex flex-col gap-2.5">
-                                  {group.questions.map(({ q, idx }) => {
+                              {(() => {
+                                const embeddedMatches = Array.from(cleanReadingText(group.groupText || '').matchAll(/\[(\d+)\]/g)).map((m) => m[1]);
+                                const unembeddedQuestions = group.groupText && embeddedMatches.length > 0
+                                  ? group.questions.filter(({ q, idx }) => {
+                                      const qNumStr = String(idx + 1);
+                                      const qNumberProp = String((q as any).questionNumber || (q as any).number || '');
+                                      return (
+                                        !embeddedMatches.includes(qNumStr) &&
+                                        !embeddedMatches.includes(qNumberProp) &&
+                                        !embeddedMatches.some((num) => q.id.endsWith(`_${num}`))
+                                      );
+                                    })
+                                  : group.questions;
+
+                                if (unembeddedQuestions.length === 0) return null;
+
+                                return (
+                                  <div className="space-y-2.5 pt-1">
+                                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                      Answer Fields:
+                                    </div>
+                                    <div className="flex flex-col gap-2.5">
+                                      {unembeddedQuestions.map(({ q, idx }) => {
                                     const answer = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
                                     const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
                                     const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
@@ -3873,9 +3890,11 @@ export const AssignmentsView: React.FC = () => {
                                   })}
                                 </div>
                               </div>
-                            </div>
-                          );
-                        }
+                            );
+                          })()}
+                        </div>
+                      );
+                    }
 
                         return (
                         <div key={group.id} className="space-y-4 pt-1">
