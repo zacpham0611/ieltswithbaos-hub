@@ -1,0 +1,90 @@
+OFFICIAL IELTS.ORG SPECIFICATION STANDARD
+IELTS Listening Master Test Form: 6 Core Question Groups
+Khung mẫu nhận diện 6 nhóm câu hỏi chính thức và các biến thể trình bày cho IELTS Listening Parser
+
+GROUP 1: MULTIPLE CHOICE LISTENING-G1
+
+Questions 1–2 (Single Answer Variant - 3 Options)
+Choose the correct letter, A, B or C.
+1 What is the main reason for the customer's call?
+A To inquire about room availability
+B To report a missing luggage item
+C To confirm a conference booking
+2 The speaker recommends visiting the local museum because
+A entry is free for international students.
+B it holds a newly opened interactive exhibition.
+C it is within walking distance from the station.
+
+Questions 3–4 (Multiple Answers Variant - Choose TWO)
+Choose TWO letters, A–E. Which TWO facilities are included in the rental price?
+3–4 Select two correct answers:
+A Underground parking B High-speed internet
+C Swimming pool access D Weekly cleaning service
+E Breakfast buffet
+
+GROUP 2: MATCHING LISTENING-G2
+
+Questions 5–7 (Matching Opinions / Features)
+What comment does the speaker make about each of the following city areas? Write the correct letter, A–E, next to Questions 5–7.
+COMMENTS / OPINIONS
+A Recently renovated B Overcrowded at weekends
+C Suitable for family picnics D Expensive parking fees
+E Closed during winter
+5 Central Park [ 5 ]
+6 Harbour Promenade [ 6 ]
+7 Old Town Square [ 7 ]
+
+GROUP 3: PLAN / MAP / DIAGRAM LABELLING LISTENING-G3
+
+Questions 8–10 (Map / Plan Labelling with Option Box)
+Label the map below. Write the correct letter, A–F, next to Questions 8–10.
+[ CAMPUS LIBRARY LAYOUT - GROUND FLOOR ]
+Main Entrance Location [ A ] Location [ B ]
+Location [ C ] Information Desk Location [ D ]
+Location [ E ] Cafeteria Location [ F ]
+8 Photocopying Room [ 8 ]
+9 IT Helpdesk [ 9 ]
+10 Silent Study Zone [ 10 ]
+
+GROUP 4: FORM / NOTE / TABLE / FLOW-CHART / SUMMARY COMPLETION LISTENING-G4
+
+Questions 11–12 (Form Completion)
+Complete the form below. Write NO MORE THAN TWO WORDS AND/OR A NUMBER for each answer.
+STUDENT ACCOMMODATION REGISTRATION
+Full Name: Sarah Jenkins
+Contact Number: 11 ___________
+Preferred Room Type: 12 ___________ studio
+
+Questions 13–14 (Note Completion)
+Complete the notes below. Write ONE WORD ONLY for each answer.
+New Staff Induction Highlights
+• Uniform must be collected from the 13 ___________ on Day 1.
+• Parking permit requires submission of a valid driving 14 ___________ .
+
+Questions 15–16 (Table Completion)
+Complete the table below. Write NO MORE THAN TWO WORDS for each answer.
+| Excursion Destination | Transport Mode | Key Attraction |
+| Green Valley National Park | Express Bus | Guided 15 ___________ |
+| Coastal Marine Centre | 16 ___________ | Dolphin feeding demonstration |
+
+Questions 17–18 (Flow-chart Completion)
+Complete the flow-chart below. Write NO MORE THAN TWO WORDS for each answer.
+Step 1: Submit research proposal to academic supervisor
+↓
+Step 2: Obtain ethical approval from the department 17 ___________
+↓
+Step 3: Conduct online survey and compile data 18 ___________
+
+GROUP 5: SENTENCE COMPLETION LISTENING-G5
+
+Questions 19–20
+Complete the sentences below. Write NO MORE THAN TWO WORDS AND/OR A NUMBER for each answer.
+19 The annual student art exhibition will begin on the ___________ of October.
+20 Visitors are advised to book their tickets through the official ___________ to avoid delays.
+
+GROUP 6: SHORT-ANSWER QUESTIONS LISTENING-G6
+
+Questions 21–22
+Answer the questions below. Write NO MORE THAN THREE WORDS AND/OR A NUMBER for each answer.
+21 Which document must international students present during airport check-in? ___________
+22 What time does the university main library close on Friday evenings? ___________

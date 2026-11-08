@@ -2147,9 +2147,10 @@ function parseSinglePassage(
 
     let wordLimitInfo: { limitStr?: string; maxWords?: number } = {};
     let currentQ: Partial<ReadingQuestion> | null = null;
+    let currentQMultiNums: number[] | null = null;
 
     const stdQRegex = /^(?:Question\s+)?(\d{1,2})(?:[\.\:\)]|\s+(?=[A-Za-z0-9\(\"\'\_\—\–\.\…]))\s*(.*)/i;
-    const bulletQRegex = /(?:^|[•\-\–\*\s])(?:.*?)\b(\d{1,2})\b\s*[\.\_\–\-\…]{2,}(.*)/;
+    const bulletQRegex = /^[•\-\–\*]\s*(?:.*?\b)?(\d{1,2})\b\s*[\.\_\–\-\…]{2,}(.*)/;
 
     // Pre-pass to scan declarations within this question group (e.g. List of words, List of companies, List of headings, List of sentence endings)
     let preInWordBox = false;
@@ -2207,6 +2208,13 @@ function parseSinglePassage(
         }
       }
       if (preInWordBox) {
+        const inlineOpts = Array.from(l.matchAll(/(?:^|\s)([A-P])(?:[\.\:\)]|\s+)(.*?)(?=(?:\s+[A-P](?:[\.\:\)]|\s+)|\s*$))/g));
+        if (inlineOpts.length >= 2) {
+          for (const m of inlineOpts) {
+            optionsBox.push(`${m[1].toUpperCase()}. ${m[2].trim()}`);
+          }
+          continue;
+        }
         const wbMatch = l.match(/^([A-P])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
         if (wbMatch) {
           optionsBox.push(`${wbMatch[1].toUpperCase()}. ${wbMatch[2].trim()}`);
@@ -2216,7 +2224,7 @@ function parseSinglePassage(
       }
       if (preInFeatures) {
         // Also check if line contains multiple options like "A Accidental Inventions B Commercial Brands"
-        const inlineOpts = Array.from(l.matchAll(/(?:^|\s)([A-P])(?:[\.\:\)]|\s+)(.*?)(?=(?:\s+[A-P](?:[\.\:\)]|\s+)|\s*$))/gi));
+        const inlineOpts = Array.from(l.matchAll(/(?:^|\s)([A-P])(?:[\.\:\)]|\s+)(.*?)(?=(?:\s+[A-P](?:[\.\:\)]|\s+)|\s*$))/g));
         if (inlineOpts.length >= 2) {
           for (const m of inlineOpts) {
             featuresList.push(`${m[1].toUpperCase()}. ${m[2].trim()}`);
@@ -2299,9 +2307,11 @@ function parseSinglePassage(
           effectiveAnswerKeys,
           groupInstructions.join(' '),
           wordLimitInfo,
-          effectiveDetails
+          effectiveDetails,
+          currentQMultiNums || undefined
         );
         currentQ = null;
+        currentQMultiNums = null;
       }
 
       // Skip list declaration headers and items if already extracted in pre-pass
@@ -2398,9 +2408,11 @@ function parseSinglePassage(
             effectiveAnswerKeys,
             groupInstructions.join(' '),
             wordLimitInfo,
-            effectiveDetails
+            effectiveDetails,
+            currentQMultiNums || undefined
           );
           currentQ = null;
+          currentQMultiNums = null;
         }
 
         const sentences = line.split(/(?<=[.!?])\s+/);
@@ -2509,8 +2521,11 @@ function parseSinglePassage(
             effectiveAnswerKeys,
             groupInstructions.join(' '),
             wordLimitInfo,
-            effectiveDetails
+            effectiveDetails,
+            currentQMultiNums || undefined
           );
+          currentQ = null;
+          currentQMultiNums = null;
         }
 
         const inlineWl = extractWordLimitInfo(qPrompt);
@@ -2535,8 +2550,8 @@ function parseSinglePassage(
           points: 1,
           source: assignedSource,
           answerKeyConfidence: assignedKey ? 'high' : 'needs_teacher_review',
-          multiQNums: multiQNums || undefined,
         };
+        currentQMultiNums = multiQNums;
         continue;
       }
 
@@ -2587,8 +2602,11 @@ function parseSinglePassage(
         effectiveAnswerKeys,
         groupInstructions.join(' '),
         wordLimitInfo,
-        effectiveDetails
+        effectiveDetails,
+        currentQMultiNums || undefined
       );
+      currentQ = null;
+      currentQMultiNums = null;
     }
 
     const fullInstruction =
@@ -2797,6 +2815,7 @@ function parseSinglePassage(
   // Rebalance questions across groups if any question fell into another group due to multi-column PDF layout
   for (let gi = 0; gi < questionGroups.length; gi++) {
     const g = questionGroups[gi];
+    if (!g.groupTitle) continue;
     const rMatch = g.groupTitle.match(/(?:q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s*)(\d{1,2})\s*(?:[\-\–—]|to)\s*(\d{1,2})/i);
     if (!rMatch) continue;
     const gStart = parseInt(rMatch[1], 10);
@@ -2878,10 +2897,10 @@ function finalizeQuestion(
   detectedAnswerKey: Record<string, string>,
   instructionContext: string,
   wordLimitInfo: { limitStr?: string; maxWords?: number },
-  detectedAnswerDetails?: Record<string, ExtractedAnswerItem>
+  detectedAnswerDetails?: Record<string, ExtractedAnswerItem>,
+  multiNums?: number[]
 ) {
   const options = q.options && q.options.length > 0 ? q.options : undefined;
-  const multiNums: number[] | undefined = (q as any).multiQNums;
   if (multiNums && multiNums.length > 1) {
     for (const n of multiNums) {
       const subNum = String(n);
@@ -2905,7 +2924,7 @@ function finalizeQuestion(
         needsReview: !key,
         multipleSelectCount: multiNums.length,
         isTeacherEdited: false,
-      } as any);
+      });
     }
     return;
   }

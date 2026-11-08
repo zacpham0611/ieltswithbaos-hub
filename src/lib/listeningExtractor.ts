@@ -199,6 +199,68 @@ export function parseListeningDocument(
 }
 
 /**
+ * Detects whether a line is an IELTS Listening question-type banner/header
+ * (e.g. "GROUP 1: MULTIPLE CHOICE LISTENING-G1", "COMMENTS / OPINIONS", "QUY TẮC THUẬT TOÁN...")
+ * so it is not treated as a question prompt or option.
+ */
+export function isListeningTypeBannerLine(line: string): boolean {
+  const cleaned = line.replace(/^[\|\s]+|[\|\s]+$/g, '').trim();
+  if (!cleaned) return false;
+  if (/^GROUP\s+\d+\s*:/i.test(cleaned)) return true;
+  if (/LISTENING-G\d+/i.test(cleaned)) return true;
+  if (/^QUY\s+TẮC\s+THUẬT\s+TOÁN/i.test(cleaned)) return true;
+  if (/^TYPE-\d+/i.test(cleaned)) return true;
+  if (/^(?:DẠNG\s+CÂU\s+HỎI|QUESTION\s+TYPE)\s*[:\-]/i.test(cleaned)) return true;
+  if (/^(?:COMMENTS?\s*\/\s*OPINIONS?|OPTIONS?|LIST\s+OF\s+OPTIONS?)\b/i.test(cleaned)) return true;
+  return false;
+}
+
+/**
+ * Robustly extracts single or multiple options from an option line in IELTS Listening.
+ * Handles single option per line ("A To inquire about room availability")
+ * as well as multi-option lines ("A Underground parking B High-speed internet").
+ */
+export function extractListeningOptionsFromLine(line: string): string[] {
+  const clean = line.replace(/^\|\s*/, '').replace(/\s*\|$/, '').trim();
+  if (!clean || isListeningTypeBannerLine(clean)) return [];
+
+  // Guard against headers and map/diagram layout labels
+  if (/^(?:PART|SECTION|GROUP|Questions?|COMMENTS?|OPINIONS?|LIST\s+OF|LOOK\s+AT)\b/i.test(clean)) {
+    return [];
+  }
+  if (/Location\s*\[\s*[A-Z]\s*\]/i.test(clean) || /\[\s*[A-Z]\s*\]\s*Location/i.test(clean)) {
+    return [];
+  }
+
+  // 1. Multiple options on the same line, e.g.:
+  // "A Underground parking B High-speed internet"
+  // "A Recently renovated B Overcrowded at weekends"
+  const multiOptRegex = /(?:^|\s{2,}|\t|\s+)([A-H])(?:[\.\)\:\-]\s*|\s+)(.*?)(?=(?:\s{2,}|\t|\s+)[A-H](?:[\.\)\:\-]\s*|\s+)|\s*$)/g;
+  const multiMatches = Array.from(clean.matchAll(multiOptRegex));
+  if (multiMatches.length >= 2) {
+    const opts = multiMatches
+      .map((m) => `${m[1].toUpperCase()}. ${m[2].trim()}`)
+      .filter((s) => s.length > 3 && !/^[A-H]\s*\]/.test(s));
+    if (opts.length >= 2) return opts;
+  }
+
+  // 2. Single option on the line:
+  // "A To inquire about room availability" or "A entry is free..." or "A. To inquire..."
+  const singleOptMatch = clean.match(/^[•\-\*\s\u2022]*([A-H])(?:[\.\)\:\-]\s*|\s+)(.*)$/);
+  if (singleOptMatch && singleOptMatch[2].trim().length > 1) {
+    const letter = singleOptMatch[1].toUpperCase();
+    const text = singleOptMatch[2].trim();
+    const firstWord = clean.split(/\s+/)[0].toLowerCase();
+    const isCommonWord = /^(?:at|in|on|to|by|is|it|as|an|all|and|are|do|for|he|his|her|how|if|no|not|or|so|the|we|who|why|when|where|with|what|you|your)$/i.test(firstWord);
+    if (!isCommonWord || /^[A-H][\.\)\:\-]/.test(clean)) {
+      return [`${letter}. ${text}`];
+    }
+  }
+
+  return [];
+}
+
+/**
  * Parses lines inside a single Listening part into structured question groups and questions.
  */
 function processListeningPart(
@@ -254,7 +316,23 @@ function processListeningPart(
       const firstNum = currentGroupQuestions[0]?.questionNumber || currentGroupQuestions[0]?.number || 1;
       const lastNum = currentGroupQuestions[currentGroupQuestions.length - 1]?.questionNumber || currentGroupQuestions[currentGroupQuestions.length - 1]?.number || currentGroupQuestions.length;
       
-      const groupOpts = currentGroupOptions.length > 0 ? [...currentGroupOptions] : undefined;
+      let groupOpts = currentGroupOptions.length > 0 ? [...currentGroupOptions] : undefined;
+
+      // Extract letter ranges from instructions if groupOpts is empty (e.g. "A–E" or "A to F")
+      if (!groupOpts || groupOpts.length === 0) {
+        const letterRangeMatch = currentInstructions.match(/\b([A-Z])\s*[-–—to]+\s*([A-Z])\b/i);
+        if (letterRangeMatch) {
+          const startChar = letterRangeMatch[1].toUpperCase().charCodeAt(0);
+          const endChar = letterRangeMatch[2].toUpperCase().charCodeAt(0);
+          if (endChar > startChar && endChar - startChar <= 10) {
+            const generatedOpts: string[] = [];
+            for (let c = startChar; c <= endChar; c++) {
+              generatedOpts.push(String.fromCharCode(c));
+            }
+            groupOpts = generatedOpts;
+          }
+        }
+      }
 
       // Assign matching/shared options to questions if missing
       if (groupOpts) {
@@ -268,10 +346,25 @@ function processListeningPart(
         });
       }
 
+      // Clean trailing answer-sheet tags like [ 5 ], [ 8 ] or underscores
+      currentGroupQuestions.forEach((q) => {
+        if (q.prompt) {
+          q.prompt = q.prompt.replace(/\[\s*\d{1,2}\s*\]\s*$/, '').trim();
+          if (q.type === 'short_answer') {
+            q.prompt = q.prompt.replace(/(?:[…\.]{2,}|_{2,}|\.{3,}|…+)\s*$/, '').trim();
+          }
+        }
+      });
+
+      const resolvedGroupType =
+        currentGroupQuestions.length > 0 && currentGroupQuestions.every((q) => q.type === currentGroupQuestions[0].type)
+          ? currentGroupQuestions[0].type
+          : currentType;
+
       questionGroups.push({
         id: currentGroupId,
         part: partNumber as any,
-        type: currentType,
+        type: resolvedGroupType,
         groupTitle: currentGroupTitle || `Questions ${firstNum} - ${lastNum}`,
         title: currentGroupTitle || `Questions ${firstNum} - ${lastNum}`,
         instructions: currentInstructions,
@@ -294,6 +387,16 @@ function processListeningPart(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
+
+    // Skip standalone question-type banner headers so they are never parsed as questions
+    if (isListeningTypeBannerLine(line) && !groupRangeRegex.test(line)) {
+      finalizeGroup();
+      const bannerType = inferQuestionTypeFromInstruction(line);
+      if (bannerType && bannerType !== 'note_completion') {
+        currentType = bannerType;
+      }
+      continue;
+    }
 
     // Check for Question Group Header (e.g. Questions 1-5)
     const rangeMatch = line.match(groupRangeRegex);
@@ -319,6 +422,9 @@ function processListeningPart(
         if (!nextLine) {
           i++;
           continue;
+        }
+        if (isListeningTypeBannerLine(nextLine)) {
+          break;
         }
         const wlMatch = nextLine.match(wordLimitRegex);
         if (wlMatch && !currentWordLimit) {
@@ -356,10 +462,13 @@ function processListeningPart(
     }
 
     // Check for Shared Options for matching or multiple choice: "A They gave higher marks." or "| A They gave higher marks. |"
-    const cleanOptLine = line.replace(/^\|\s*/, '').replace(/\s*\|$/, '').trim();
-    const sharedOptMatch = cleanOptLine.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-\t]\s*|\s+)(.*)$/i);
-    if (sharedOptMatch && !isBlankPattern.test(cleanOptLine) && !/^[-:]+$/.test(cleanOptLine)) {
-      currentGroupOptions.push(`${sharedOptMatch[1].toUpperCase()}. ${sharedOptMatch[2].trim()}`);
+    const foundSharedOpts = extractListeningOptionsFromLine(line);
+    if (foundSharedOpts.length > 0 && !isBlankPattern.test(line)) {
+      foundSharedOpts.forEach((opt) => {
+        if (!currentGroupOptions.some((o) => o.startsWith(opt.substring(0, 2)))) {
+          currentGroupOptions.push(opt);
+        }
+      });
       continue;
     }
 
@@ -367,9 +476,9 @@ function processListeningPart(
     if (currentType === 'multiple_select' && currentExpectedRange) {
       const [startN, endN] = currentExpectedRange;
       const count = endN - startN + 1;
-      const isOptionLine = /^[•\-\*\s\u2022]*[A-Za-z][\.\)\:\-]/i.test(line);
-      const isHeaderLine = /^(?:PART|SECTION|Questions?)\b/i.test(line);
-      if (!isOptionLine && !isHeaderLine && currentGroupQuestions.length === 0) {
+      const inlineOpts = extractListeningOptionsFromLine(line);
+      const isHeaderLine = /^(?:PART|SECTION|Questions?|GROUP)\b/i.test(line) || isListeningTypeBannerLine(line);
+      if (inlineOpts.length === 0 && !isHeaderLine && currentGroupQuestions.length === 0) {
         let multiPrompt = line.trim();
         const opts: string[] = [];
         let j = i + 1;
@@ -379,14 +488,18 @@ function processListeningPart(
             j++;
             continue;
           }
-          const om = optL.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s*)(.*)$/i);
-          if (om) {
-            opts.push(`${om[1].toUpperCase()}. ${om[2].trim()}`);
+          if (groupRangeRegex.test(optL) || isListeningTypeBannerLine(optL) || /^(?:PART|SECTION|GROUP|Questions?)\b/i.test(optL)) {
+            break;
+          }
+          const found = extractListeningOptionsFromLine(optL);
+          if (found.length > 0) {
+            found.forEach((o) => {
+              if (!opts.some((existing) => existing.startsWith(o.substring(0, 2)))) {
+                opts.push(o);
+              }
+            });
             j++;
-          } else if (optL.startsWith('(') || optL.endsWith(')')) {
-            j++;
-          } else if (opts.length === 0 && !/^(?:PART|SECTION|Questions?)\b/i.test(optL)) {
-            // Continuation of multi-select prompt
+          } else if (opts.length === 0) {
             multiPrompt = `${multiPrompt} ${optL}`;
             j++;
           } else {
@@ -399,6 +512,8 @@ function processListeningPart(
           currentGroupOptions = [...opts];
         }
 
+        const cleanPrompt = multiPrompt.replace(/^(?:Questions?\s+)?\d{1,2}\s*[-–—to]+\s*\d{1,2}[\.\:\)]?\s*/i, '').trim();
+
         for (let k = 0; k < count; k++) {
           const qNum = startN + k;
           currentGroupQuestions.push({
@@ -407,10 +522,11 @@ function processListeningPart(
             questionNumber: qNum,
             part: partNumber as any,
             type: 'multiple_select',
-            prompt: multiPrompt || `Questions ${startN}-${endN}`,
+            prompt: cleanPrompt || currentInstructions || `Questions ${startN}-${endN}`,
             options: opts.length > 0 ? opts : undefined,
             allowNumbers: false,
-          });
+            multipleSelectCount: count,
+          } as any);
         }
         continue;
       }
@@ -464,9 +580,9 @@ function processListeningPart(
           j++;
           continue;
         }
-        const optMatch = optLine.match(/^[•\-\*\s\u2022]*([A-Za-z])(?:[\.\)\:\-]\s*|\s+)(.*)$/i);
-        if (optMatch) {
-          options.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
+        const found = extractListeningOptionsFromLine(optLine);
+        if (found.length > 0) {
+          options.push(...found);
           j++;
         } else {
           break;
@@ -486,6 +602,14 @@ function processListeningPart(
           i = j - 1; // advance index
         } else if (prompt.endsWith('?') && options.length === 0) {
           qType = 'short_answer';
+        } else if (currentType === 'sentence_completion') {
+          prompt = prompt.replace(/(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/g, '_____');
+        }
+
+        // Clean answer sheet tags and trailing blanks
+        prompt = prompt.replace(/\[\s*\d{1,2}\s*\]\s*$/, '').trim();
+        if (qType === 'short_answer') {
+          prompt = prompt.replace(/(?:[…\.]{2,}|_{2,}|\.{3,}|…+)\s*$/, '').trim();
         }
 
         currentGroupQuestions.push({
@@ -575,6 +699,7 @@ function processListeningPart(
             if (currentType !== 'form_completion' && currentType !== 'note_completion') {
               currentType = 'table_completion';
             }
+
             currentGroupQuestions.push({
               id: `q_p${partNumber}_${matchedNum}`,
               number: matchedNum,
