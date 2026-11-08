@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
-import { ReadingQuestion, QuestionType, AssignmentSkill } from '../types';
+import { ReadingQuestion, QuestionType, AssignmentSkill, QuestionGroup } from '../types';
 import {
   processDocumentFile,
   ExtractedDocument,
@@ -797,7 +797,24 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           : reviewedQuestions.length > 0
           ? reviewedQuestions
           : struct?.questions || [];
-      const questionGroupsToSave = struct?.questionGroups || [];
+
+      // Synchronize questionGroups with questionsToSave overrides
+      const rawGroups: QuestionGroup[] = struct?.questionGroups || [];
+      const questionGroupsToSave = rawGroups.map((g: QuestionGroup) => {
+        const groupQs = questionsToSave.filter((q: ReadingQuestion) =>
+          g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
+        );
+        const dominantOverride = groupQs.find((q: ReadingQuestion) => q.questionTypeOverride)?.questionTypeOverride;
+        const groupType = dominantOverride || g.questionType;
+        return {
+          ...g,
+          questionType: groupType,
+          questionTypeOverride: dominantOverride || g.questionTypeOverride,
+          questions: groupQs.length > 0 ? groupQs : g.questions,
+          isTeacherEdited: Boolean(dominantOverride || g.isTeacherEdited || groupQs.some((q: ReadingQuestion) => q.isTeacherEdited)),
+        };
+      });
+
       const passageToSave =
         editedPassage || reviewedPassage || struct?.passageText || editedRawText;
       const titleToSave = (
@@ -811,7 +828,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       const passagesToSave = struct?.passages?.length
         ? struct.passages.map((p: any) =>
             p.id === selectedPassageId
-              ? { ...p, title: titleToSave, content: passageToSave, questions: questionsToSave }
+              ? { ...p, title: titleToSave, content: passageToSave, questions: questionsToSave, questionGroups: questionGroupsToSave }
               : p
           )
         : [
@@ -2598,7 +2615,11 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
                                       value={q.type}
                                       onChange={(e) => {
                                         const newType = e.target.value as QuestionType;
-                                        const patch: Partial<ReadingQuestion> = { type: newType };
+                                        const patch: Partial<ReadingQuestion> = {
+                                          type: newType,
+                                          questionTypeOverride: newType,
+                                          isTeacherEdited: true,
+                                        };
                                         if (newType === 'matching_features' && (!q.featuresList || q.featuresList.length === 0)) {
                                           patch.featuresList = q.options && q.options.length > 0 ? [...q.options] : [''];
                                         }

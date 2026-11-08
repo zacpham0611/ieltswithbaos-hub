@@ -186,11 +186,20 @@ export function isValidPassageTitle(candidate: string): boolean {
     return false;
   }
 
-  // Reject standalone question instructions or options:
+  // Reject standalone question instructions, prompts, or options:
   if (
-    /^(?:questions?|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph)|dạng\s+câu\s+hỏi|read\s+the|in\s+boxes|true|false|not\s+given)/i.test(
+    /^(?:questions?|do\s+the\s+following|choose\s+the|which\s+(?:section|paragraph|heading)|dạng\s+câu\s+hỏi|read\s+the|in\s+boxes|true|false|not\s+given|complete\s+the|match\s+each|write\s+no\s+more|look\s+at\s+the|answer\s+the\s+questions?|using\s+no\s+more|fill\s+in|label\s+the)\b/i.test(
       trimmed
     )
+  ) {
+    return false;
+  }
+
+  // Reject generic booklet/document titles when short (e.g. "IELTS Academic Reading", "Cambridge IELTS 12")
+  if (
+    /^(?:ielts|cambridge|academic|general\s+training|practice\s+test|reading\s+test|listening\s+test)\b/i.test(trimmed) &&
+    trimmed.length < 40 &&
+    !/(?:history|development|discovery|origin|study|impact|evolution|future|science|art|nature|technology|species)/i.test(trimmed)
   ) {
     return false;
   }
@@ -1957,7 +1966,7 @@ function parseSinglePassage(
   } else {
     // Check line 0 or early lines for a valid title
     let foundTitle = false;
-    for (let idx = 0; idx < Math.min(3, pLines.length); idx++) {
+    for (let idx = 0; idx < Math.min(5, pLines.length); idx++) {
       if (isValidPassageTitle(pLines[idx])) {
         passageTitle = pLines[idx];
         contentStartIndex = idx + 1;

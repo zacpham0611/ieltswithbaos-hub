@@ -367,7 +367,11 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   // Render an inline interactive input for a question embedded within structured content
   const renderInlineQuestionInput = (qNum: number, keyPrefix: string) => {
     const targetQ = safeQuestions.find(
-      (q) => (q.questionNumber || q.number) === qNum
+      (q) =>
+        Number(q.questionNumber || q.number) === qNum ||
+        q.id.endsWith(`_${qNum}`) ||
+        q.id === `q_${qNum}` ||
+        q.prompt === `Question ${qNum}`
     );
 
     if (targetQ) {
@@ -734,7 +738,18 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // 4. Render Structured Notes, Summaries, or Sentences
   const renderStructuredNotesOrSummary = (notesText: string) => {
-    const lines = notesText.split('\n').map((l) => l.trim()).filter(Boolean);
+    // 1. Normalize note text if it was single-line or wrapped in callout box pipes
+    let formattedText = notesText.replace(/^\|\s*|\s*\|$/g, '').trim();
+    // Normalize bullets to separate lines
+    formattedText = formattedText.replace(/\s*(?:•|\u2022)\s*/g, '\n• ');
+    // Normalize subheadings separated by multi-space (>= 2 spaces)
+    formattedText = formattedText.replace(/(?<=[^\n])\s{2,}(?=[A-Z][a-zA-Z0-9\s–\-]{1,35}:)/g, '\n');
+    formattedText = formattedText.replace(
+      /(?<=[^\n])\s{2,}(?=(?:History of|Description of|Languages in|Local languages|Foreign languages|Bislama|General|Vocabulary|Grammar|Background|Summary|Topic|Location|Aim|Methods?|Results?|Conclusion)\b)/gm,
+      '\n'
+    );
+
+    const lines = formattedText.split('\n').map((l) => l.trim()).filter(Boolean);
 
     return (
       <div className="space-y-1.5 my-2">
@@ -948,19 +963,23 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   const renderStructuredContent = () => {
     if (!effectiveGroupContent) return null;
 
-    // 1. Table Completion: pipe-separated Markdown table
-    if (effectiveGroupContent.includes('|')) {
+    // 1. Table Completion: pipe-separated Markdown table (must have at least 2 rows and at least 2 columns)
+    const rawTableLines = effectiveGroupContent
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('|') && l.endsWith('|'));
+    const isAuthenticTable =
+      rawTableLines.length >= 2 &&
+      rawTableLines[0].slice(1, -1).split('|').map((c) => c.trim()).filter(Boolean).length >= 2;
+
+    if (isAuthenticTable) {
       const nonTableText = effectiveGroupContent
         .split('\n')
         .filter((l) => !l.trim().startsWith('|'))
         .join(' ')
         .trim();
 
-      const tableLines = effectiveGroupContent
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.startsWith('|') && l.endsWith('|'));
-      const headerLine = tableLines[0] || '';
+      const headerLine = rawTableLines[0] || '';
       const tableHeaders = headerLine
         .slice(1, -1)
         .split('|')

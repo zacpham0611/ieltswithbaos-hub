@@ -715,11 +715,21 @@ export const AssignmentsView: React.FC = () => {
       return;
     }
 
-    if (selectedMarkerColor) {
-      // Highlight immediately with selected marker color
-      handleApplyMarker(text, selectedMarkerColor);
-    } else {
-      // No marker is selected: do NOT auto-highlight text
+    try {
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        setFloatingToolbarPos(null);
+        return;
+      }
+
+      // Clamped horizontal center to stay safely within viewport
+      const x = Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2));
+      // Position above selection if space permits, else below
+      const y = rect.top >= 70 ? rect.top - 8 : rect.bottom + 8;
+
+      setFloatingToolbarPos({ x, y, text });
+    } catch {
       setFloatingToolbarPos(null);
     }
   };
@@ -984,19 +994,37 @@ export const AssignmentsView: React.FC = () => {
         const updatedPQuestions: ReadingQuestion[] = [];
 
         passageQuestions.forEach((q) => {
+          const authType = q.questionTypeOverride || q.type;
           const normQ: ReadingQuestion = {
             ...q,
             id: q.id || `q_p${pIdx + 1}_${currentQIndex}`,
+            type: authType,
+            questionTypeOverride: q.questionTypeOverride || (q.isTeacherEdited ? authType : undefined),
+            isTeacherEdited: q.isTeacherEdited || Boolean(q.questionTypeOverride),
           };
           updatedPQuestions.push(normQ);
           reindexedQuestions.push(normQ);
           currentQIndex++;
         });
 
-        const updatedGroups = (p.questionGroups || []).map((g) => ({
-          ...g,
-          passageIndex: pIdx,
-        }));
+        const updatedGroups = (p.questionGroups || []).map((g) => {
+          const groupType = g.questionTypeOverride || g.questionType;
+          return {
+            ...g,
+            questionType: groupType,
+            questionTypeOverride: g.questionTypeOverride,
+            passageIndex: pIdx,
+            questions: (g.questions || []).map((gq) => {
+              const matchedQ = updatedPQuestions.find((uq) => uq.id === gq.id || (uq.prompt && uq.prompt === gq.prompt));
+              return matchedQ || {
+                ...gq,
+                type: gq.questionTypeOverride || groupType || gq.type,
+                questionTypeOverride: gq.questionTypeOverride || g.questionTypeOverride,
+                isTeacherEdited: gq.isTeacherEdited || g.isTeacherEdited,
+              };
+            }),
+          };
+        });
         reindexedGroups.push(...updatedGroups);
 
         finalPassages.push({
@@ -1071,9 +1099,8 @@ export const AssignmentsView: React.FC = () => {
               readingQuestions = extracted.questions;
               questionGroups = extracted.questionGroups;
               passages = extracted.passages;
-            }
-
-            if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
+              readingPassage = passages[0]?.content || parsed.readingPassage || parsed.passageText || parsed.content || '';
+            } else if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
               passages = parsed.passages;
               readingPassage = parsed.passages[0]?.content || '';
             } else if (parsed.readingPassage || parsed.passageText || parsed.content) {
@@ -3305,7 +3332,7 @@ export const AssignmentsView: React.FC = () => {
                 style={{ left: floatingToolbarPos.x, top: floatingToolbarPos.y }}
               >
                 <span className="text-[11px] text-slate-300 font-semibold flex items-center space-x-1">
-                  <Highlighter className="w-3.5 h-3.5 text-slate-400" />
+                  <Highlighter className="w-3.5 h-3.5 text-blue-400" />
                   <span>Highlight:</span>
                 </span>
                 <div className="flex items-center space-x-1.5">
@@ -3315,7 +3342,7 @@ export const AssignmentsView: React.FC = () => {
                       type="button"
                       onClick={() => handleApplyMarker(floatingToolbarPos.text, col.id)}
                       style={{ backgroundColor: col.bgHex }}
-                      className="w-5 h-5 rounded-full border border-slate-400/80 hover:ring-2 hover:ring-white shadow-xs transition-transform hover:scale-115"
+                      className="w-5 h-5 rounded-full border border-slate-400/80 hover:ring-2 hover:ring-white shadow-xs transition-transform hover:scale-120 cursor-pointer"
                       title={col.label}
                     />
                   ))}
@@ -3323,8 +3350,29 @@ export const AssignmentsView: React.FC = () => {
                 <div className="h-4 w-px bg-slate-700 mx-0.5" />
                 <button
                   type="button"
-                  onClick={() => setFloatingToolbarPos(null)}
-                  className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800"
+                  onClick={() => {
+                    const currentPIdx = safePassageIndex;
+                    const updated = readingMarkers.filter(
+                      (m) =>
+                        m.passageIndex !== currentPIdx ||
+                        (!m.text.includes(floatingToolbarPos.text) && !floatingToolbarPos.text.includes(m.text))
+                    );
+                    saveReadingMarkers(updated);
+                    setFloatingToolbarPos(null);
+                    window.getSelection()?.removeAllRanges();
+                  }}
+                  className="p-1 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors"
+                  title="Remove highlight from selected text"
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFloatingToolbarPos(null);
+                    window.getSelection()?.removeAllRanges();
+                  }}
+                  className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
                   title="Dismiss"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -3355,41 +3403,17 @@ export const AssignmentsView: React.FC = () => {
                     </div>
 
                     <div className="flex items-center space-x-2">
-                      {/* IELTS Marker Toolbar with 6 Pastel Rainbow Colors */}
-                      <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl shadow-2xs">
-                        <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center space-x-1">
-                          <Highlighter className="w-3.5 h-3.5 text-blue-600" />
-                          <span className="hidden md:inline">Marker:</span>
-                        </span>
-                        {PASTEL_MARKER_COLORS.map((col) => {
-                          const isActive = selectedMarkerColor === col.id;
-                          return (
-                            <button
-                              key={col.id}
-                              type="button"
-                              onClick={() => setSelectedMarkerColor(isActive ? null : col.id)}
-                              style={{ backgroundColor: col.bgHex }}
-                              className={`w-5 h-5 rounded-full border transition-all ${
-                                isActive
-                                  ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 border-slate-700 shadow-xs'
-                                  : 'border-slate-300 hover:scale-105 opacity-85 hover:opacity-100'
-                              }`}
-                              title={`${col.label}${isActive ? ' (Click to deactivate marker)' : ' (Click to activate marker)'}`}
-                            />
-                          );
-                        })}
-                        {readingMarkers.some((m) => (m.passageIndex ?? 0) === safePassageIndex) && (
-                          <button
-                            type="button"
-                            onClick={() => handleClearPassageMarkers(safePassageIndex)}
-                            className="ml-1 px-1.5 py-0.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded text-xs flex items-center space-x-1 transition-colors"
-                            title="Clear all highlights in this passage"
-                          >
-                            <Eraser className="w-3.5 h-3.5" />
-                            <span className="hidden lg:inline text-[11px] font-semibold">Clear</span>
-                          </button>
-                        )}
-                      </div>
+                      {readingMarkers.some((m) => (m.passageIndex ?? 0) === safePassageIndex) && (
+                        <button
+                          type="button"
+                          onClick={() => handleClearPassageMarkers(safePassageIndex)}
+                          className="px-2 py-1 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg text-xs flex items-center space-x-1 transition-colors border border-slate-200"
+                          title="Clear all highlights in this passage"
+                        >
+                          <Eraser className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-semibold">Clear highlights</span>
+                        </button>
+                      )}
 
                       <div className="flex items-center gap-2 shrink-0 flex-nowrap">
                         <div
@@ -3461,6 +3485,10 @@ export const AssignmentsView: React.FC = () => {
                 {/* Passage Text with Highlighting */}
                 <div
                   onMouseUp={handlePassageMouseUp}
+                  onTouchEnd={handlePassageMouseUp}
+                  onScroll={() => {
+                    if (floatingToolbarPos) setFloatingToolbarPos(null);
+                  }}
                   className={`flex-1 p-6 overflow-y-auto font-serif text-slate-800 select-text text-justify ${
                     passageFontSize === '15px'
                       ? 'text-[15px] leading-[1.7]'
@@ -3614,7 +3642,9 @@ export const AssignmentsView: React.FC = () => {
                                           (item) =>
                                             String(item.idx + 1) === qNumStr ||
                                             String((item.q as any).questionNumber || (item.q as any).number || '') === qNumStr ||
-                                            item.q.id.endsWith(`_${qNumStr}`)
+                                            item.q.id.endsWith(`_${qNumStr}`) ||
+                                            item.q.id === `q_${qNumStr}` ||
+                                            Boolean(item.q.prompt && (item.q.prompt.startsWith(`${qNumStr}.`) || item.q.prompt.startsWith(`Question ${qNumStr}`)))
                                         );
                                         const qId = targetItem?.q.id;
                                         const isReadOnlyGroup = isTeacher || Boolean(mySub && mySub.status !== 'returned');
@@ -3724,7 +3754,7 @@ export const AssignmentsView: React.FC = () => {
                                       return (
                                         !embeddedMatches.includes(qNumStr) &&
                                         !embeddedMatches.includes(qNumberProp) &&
-                                        !embeddedMatches.some((num) => q.id.endsWith(`_${num}`))
+                                        !embeddedMatches.some((num) => q.id.endsWith(`_${num}`) || q.id === `q_${num}`)
                                       );
                                     })
                                   : group.questions;

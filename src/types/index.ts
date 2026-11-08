@@ -188,6 +188,8 @@ export interface ReadingQuestion {
   needsReview?: boolean;
   citation?: string;
   isTeacherEdited?: boolean;
+  questionTypeOverride?: QuestionType;
+  detectedQuestionType?: QuestionType;
 }
 
 export interface QuestionGroup {
@@ -195,6 +197,9 @@ export interface QuestionGroup {
   groupTitle?: string;
   instructions: string;
   questionType: QuestionType;
+  questionTypeOverride?: QuestionType;
+  detectedQuestionType?: QuestionType;
+  isTeacherEdited?: boolean;
   wordLimit?: string;
   maxWords?: number;
   allowNumbers?: boolean;

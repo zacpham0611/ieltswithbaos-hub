@@ -322,8 +322,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return {
       questions: extracted.questions,
-      questionGroups,
-      passages,
+      questionGroups: extracted.questionGroups.length > 0 ? extracted.questionGroups : questionGroups,
+      passages: extracted.passages.length > 0 ? extracted.passages : passages,
       metadata,
     };
   };

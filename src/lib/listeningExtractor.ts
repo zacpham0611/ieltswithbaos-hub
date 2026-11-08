@@ -392,7 +392,7 @@ function processListeningPart(
     if (isListeningTypeBannerLine(line) && !groupRangeRegex.test(line)) {
       finalizeGroup();
       const bannerType = inferQuestionTypeFromInstruction(line);
-      if (bannerType && bannerType !== 'note_completion') {
+      if (bannerType) {
         currentType = bannerType;
       }
       continue;
@@ -979,21 +979,37 @@ function inferQuestionTypeFromInstruction(instruction: string): ListeningQuestio
     return 'form_completion';
   }
 
-  // 7. Summary
+  // 7. Note Completion (checked before sentence completion)
+  if (
+    lower.includes('complete the notes') ||
+    lower.includes('note completion') ||
+    lower.includes('notes below') ||
+    lower.includes('ghi chú') ||
+    lower.includes('điền vào ghi chú') ||
+    lower.includes('complete the note')
+  ) {
+    return 'note_completion';
+  }
+
+  // 8. Summary
   if (lower.includes('summary') || lower.includes('tóm tắt')) {
     return 'summary_completion';
   }
 
-  // 8. Sentence completion
+  // 9. Sentence completion (guard against 'dạng câu hỏi' or 'câu hỏi' which means question)
   if (
-    (lower.includes('sentence') || lower.includes('câu')) &&
+    (lower.includes('sentence') ||
+      lower.includes('hoàn thành câu') ||
+      lower.includes('điền vào câu') ||
+      /\bcâu\s+hoàn\s+thành\b/i.test(lower)) &&
     !lower.includes('choose the correct letter') &&
-    !lower.includes('trắc nghiệm')
+    !lower.includes('trắc nghiệm') &&
+    !lower.includes('dạng câu hỏi')
   ) {
     return 'sentence_completion';
   }
 
-  // 9. Short answer
+  // 10. Short answer
   if (
     lower.includes('short answer') ||
     lower.includes('short-answer') ||

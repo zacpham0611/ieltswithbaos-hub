@@ -303,7 +303,9 @@ export function normalizeReadingQuestion(
   }
 
   const prompt = resolveQuestionPrompt(raw, index);
-  let type = normalizeQuestionType(raw.type || raw.questionType || raw.question_type);
+  const rawOverride = raw.questionTypeOverride || raw.typeOverride;
+  const isTeacherEdited = Boolean(raw.isTeacherEdited || rawOverride);
+  let type = normalizeQuestionType(rawOverride || raw.type || raw.questionType || raw.question_type);
   let options = normalizeOptions(raw.options || raw.choices || raw.answers || raw.alternatives);
   const wordLimit = raw.wordLimit || raw.word_limit || raw.limit;
   const maxWords =
@@ -325,39 +327,41 @@ export function normalizeReadingQuestion(
       ''
   ).trim();
 
-  // Answer key and prompt based refinement for YNNG / TFNG
-  const upperKey = correctAnswer.toUpperCase();
-  const rawInstructionStr = String((raw as any).instruction || (raw as any).groupInstruction || '').toLowerCase();
-  const rawPromptStr = String(prompt).toLowerCase();
+  // Heuristic refinements (TFNG, YNNG, blanks) should ONLY execute if teacher has not explicitly edited/overridden the question type
+  if (!isTeacherEdited) {
+    const upperKey = correctAnswer.toUpperCase();
+    const rawInstructionStr = String((raw as any).instruction || (raw as any).groupInstruction || '').toLowerCase();
+    const rawPromptStr = String(prompt).toLowerCase();
 
-  if (
-    upperKey === 'YES' ||
-    upperKey === 'NO' ||
-    rawInstructionStr.includes('yes/no/not given') ||
-    rawInstructionStr.includes('yes / no / not given') ||
-    rawPromptStr.includes('yes/no/not given') ||
-    rawPromptStr.includes('yes / no / not given')
-  ) {
-    type = 'yes_no_not_given';
-    options = undefined;
-  } else if (
-    upperKey === 'TRUE' ||
-    upperKey === 'FALSE' ||
-    rawInstructionStr.includes('true/false/not given') ||
-    rawInstructionStr.includes('true / false / not given') ||
-    rawPromptStr.includes('true/false/not given') ||
-    rawPromptStr.includes('true / false / not given')
-  ) {
-    type = 'true_false_not_given';
-    options = undefined;
-  } else if (type === 'multiple_choice' || type === 'short_answer') {
-    // If prompt contains blank patterns, it is a completion question (summary, sentence, or note)
-    const hasBlanks = /(?:\d{1,2}\s*)?(?:[\.]{3,}|_{3,}|…{2,})/.test(prompt);
-    if (hasBlanks) {
-      if (options && options.length > 0) {
-        type = 'summary_completion';
-      } else {
-        type = 'sentence_completion';
+    if (
+      upperKey === 'YES' ||
+      upperKey === 'NO' ||
+      rawInstructionStr.includes('yes/no/not given') ||
+      rawInstructionStr.includes('yes / no / not given') ||
+      rawPromptStr.includes('yes/no/not given') ||
+      rawPromptStr.includes('yes / no / not given')
+    ) {
+      type = 'yes_no_not_given';
+      options = undefined;
+    } else if (
+      upperKey === 'TRUE' ||
+      upperKey === 'FALSE' ||
+      rawInstructionStr.includes('true/false/not given') ||
+      rawInstructionStr.includes('true / false / not given') ||
+      rawPromptStr.includes('true/false/not given') ||
+      rawPromptStr.includes('true / false / not given')
+    ) {
+      type = 'true_false_not_given';
+      options = undefined;
+    } else if (type === 'multiple_choice' || type === 'short_answer') {
+      // If prompt contains blank patterns, it is a completion question (summary, sentence, or note)
+      const hasBlanks = /(?:\d{1,2}\s*)?(?:[\.]{3,}|_{3,}|…{2,})/.test(prompt);
+      if (hasBlanks) {
+        if (options && options.length > 0) {
+          type = 'summary_completion';
+        } else {
+          type = 'sentence_completion';
+        }
       }
     }
   }
@@ -412,6 +416,15 @@ export function normalizeReadingQuestion(
   const rawMultiCount = raw.multipleSelectCount ?? raw.multiple_select_count ?? raw.selectCount;
   if (type === 'multiple_select' && rawMultiCount != null && Number(rawMultiCount) > 0) {
     normalized.multipleSelectCount = Number(rawMultiCount);
+  }
+
+  // Preserve teacher overrides and detected type
+  if (isTeacherEdited || rawOverride) {
+    normalized.isTeacherEdited = true;
+    normalized.questionTypeOverride = normalizeQuestionType(rawOverride || type);
+  }
+  if (raw.detectedQuestionType || raw.detectedType) {
+    normalized.detectedQuestionType = normalizeQuestionType(raw.detectedQuestionType || raw.detectedType);
   }
 
   return normalized;
@@ -485,7 +498,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     : [];
 
   // Helper to add a question safely without duplication
-  const addQuestion = (rawQ: any, pIdx?: number) => {
+  const addQuestion = (rawQ: any, pIdx?: number, parentGroup?: QuestionGroup) => {
     if (!rawQ) return;
     let resolvedPIdx = pIdx;
     if (resolvedPIdx === undefined) {
@@ -501,11 +514,32 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       }
     }
 
-    const norm = normalizeReadingQuestion(rawQ, resultQuestions.length + 1, resolvedPIdx);
+    // Inherit questionTypeOverride or isTeacherEdited from parent group if not already specified on question
+    let effectiveRawQ = rawQ;
+    const groupOverride = parentGroup?.questionTypeOverride;
+    const groupIsEdited = parentGroup?.isTeacherEdited;
+    if (groupOverride || groupIsEdited) {
+      effectiveRawQ = {
+        ...rawQ,
+        questionTypeOverride: rawQ.questionTypeOverride || groupOverride || parentGroup?.questionType,
+        isTeacherEdited: rawQ.isTeacherEdited || groupIsEdited || Boolean(groupOverride),
+        type: rawQ.questionTypeOverride ? rawQ.type : (groupOverride || rawQ.type || parentGroup?.questionType),
+      };
+    }
+
+    const norm = normalizeReadingQuestion(effectiveRawQ, resultQuestions.length + 1, resolvedPIdx);
     let finalId = norm.id;
 
     if (seenIds.has(finalId)) {
       const existingQ = resultQuestions.find((q) => q.id === finalId);
+      if (existingQ) {
+        // If the question was previously seen without an explicit override, but now carries an authoritative override from group, apply it
+        if (norm.questionTypeOverride && !existingQ.questionTypeOverride) {
+          existingQ.type = norm.type;
+          existingQ.questionTypeOverride = norm.questionTypeOverride;
+          existingQ.isTeacherEdited = true;
+        }
+      }
       // If coming from top-level questions or already in the same passage, it is the exact same question
       if (
         !existingQ ||
@@ -544,7 +578,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       if (Array.isArray(p.questionGroups)) {
         p.questionGroups.forEach((g) => {
           if (Array.isArray(g.questions)) {
-            g.questions.forEach((q) => addQuestion(q, pIdx));
+            g.questions.forEach((q) => addQuestion(q, pIdx, g));
           }
         });
       }
@@ -566,7 +600,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
         }
       }
       if (Array.isArray(g.questions)) {
-        g.questions.forEach((q) => addQuestion(q, gPIdx));
+        g.questions.forEach((q) => addQuestion(q, gPIdx, g));
       }
     });
   }
@@ -630,10 +664,64 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     }
   }
 
+  // Compile and synchronize all groups so that questionType and child questions reflect authoritative overrides
+  const allGroups = questionGroups.length > 0
+    ? questionGroups
+    : passages.flatMap((p) => p.questionGroups || []);
+
+  const normalizedQuestionGroups: QuestionGroup[] = allGroups.map((g) => {
+    const groupType = g.questionTypeOverride || g.questionType;
+    const gQuestions = (g.questions || []).map((gq) => {
+      const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
+      if (matched) return matched;
+      return normalizeReadingQuestion({
+        ...gq,
+        type: gq.questionTypeOverride || groupType || gq.type,
+        questionTypeOverride: gq.questionTypeOverride || g.questionTypeOverride,
+        isTeacherEdited: gq.isTeacherEdited || g.isTeacherEdited,
+      });
+    });
+    return {
+      ...g,
+      questionType: groupType,
+      questionTypeOverride: g.questionTypeOverride,
+      isTeacherEdited: g.isTeacherEdited,
+      questions: gQuestions,
+    };
+  });
+
+  const normalizedPassages: ParsedPassage[] = passages.map((p, pIdx) => {
+    const pQs = resultQuestions.filter((q) => passageMap[q.id] === pIdx);
+    const pGroups = (p.questionGroups || []).map((g) => {
+      const groupType = g.questionTypeOverride || g.questionType;
+      const gQuestions = (g.questions || []).map((gq) => {
+        const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
+        return matched || normalizeReadingQuestion({
+          ...gq,
+          type: gq.questionTypeOverride || groupType || gq.type,
+          questionTypeOverride: gq.questionTypeOverride || g.questionTypeOverride,
+          isTeacherEdited: gq.isTeacherEdited || g.isTeacherEdited,
+        });
+      });
+      return {
+        ...g,
+        questionType: groupType,
+        questionTypeOverride: g.questionTypeOverride,
+        isTeacherEdited: g.isTeacherEdited,
+        questions: gQuestions,
+      };
+    });
+    return {
+      ...p,
+      questions: pQs.length > 0 ? pQs : (p.questions || []),
+      questionGroups: pGroups,
+    };
+  });
+
   return {
     questions: resultQuestions,
-    questionGroups,
-    passages,
+    questionGroups: normalizedQuestionGroups,
+    passages: normalizedPassages.length > 0 ? normalizedPassages : passages,
     passageMap,
     totalCount: resultQuestions.length,
   };

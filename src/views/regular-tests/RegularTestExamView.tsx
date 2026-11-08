@@ -25,6 +25,7 @@ import {
   Volume2,
   Highlighter,
   Eraser,
+  X,
 } from 'lucide-react';
 import { SpeakingSectionWorkspace } from './SpeakingSectionWorkspace';
 import { ExamListeningAudioPlayer } from '../../components/listening/ExamListeningAudioPlayer';
@@ -126,6 +127,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
   // Multi-Passage Reading Tabs & Marker state
   const [activeReadingPassageTab, setActiveReadingPassageTab] = useState<number>(0);
   const [selectedMarkerColor, setSelectedMarkerColor] = useState<string | null>(null);
+  const [floatingToolbarPos, setFloatingToolbarPos] = useState<{ x: number; y: number; text: string } | null>(null);
   const [readingMarkers, setReadingMarkers] = useState<Record<number, Array<{ id: string; text: string; color: string }>>>({});
 
   const REGULAR_TEST_MARKER_COLORS = [
@@ -150,6 +152,8 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
         ],
       };
     });
+    setFloatingToolbarPos(null);
+    window.getSelection()?.removeAllRanges();
   };
 
   const handleClearPassageMarkers = (passageIdx: number) => {
@@ -161,12 +165,28 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
   const handlePassageMouseUp = () => {
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setFloatingToolbarPos(null);
+      return;
+    }
     const text = selection.toString().trim();
-    if (text.length < 2) return;
+    if (text.length < 2) {
+      setFloatingToolbarPos(null);
+      return;
+    }
 
-    if (selectedMarkerColor) {
-      handleApplyMarker(text, selectedMarkerColor);
+    try {
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        setFloatingToolbarPos(null);
+        return;
+      }
+      const x = Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2));
+      const y = rect.top >= 70 ? rect.top - 8 : rect.bottom + 8;
+      setFloatingToolbarPos({ x, y, text });
+    } catch {
+      setFloatingToolbarPos(null);
     }
   };
 
@@ -1001,7 +1021,64 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
 
         {/* READING SECTION CANVAS */}
         {currentSection?.skill === 'reading' && (
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex overflow-hidden relative">
+            {/* Floating Contextual Highlight Toolbar */}
+            {floatingToolbarPos && (
+              <div
+                className="fixed z-50 bg-slate-900 text-white shadow-xl rounded-xl px-3 py-2 flex items-center space-x-2 text-xs -translate-x-1/2 -translate-y-full border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
+                style={{ left: floatingToolbarPos.x, top: floatingToolbarPos.y }}
+              >
+                <span className="text-[11px] text-slate-300 font-semibold flex items-center space-x-1">
+                  <Highlighter className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Highlight:</span>
+                </span>
+                <div className="flex items-center space-x-1.5">
+                  {REGULAR_TEST_MARKER_COLORS.map((col) => (
+                    <button
+                      key={col.id}
+                      type="button"
+                      onClick={() => handleApplyMarker(floatingToolbarPos.text, col.id)}
+                      style={{ backgroundColor: col.bgHex }}
+                      className="w-5 h-5 rounded-full border border-slate-400/80 hover:ring-2 hover:ring-white shadow-xs transition-transform hover:scale-120 cursor-pointer"
+                      title={col.label}
+                    />
+                  ))}
+                </div>
+                <div className="h-4 w-px bg-slate-700 mx-0.5" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentPIdx = activeReadingPassageTab;
+                    setReadingMarkers((prev) => {
+                      const list = prev[currentPIdx] || [];
+                      return {
+                        ...prev,
+                        [currentPIdx]: list.filter(
+                          (m) => !m.text.includes(floatingToolbarPos.text) && !floatingToolbarPos.text.includes(m.text)
+                        ),
+                      };
+                    });
+                    setFloatingToolbarPos(null);
+                    window.getSelection()?.removeAllRanges();
+                  }}
+                  className="p-1 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors"
+                  title="Remove highlight from selected text"
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFloatingToolbarPos(null);
+                    window.getSelection()?.removeAllRanges();
+                  }}
+                  className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
+                  title="Dismiss"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             {/* Left: Reading Passage */}
             {(() => {
               const readingPassagesList =
@@ -1032,41 +1109,17 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                           : 'Reading Passage'}
                       </span>
 
-                      {/* Marker Toolbar */}
-                      <div className="flex items-center space-x-1 bg-white border border-slate-200 px-2 py-0.5 rounded-lg shadow-2xs">
-                        <span className="text-[10px] font-bold text-slate-600 mr-0.5 flex items-center space-x-1">
-                          <Highlighter className="w-3 h-3 text-blue-600" />
-                          <span className="hidden sm:inline">Marker:</span>
-                        </span>
-                        {REGULAR_TEST_MARKER_COLORS.map((col) => {
-                          const isActive = selectedMarkerColor === col.id;
-                          return (
-                            <button
-                              key={col.id}
-                              type="button"
-                              onClick={() => setSelectedMarkerColor(isActive ? null : col.id)}
-                              style={{ backgroundColor: col.bgHex }}
-                              className={`w-4 h-4 rounded-full border transition-all ${
-                                isActive
-                                  ? 'ring-2 ring-blue-600 ring-offset-1 scale-110 border-slate-700 shadow-xs'
-                                  : 'border-slate-300 hover:scale-105 opacity-85 hover:opacity-100'
-                              }`}
-                              title={`${col.label}${isActive ? ' (Click to deactivate marker)' : ' (Click to activate marker)'}`}
-                            />
-                          );
-                        })}
-                        {currentMarkers.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => handleClearPassageMarkers(activeReadingPassageTab)}
-                            className="ml-1 px-1 py-0.5 text-slate-500 hover:text-red-600 rounded text-[10px] flex items-center space-x-0.5"
-                            title="Clear highlights in this passage"
-                          >
-                            <Eraser className="w-3 h-3" />
-                            <span className="hidden sm:inline font-semibold">Clear</span>
-                          </button>
-                        )}
-                      </div>
+                      {currentMarkers.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleClearPassageMarkers(activeReadingPassageTab)}
+                          className="px-2 py-0.5 text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded text-[11px] flex items-center space-x-1"
+                          title="Clear highlights in this passage"
+                        >
+                          <Eraser className="w-3 h-3" />
+                          <span>Clear highlights</span>
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -1134,6 +1187,10 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                   {/* Passage Content */}
                   <div
                     onMouseUp={handlePassageMouseUp}
+                    onTouchEnd={handlePassageMouseUp}
+                    onScroll={() => {
+                      if (floatingToolbarPos) setFloatingToolbarPos(null);
+                    }}
                     className={`flex-1 p-6 md:p-8 overflow-y-auto leading-[1.85] select-text font-serif text-slate-900 ${
                       passageFontSize === 'xl' ? 'text-xl md:text-[21px]' : passageFontSize === 'large' ? 'text-lg md:text-[19px]' : 'text-base md:text-[17px]'
                     }`}

@@ -152,8 +152,47 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
     if (!currentPassage) return;
     setIsDirty(true);
     const updatedGroups = [...currentPassage.questionGroups];
-    updatedGroups[groupIndex] = { ...updatedGroups[groupIndex], ...updates };
-    updateCurrentPassage({ questionGroups: updatedGroups });
+    const prevGroup = updatedGroups[groupIndex];
+    const newGroupType = updates.questionTypeOverride || updates.questionType;
+    const isTypeChanged = Boolean(newGroupType && newGroupType !== prevGroup.questionType);
+
+    // If teacher modified the question type for the group, cascade to all questions in this group
+    const updatedQuestions = isTypeChanged
+      ? (prevGroup.questions || []).map((q) => ({
+          ...q,
+          type: newGroupType as QuestionType,
+          questionTypeOverride: newGroupType as QuestionType,
+          isTeacherEdited: true,
+        }))
+      : prevGroup.questions;
+
+    const newGroup: QuestionGroup = {
+      ...prevGroup,
+      ...updates,
+      ...(newGroupType ? { questionType: newGroupType, questionTypeOverride: newGroupType } : {}),
+      questions: updatedQuestions,
+      isTeacherEdited: true,
+    };
+    updatedGroups[groupIndex] = newGroup;
+
+    // Synchronize passage-level questions list
+    const groupQIds = new Set(newGroup.questions.map((q) => q.id));
+    const updatedPassageQuestions = (currentPassage.questions || []).map((pq) => {
+      if (groupQIds.has(pq.id)) {
+        const found = newGroup.questions.find((gq) => gq.id === pq.id);
+        return found || pq;
+      }
+      return pq;
+    });
+
+    const finalPassageQuestions = updatedPassageQuestions.length > 0
+      ? updatedPassageQuestions
+      : updatedGroups.flatMap((g) => g.questions);
+
+    updateCurrentPassage({
+      questionGroups: updatedGroups,
+      questions: finalPassageQuestions,
+    });
   };
 
   const handleUpdateQuestion = (
@@ -166,20 +205,31 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
     const updatedGroups = [...currentPassage.questionGroups];
     const targetGroup = { ...updatedGroups[groupIndex] };
     const groupQuestions = [...targetGroup.questions];
+    const prevQ = groupQuestions[questionIndex];
 
-    groupQuestions[questionIndex] = {
-      ...groupQuestions[questionIndex],
+    const newType = updates.type || updates.questionTypeOverride;
+    const updatedQ: ReadingQuestion = {
+      ...prevQ,
       ...updates,
+      ...(newType ? { type: newType, questionTypeOverride: newType } : {}),
       isTeacherEdited: true,
     };
+
+    groupQuestions[questionIndex] = updatedQ;
     targetGroup.questions = groupQuestions;
     updatedGroups[groupIndex] = targetGroup;
 
     // Synchronize passage-level flat questions list
-    const allPassageQs = updatedGroups.flatMap((g) => g.questions);
+    const updatedPassageQuestions = (currentPassage.questions || []).map((pq) =>
+      pq.id === updatedQ.id ? updatedQ : pq
+    );
+    const finalPassageQuestions = updatedPassageQuestions.length > 0
+      ? updatedPassageQuestions
+      : updatedGroups.flatMap((g) => g.questions);
+
     updateCurrentPassage({
       questionGroups: updatedGroups,
-      questions: allPassageQs,
+      questions: finalPassageQuestions,
     });
   };
 
@@ -278,23 +328,49 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
         existingPayload = resource.content ? JSON.parse(resource.content) : {};
       } catch {}
 
-      const allCombinedQs = passages.flatMap((p) => p.questions);
-      const allCombinedGroups = passages.flatMap((p) => p.questionGroups);
+      // Synchronize passages so questionGroups and questions retain authoritative teacher overrides
+      const syncedPassages = passages.map((p) => {
+        const pGroups = (p.questionGroups || []).map((g) => ({
+          ...g,
+          questionType: g.questionTypeOverride || g.questionType,
+          questions: (g.questions || []).map((q) => ({
+            ...q,
+            type: q.questionTypeOverride || g.questionTypeOverride || q.type,
+            questionTypeOverride: q.questionTypeOverride || g.questionTypeOverride,
+            isTeacherEdited: q.isTeacherEdited || g.isTeacherEdited,
+          })),
+        }));
+        const pQuestions = (p.questions || []).map((q) => ({
+          ...q,
+          type: q.questionTypeOverride || q.type,
+          questionTypeOverride: q.questionTypeOverride,
+          isTeacherEdited: q.isTeacherEdited,
+        }));
+        return {
+          ...p,
+          questionGroups: pGroups,
+          questions: pQuestions.length > 0 ? pQuestions : pGroups.flatMap((g) => g.questions),
+        };
+      });
 
-      const isMulti = passages.length > 1;
+      const allCombinedQs = syncedPassages.flatMap((p) => p.questions);
+      const allCombinedGroups = syncedPassages.flatMap((p) => p.questionGroups);
+
+      const isMulti = syncedPassages.length > 1;
       const updatedPayload = {
         ...existingPayload,
         title: resTitle.trim(),
         skill: 'reading',
-        readingPassage: passages[0]?.content || '',
-        content: passages[0]?.content || '',
-        passages: passages,
+        readingPassage: syncedPassages[0]?.content || '',
+        content: syncedPassages[0]?.content || '',
+        passages: syncedPassages,
         questionGroups: allCombinedGroups,
         questions: allCombinedQs,
+        readingQuestions: allCombinedQs,
         metadata: {
           ...(existingPayload.metadata || {}),
           lastEditedAt: new Date().toISOString(),
-          passageCount: passages.length,
+          passageCount: syncedPassages.length,
           questionCount: allCombinedQs.length,
         },
       };
@@ -534,12 +610,14 @@ export const ReadingResourceEditorModal: React.FC<ReadingResourceEditorModalProp
                               Dạng câu hỏi IELTS:
                             </label>
                             <select
-                              value={group.questionType}
-                              onChange={(e) =>
+                              value={group.questionTypeOverride || group.questionType}
+                              onChange={(e) => {
+                                const newType = e.target.value as QuestionType;
                                 handleUpdateGroup(gIdx, {
-                                  questionType: e.target.value as QuestionType,
-                                })
-                              }
+                                  questionType: newType,
+                                  questionTypeOverride: newType,
+                                });
+                              }}
                               className="w-full p-1.5 border border-slate-300 rounded-lg font-bold text-xs text-blue-700 bg-white"
                             >
                               {ALL_QUESTION_TYPES.map((t) => (
