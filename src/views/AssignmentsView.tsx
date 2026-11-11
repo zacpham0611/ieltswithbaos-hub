@@ -1016,12 +1016,33 @@ export const AssignmentsView: React.FC = () => {
             passageIndex: pIdx,
             questions: (g.questions || []).map((gq) => {
               const matchedQ = updatedPQuestions.find((uq) => uq.id === gq.id || (uq.prompt && uq.prompt === gq.prompt));
-              return matchedQ || {
-                ...gq,
-                type: gq.questionTypeOverride || groupType || gq.type,
-                questionTypeOverride: gq.questionTypeOverride || g.questionTypeOverride,
-                isTeacherEdited: gq.isTeacherEdited || g.isTeacherEdited,
-              };
+              const specificType =
+                (matchedQ &&
+                  (matchedQ.type === 'yes_no_not_given' ||
+                    matchedQ.type === 'true_false_not_given' ||
+                    matchedQ.type === 'multiple_choice' ||
+                    matchedQ.type === 'multiple_select' ||
+                    matchedQ.type === 'matching_headings' ||
+                    matchedQ.type === 'matching_features')
+                  ? matchedQ.type
+                  : undefined) ||
+                (gq.type === 'yes_no_not_given' ||
+                  gq.type === 'true_false_not_given' ||
+                  gq.type === 'multiple_choice' ||
+                  gq.type === 'multiple_select' ||
+                  gq.type === 'matching_headings' ||
+                  gq.type === 'matching_features'
+                  ? gq.type
+                  : undefined);
+
+              return (
+                matchedQ || {
+                  ...gq,
+                  type: gq.questionTypeOverride || specificType || gq.type || groupType,
+                  questionTypeOverride: gq.questionTypeOverride || specificType || g.questionTypeOverride,
+                  isTeacherEdited: gq.isTeacherEdited || g.isTeacherEdited,
+                }
+              );
             }),
           };
         });
@@ -3741,8 +3762,8 @@ export const AssignmentsView: React.FC = () => {
                                         <div className="space-y-2 py-1">
                                           {noteLines.map((line, lIdx) => {
                                             const trimmed = line.trim();
-                                            const isSubBullet = /^(?:[ \t]{2,}[•\-\*\+]|--|–|\t)/.test(line) || (/^[•\-\*\+]/.test(trimmed) && line.startsWith('  '));
-                                            const isBullet = /^[•\-\*\+]\s*/.test(trimmed);
+                                            const isSubBullet = /^(?:[ \t]{2,}[•\-\*\+◦▪▫]|--|–|\t)/.test(line) || (/^[•\-\*\+◦▪▫]/.test(trimmed) && line.startsWith('  '));
+                                            const isBullet = /^[•\-\*\+◦▪▫]\s*/.test(trimmed);
                                             const isNumberedItem = /^\d+[\.\)]\s+/.test(trimmed);
                                             const isHeading =
                                               !isBullet &&

@@ -483,9 +483,12 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // Helper to parse text with embedded gap markers [1], [2], etc., or inline blanks like 1 …………
   const renderTextWithEmbeddedInputs = (rawText: string, keyPrefix: string) => {
-    // 0. Pre-clean text and strip orphaned markdown table separator fragments
+    // 0. Pre-clean text, strip orphaned markdown table separator fragments, and normalize <br /> tags
     let normalized = cleanListeningText(rawText);
-    normalized = normalized.replace(/^(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/, '');
+    normalized = normalized.replace(/<br\s*\/?>/gi, '\n');
+    normalized = normalized.replace(/^\s*\|?(?:\s*:?-{2,}:?\s*\|?)+\s*$/gm, '');
+    normalized = normalized.replace(/^(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/gm, '');
+    normalized = normalized.replace(/(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/g, '');
 
     // 1. Normalize blanks followed anywhere by (Q<num>) or (<num>) or [<num>]
     // e.g. "- The main cause of the problem is ______ (Q31)."
@@ -868,7 +871,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                   .split('\n')
                   .map((b) => b.trim())
                   .filter(Boolean)
-              : [cleanVal];
+              : [valNormalized];
 
             return (
               <div
@@ -978,11 +981,15 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   const renderStructuredNotesOrSummary = (notesText: string) => {
     // 1. Normalize multi-row lines and remove orphaned table dividers (| ---, |:---|) and table syntax remnants
     let formattedText = normalizeListeningStructuredText(notesText);
+    formattedText = formattedText.replace(/<br\s*\/?>/gi, '\n');
     formattedText = formattedText.replace(/^\s*\|?\s*:?-{2,}:?\s*\|?\s*$/gm, '');
     formattedText = formattedText.replace(/^(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/gm, '');
     formattedText = formattedText.replace(/(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/g, '');
+    // Clean up mid-line pipe delimiters (e.g. "Label: | Value" -> "Label: Value")
+    formattedText = formattedText.replace(/:\s*\|\s*/g, ': ');
     // Remove leading and trailing pipe characters per line
     formattedText = formattedText.replace(/^\s*\|\s*/gm, '').replace(/\s*\|\s*$/gm, '');
+    formattedText = formattedText.replace(/\s*\|\s*/g, ' - ');
     // Normalize bullets to separate lines
     formattedText = formattedText.replace(/\s*(?:•|\u2022)\s*/g, '\n• ');
     // Join isolated bullet lines with the next line (e.g. "•\nActively spoken languages: 81" -> "• Actively spoken languages: 81")

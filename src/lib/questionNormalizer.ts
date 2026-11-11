@@ -562,12 +562,19 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
         rawType === 'matching_headings' ||
         rawType === 'matching_features');
 
-    if ((groupOverride || groupIsEdited) && !hasSpecificExplicitType) {
+    if (groupOverride) {
       effectiveRawQ = {
         ...rawQ,
-        questionTypeOverride: rawQ.questionTypeOverride || groupOverride || parentGroup?.questionType,
-        isTeacherEdited: rawQ.isTeacherEdited || groupIsEdited || Boolean(groupOverride),
-        type: rawQ.questionTypeOverride ? rawQ.type : (groupOverride || rawQ.type || parentGroup?.questionType),
+        questionTypeOverride: rawQ.questionTypeOverride || groupOverride,
+        isTeacherEdited: rawQ.isTeacherEdited || Boolean(groupOverride),
+        type: rawQ.questionTypeOverride ? rawQ.type : groupOverride,
+      };
+    } else if (groupIsEdited && !hasSpecificExplicitType) {
+      effectiveRawQ = {
+        ...rawQ,
+        questionTypeOverride: rawQ.questionTypeOverride,
+        isTeacherEdited: rawQ.isTeacherEdited || groupIsEdited,
+        type: rawQ.questionTypeOverride ? rawQ.type : (rawQ.type || parentGroup?.questionType),
       };
     }
 
@@ -727,19 +734,29 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     const groupType = g.questionTypeOverride || g.questionType;
     const gQuestions = (g.questions || []).map((gq) => {
       const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
-      const hasSpecificMatchedType =
-        matched &&
-        (matched.type === 'yes_no_not_given' ||
-          matched.type === 'true_false_not_given' ||
-          matched.type === 'multiple_choice' ||
-          matched.type === 'multiple_select' ||
-          matched.type === 'matching_headings' ||
-          matched.type === 'matching_features');
+      const specificType =
+        (matched &&
+          (matched.type === 'yes_no_not_given' ||
+            matched.type === 'true_false_not_given' ||
+            matched.type === 'multiple_choice' ||
+            matched.type === 'multiple_select' ||
+            matched.type === 'matching_headings' ||
+            matched.type === 'matching_features')
+          ? matched.type
+          : undefined) ||
+        (gq.type === 'yes_no_not_given' ||
+          gq.type === 'true_false_not_given' ||
+          gq.type === 'multiple_choice' ||
+          gq.type === 'multiple_select' ||
+          gq.type === 'matching_headings' ||
+          gq.type === 'matching_features'
+          ? gq.type
+          : undefined);
 
       const authType =
         gq.questionTypeOverride ||
-        (hasSpecificMatchedType ? matched?.type : undefined) ||
         g.questionTypeOverride ||
+        specificType ||
         matched?.questionTypeOverride ||
         gq.type ||
         groupType;
@@ -761,7 +778,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
           isTeacherEdited: isEdited,
         });
 
-      if (matched && !hasSpecificMatchedType && (g.questionTypeOverride || g.isTeacherEdited)) {
+      if (matched && (g.questionTypeOverride || (!specificType && g.isTeacherEdited))) {
         matched.type = authType;
         matched.questionTypeOverride = authType;
         matched.isTeacherEdited = true;
@@ -788,19 +805,29 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       const groupType = g.questionTypeOverride || g.questionType;
       const gQuestions = (g.questions || []).map((gq) => {
         const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
-        const hasSpecificMatchedType =
-          matched &&
-          (matched.type === 'yes_no_not_given' ||
-            matched.type === 'true_false_not_given' ||
-            matched.type === 'multiple_choice' ||
-            matched.type === 'multiple_select' ||
-            matched.type === 'matching_headings' ||
-            matched.type === 'matching_features');
+        const specificType =
+          (matched &&
+            (matched.type === 'yes_no_not_given' ||
+              matched.type === 'true_false_not_given' ||
+              matched.type === 'multiple_choice' ||
+              matched.type === 'multiple_select' ||
+              matched.type === 'matching_headings' ||
+              matched.type === 'matching_features')
+            ? matched.type
+            : undefined) ||
+          (gq.type === 'yes_no_not_given' ||
+            gq.type === 'true_false_not_given' ||
+            gq.type === 'multiple_choice' ||
+            gq.type === 'multiple_select' ||
+            gq.type === 'matching_headings' ||
+            gq.type === 'matching_features'
+            ? gq.type
+            : undefined);
 
         const authType =
           gq.questionTypeOverride ||
-          (hasSpecificMatchedType ? matched?.type : undefined) ||
           g.questionTypeOverride ||
+          specificType ||
           matched?.questionTypeOverride ||
           gq.type ||
           groupType;
@@ -821,7 +848,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
             isTeacherEdited: isEdited,
           });
 
-        if (matched && !hasSpecificMatchedType && (g.questionTypeOverride || g.isTeacherEdited)) {
+        if (matched && (g.questionTypeOverride || (!specificType && g.isTeacherEdited))) {
           matched.type = authType;
           matched.questionTypeOverride = authType;
           matched.isTeacherEdited = true;
@@ -829,8 +856,8 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
 
         return {
           ...normalizedQ,
-          type: hasSpecificMatchedType ? matched.type : authType,
-          ...(isEdited ? { questionTypeOverride: hasSpecificMatchedType ? matched.type : authType, isTeacherEdited: true } : {}),
+          type: specificType || authType,
+          ...(isEdited ? { questionTypeOverride: specificType || authType, isTeacherEdited: true } : {}),
         };
       });
       return {
@@ -1061,7 +1088,11 @@ export function buildCompletionGroupText(
   const prompts: string[] = [];
 
   for (const { q, idx } of questions) {
-    let rawPrompt = cleanReadingText(q.prompt || '').trim();
+    let rawPrompt = cleanReadingText(q.prompt || '').trimEnd();
+    // For note_completion, preserve leading indentation so sub-bullets retain their hierarchy
+    if (q.type !== 'note_completion') {
+      rawPrompt = rawPrompt.trimStart();
+    }
     const qNum =
       (q as any).questionNumber ||
       (q as any).number ||
@@ -1108,7 +1139,7 @@ export function buildCompletionGroupText(
   }
 
   const isBulletOrList =
-    questions.some(({ q }) => /^[•\-\*\d+\.]\s+/m.test((q.prompt || '').trim())) ||
+    questions.some(({ q }) => /^[•\-\*\+◦▪▫\d+\.]\s+/m.test((q.prompt || '').trim())) ||
     questions[0]?.q.type === 'note_completion';
   return prompts.join(isBulletOrList ? '\n' : ' ');
 }

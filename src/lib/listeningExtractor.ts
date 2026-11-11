@@ -439,7 +439,12 @@ function processListeningPart(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!line) continue;
+    if (!line) {
+      if (currentGroupText && !currentGroupText.endsWith('\n\n')) {
+        currentGroupText += '\n';
+      }
+      continue;
+    }
 
     // Skip standalone question-type banner headers so they are never parsed as questions
     if (isListeningTypeBannerLine(line) && !groupRangeRegex.test(line)) {

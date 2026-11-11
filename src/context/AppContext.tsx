@@ -309,7 +309,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser?.id]);
 
   useEffect(() => {
-    if (currentUser?.id && regularTests.length > 0) {
+    if (currentUser?.id) {
       try {
         localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(regularTests));
       } catch (e) {
@@ -319,7 +319,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser?.id, regularTests]);
 
   useEffect(() => {
-    if (currentUser?.id && regularTestAttempts.length > 0) {
+    if (currentUser?.id) {
       try {
         localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(regularTestAttempts));
       } catch (e) {
@@ -4009,6 +4009,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: err?.message || 'Database deletion failed' };
     }
 
+    // Refresh state authoritatively across views
+    refreshData().catch(() => {});
     return { success: true };
   };
 
@@ -4055,85 +4057,150 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // PostgreSQL regular_test_attempts requires a valid UUID v4 for id
     const attemptId = generateUUID();
 
-    // Resolve authoritative version_id UUID
-    let realVersionId: string | null = null;
+    let createdAttempt: RegularTestAttempt | null = null;
+
+    // 1. First attempt: call authoritative RPC start_regular_test_attempt (SECURITY DEFINER)
     try {
-      const { data: verData } = await supabase
-        .from('regular_test_versions')
-        .select('id')
-        .eq('test_id', testId)
-        .order('version_number', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (verData?.id) {
-        realVersionId = verData.id;
-      }
-    } catch {}
-
-    if (!realVersionId) {
-      realVersionId = generateUUID();
-    }
-
-    const newAttempt: RegularTestAttempt = {
-      id: attemptId,
-      testId,
-      testTitle: test.title,
-      versionId: realVersionId,
-      studentId: currentUser.id,
-      studentName: currentUser.name,
-      studentEmail: currentUser.email,
-      courseId: test.courseId,
-      courseName: test.courseName,
-      attemptNumber,
-      serverStartTime,
-      serverDeadline: serverTiming.effectiveDeadline.toISOString(),
-      extraTimeMinutes: 0,
-      currentSectionIndex: 0,
-      status: 'in_progress',
-      autoSubmitted: false,
-      sessionToken,
-      answers: { reading: {}, writing: { text: '', wordCount: 0 } },
-      flaggedQuestions: {},
-      writingRevisions: [],
-      saveRevisionSequence: 0,
-      gradingStatus: 'pending',
-      isReleased: false,
-      createdAt: serverStartTime,
-      updatedAt: serverStartTime,
-    };
-
-    try {
-      const { error: insertError } = await supabase.from('regular_test_attempts').insert({
-        id: newAttempt.id,
-        test_id: newAttempt.testId,
-        version_id: newAttempt.versionId,
-        student_id: newAttempt.studentId,
-        course_id: newAttempt.courseId,
-        attempt_number: newAttempt.attemptNumber,
-        server_start_time: newAttempt.serverStartTime,
-        server_deadline: newAttempt.serverDeadline,
-        extra_time_minutes: 0,
-        current_section_index: 0,
-        session_token: newAttempt.sessionToken,
-        status: newAttempt.status,
-        answers: newAttempt.answers,
-        flagged_questions: newAttempt.flaggedQuestions,
-        device_info: deviceInfo || {},
-        last_heartbeat: serverStartTime,
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('start_regular_test_attempt', {
+        p_test_id: testId,
+        p_access_code: accessCode || null,
+        p_device_info: deviceInfo || {},
       });
 
-      if (insertError) {
-        console.warn('Start attempt DB error notice:', insertError);
+      if (!rpcErr && rpcRes && rpcRes.attemptId) {
+        createdAttempt = {
+          id: rpcRes.attemptId,
+          testId: rpcRes.testId || testId,
+          testTitle: rpcRes.title || test.title,
+          versionId: rpcRes.versionId || generateUUID(),
+          studentId: currentUser.id,
+          studentName: currentUser.name,
+          studentEmail: currentUser.email,
+          courseId: test.courseId,
+          courseName: test.courseName,
+          attemptNumber: rpcRes.attemptNumber || attemptNumber,
+          serverStartTime: rpcRes.serverStartTime || serverStartTime,
+          serverDeadline: rpcRes.serverDeadline || serverTiming.effectiveDeadline.toISOString(),
+          extraTimeMinutes: rpcRes.extraTimeMinutes || 0,
+          currentSectionIndex: rpcRes.currentSectionIndex || 0,
+          status: (rpcRes.status as any) || 'in_progress',
+          autoSubmitted: false,
+          sessionToken: rpcRes.sessionToken || sessionToken,
+          answers: rpcRes.answers || { reading: {}, writing: { text: '', wordCount: 0 } },
+          flaggedQuestions: rpcRes.flaggedQuestions || {},
+          writingRevisions: [],
+          saveRevisionSequence: 0,
+          gradingStatus: 'pending',
+          isReleased: false,
+          createdAt: rpcRes.serverStartTime || serverStartTime,
+          updatedAt: rpcRes.serverStartTime || serverStartTime,
+        };
       }
-    } catch (err) {
-      console.warn('Start attempt DB catch notice:', err);
+    } catch (rpcCatch) {
+      console.warn('RPC start_regular_test_attempt notice, falling back to direct insert:', rpcCatch);
     }
 
-    setRegularTestAttempts((prev) => [newAttempt, ...prev]);
-    setActiveExamAttempt(newAttempt);
+    // 2. Fallback: direct transactional insert with authoritative version resolution
+    if (!createdAttempt) {
+      let realVersionId: string | null = null;
+      try {
+        const { data: verData } = await supabase
+          .from('regular_test_versions')
+          .select('id')
+          .eq('test_id', testId)
+          .order('version_number', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (verData?.id) {
+          realVersionId = verData.id;
+        }
+      } catch {}
+
+      if (!realVersionId) {
+        realVersionId = generateUUID();
+        try {
+          await supabase.from('regular_test_versions').insert({
+            id: realVersionId,
+            test_id: testId,
+            version_number: test.currentVersion || 1,
+            sections: test.sections || [],
+            instructions: test.instructions || '',
+            created_by: currentUser.id,
+          });
+        } catch {}
+      }
+
+      createdAttempt = {
+        id: attemptId,
+        testId,
+        testTitle: test.title,
+        versionId: realVersionId,
+        studentId: currentUser.id,
+        studentName: currentUser.name,
+        studentEmail: currentUser.email,
+        courseId: test.courseId,
+        courseName: test.courseName,
+        attemptNumber,
+        serverStartTime,
+        serverDeadline: serverTiming.effectiveDeadline.toISOString(),
+        extraTimeMinutes: 0,
+        currentSectionIndex: 0,
+        status: 'in_progress',
+        autoSubmitted: false,
+        sessionToken,
+        answers: { reading: {}, writing: { text: '', wordCount: 0 } },
+        flaggedQuestions: {},
+        writingRevisions: [],
+        saveRevisionSequence: 0,
+        gradingStatus: 'pending',
+        isReleased: false,
+        createdAt: serverStartTime,
+        updatedAt: serverStartTime,
+      };
+
+      try {
+        const { error: insertError } = await supabase.from('regular_test_attempts').insert({
+          id: createdAttempt.id,
+          test_id: createdAttempt.testId,
+          version_id: createdAttempt.versionId,
+          student_id: createdAttempt.studentId,
+          course_id: createdAttempt.courseId,
+          attempt_number: createdAttempt.attemptNumber,
+          server_start_time: createdAttempt.serverStartTime,
+          server_deadline: createdAttempt.serverDeadline,
+          extra_time_minutes: 0,
+          current_section_index: 0,
+          session_token: createdAttempt.sessionToken,
+          status: createdAttempt.status,
+          answers: createdAttempt.answers,
+          flagged_questions: createdAttempt.flaggedQuestions,
+          device_info: deviceInfo || {},
+          last_heartbeat: serverStartTime,
+        });
+
+        if (insertError) {
+          console.warn('Start attempt DB error notice:', insertError);
+        }
+      } catch (err) {
+        console.warn('Start attempt DB catch notice:', err);
+      }
+    }
+
+    const finalAttempt = createdAttempt;
+    setRegularTestAttempts((prev) => [finalAttempt, ...prev]);
+    setActiveExamAttempt(finalAttempt);
+
+    if (currentUser?.id) {
+      try {
+        localStorage.setItem(
+          `ielts_regular_test_attempts_${currentUser.id}`,
+          JSON.stringify([finalAttempt, ...regularTestAttempts])
+        );
+      } catch {}
+    }
 
     const examData = sanitizeExamDataForStudent(test);
-    return { attempt: newAttempt, examData };
+    return { attempt: finalAttempt, examData };
   };
 
   const saveRegularTestAnswers = async (
@@ -4225,6 +4292,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveExamAttempt(null);
     }
 
+    if (currentUser?.id) {
+      try {
+        const attemptsToCache = regularTestAttempts.map((a) => (a.id === attemptId ? updatedAttempt : a));
+        localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(attemptsToCache));
+      } catch {}
+    }
+
     try {
       const { error: submitError } = await supabase
         .from('regular_test_attempts')
@@ -4247,6 +4321,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (err) {
       console.warn('Submit attempt DB catch notice:', err);
     }
+
+    // Trigger authoritative sync so Teacher Live Monitor receives submitted attempt
+    refreshData().catch(() => {});
 
     addActivity(
       `Submitted Regular Test: ${test.title} (${isAutoSubmit ? 'Auto-submitted' : 'Manual'})`,
