@@ -3650,78 +3650,143 @@ export const AssignmentsView: React.FC = () => {
                                   <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                                     {group.groupType === 'note_completion' ? 'Notes with Blanks' : 'Text / Summary with Blanks'}:
                                   </div>
-                                  <div className="text-sm font-normal text-slate-800 leading-relaxed whitespace-pre-line">
-                                    {cleanReadingText(group.groupText).split(/(\[\d+\])/g).map((chunk, i) => {
-                                      const match = chunk.match(/^\[(\d+)\]$/);
-                                      if (match) {
-                                        const qNumStr = match[1];
-                                        const targetItem = group.questions.find(
-                                          (item) =>
-                                            String(item.idx + 1) === qNumStr ||
-                                            String((item.q as any).questionNumber || (item.q as any).number || '') === qNumStr ||
-                                            item.q.id.endsWith(`_${qNumStr}`) ||
-                                            item.q.id === `q_${qNumStr}` ||
-                                            Boolean(item.q.prompt && (item.q.prompt.startsWith(`${qNumStr}.`) || item.q.prompt.startsWith(`Question ${qNumStr}`)))
-                                        );
-                                        const qId = targetItem?.q.id;
-                                        const isReadOnlyGroup = isTeacher || Boolean(mySub && mySub.status !== 'returned');
-                                        const currentVal = qId ? readingAnswers[qId] || (mySub?.readingAnswers && mySub.readingAnswers[qId]) || '' : '';
+                                  {(() => {
+                                    const embeddedMatches = Array.from(cleanReadingText(group.groupText || '').matchAll(/\[(\d+)\]/g)).map((m) => m[1]);
 
-                                        if (targetItem && qId) {
-                                          if (effectiveWordList && effectiveWordList.length > 0) {
+                                    const renderChunkWithBlanks = (textChunk: string, keyPrefix: string) => {
+                                      return textChunk.split(/(\[\d+\])/g).map((chunk, i) => {
+                                        const match = chunk.match(/^\[(\d+)\]$/);
+                                        if (match) {
+                                          const qNumStr = match[1];
+                                          const blankIndexInGroup = embeddedMatches.indexOf(qNumStr);
+                                          const targetItem = group.questions.find(
+                                            (item, qIdx) =>
+                                              String(item.idx + 1) === qNumStr ||
+                                              String((item.q as any).questionNumber || (item.q as any).number || '') === qNumStr ||
+                                              item.q.id.endsWith(`_${qNumStr}`) ||
+                                              item.q.id === `q_${qNumStr}` ||
+                                              item.q.id.endsWith(qNumStr) ||
+                                              Boolean(item.q.prompt && (item.q.prompt.startsWith(`${qNumStr}.`) || item.q.prompt.startsWith(`Question ${qNumStr}`))) ||
+                                              (blankIndexInGroup !== -1 && qIdx === blankIndexInGroup)
+                                          );
+                                          const qId = targetItem?.q.id;
+                                          const isReadOnlyGroup = isTeacher || Boolean(mySub && mySub.status !== 'returned');
+                                          const currentVal = qId ? readingAnswers[qId] || (mySub?.readingAnswers && mySub.readingAnswers[qId]) || '' : '';
+
+                                          if (targetItem && qId) {
+                                            if (effectiveWordList && effectiveWordList.length > 0) {
+                                              return (
+                                                <span key={`${keyPrefix}-${i}`} className="inline-flex items-center gap-1 mx-1 align-middle">
+                                                  <span className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 shadow-2xs">
+                                                    [{qNumStr}]
+                                                  </span>
+                                                  <select
+                                                    disabled={isReadOnlyGroup}
+                                                    value={currentVal}
+                                                    onChange={(e) => handleAnswerChange(qId, e.target.value)}
+                                                    className="text-xs font-semibold px-2 py-0.5 rounded border border-blue-300 bg-white text-blue-900 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                                                  >
+                                                    <option value="">--</option>
+                                                    {effectiveWordList.map((opt) => {
+                                                      const letter = opt.match(/^([A-Za-z])[\.\:\s]/)?.[1]?.toUpperCase() || opt;
+                                                      return (
+                                                        <option key={opt} value={letter}>
+                                                          {opt}
+                                                        </option>
+                                                      );
+                                                    })}
+                                                  </select>
+                                                </span>
+                                              );
+                                            }
                                             return (
-                                              <span key={i} className="inline-flex items-center gap-1 mx-1 align-middle">
+                                              <span key={`${keyPrefix}-${i}`} className="inline-flex items-center gap-1 mx-1 align-middle">
                                                 <span className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 shadow-2xs">
                                                   [{qNumStr}]
                                                 </span>
-                                                <select
+                                                <input
+                                                  type="text"
                                                   disabled={isReadOnlyGroup}
                                                   value={currentVal}
                                                   onChange={(e) => handleAnswerChange(qId, e.target.value)}
-                                                  className="text-xs font-semibold px-2 py-0.5 rounded border border-blue-300 bg-white text-blue-900 focus:ring-1 focus:ring-blue-500 shadow-2xs"
-                                                >
-                                                  <option value="">--</option>
-                                                  {effectiveWordList.map((opt) => {
-                                                    const letter = opt.match(/^([A-Za-z])[\.\:\s]/)?.[1]?.toUpperCase() || opt;
-                                                    return (
-                                                      <option key={opt} value={letter}>
-                                                        {opt}
-                                                      </option>
-                                                    );
-                                                  })}
-                                                </select>
+                                                  placeholder="..."
+                                                  className="w-24 sm:w-36 text-xs font-semibold px-2.5 py-1 rounded-lg border border-blue-300 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                                />
                                               </span>
                                             );
                                           }
+
                                           return (
-                                            <span key={i} className="inline-flex items-center gap-1 mx-1 align-middle">
-                                              <span className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 shadow-2xs">
-                                                [{qNumStr}]
-                                              </span>
-                                              <input
-                                                type="text"
-                                                disabled={isReadOnlyGroup}
-                                                value={currentVal}
-                                                onChange={(e) => handleAnswerChange(qId, e.target.value)}
-                                                placeholder="..."
-                                                className="w-24 sm:w-32 text-xs font-medium px-2 py-0.5 rounded border border-blue-300 bg-white text-slate-900 focus:ring-1 focus:ring-blue-500 shadow-2xs"
-                                              />
+                                            <span
+                                              key={`${keyPrefix}-${i}`}
+                                              className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 mx-1 align-baseline shadow-2xs"
+                                            >
+                                              [{match[1]}]
                                             </span>
                                           );
                                         }
+                                        return <span key={`${keyPrefix}-${i}`}>{renderCleanMarkdown(chunk)}</span>;
+                                      });
+                                    };
 
-                                        return (
-                                          <span
-                                            key={i}
-                                            className="inline-flex items-center justify-center font-mono font-extrabold text-xs text-blue-800 bg-blue-100 border border-blue-300 rounded px-1.5 py-0.5 mx-1 align-baseline shadow-2xs"
-                                          >
-                                            [{match[1]}]
-                                          </span>
-                                        );
-                                      }
-                                      return <span key={i}>{renderCleanMarkdown(chunk)}</span>;
-                                    })}
-                                  </div>
+                                    const isNoteCompletion = group.groupType === 'note_completion';
+                                    const cleanNotes = cleanReadingText(group.groupText)
+                                      .replace(/\s*(?:•|\u2022|\*\s+)\s*/g, '\n• ')
+                                      .trim();
+                                    const noteLines = cleanNotes.split('\n').map((l) => l.trim()).filter(Boolean);
+
+                                    if (isNoteCompletion && noteLines.length > 1) {
+                                      return (
+                                        <div className="space-y-2 py-1">
+                                          {noteLines.map((line, lIdx) => {
+                                            const isBullet = /^[•\-\*\+]\s*/.test(line);
+                                            const isHeading =
+                                              !isBullet &&
+                                              !line.includes('[') &&
+                                              (line.endsWith(':') ||
+                                                line === line.toUpperCase() ||
+                                                (line.length <= 45 && !/[,\.]$/.test(line) && /^[A-Z]/.test(line)));
+
+                                            if (isHeading) {
+                                              return (
+                                                <h5
+                                                  key={lIdx}
+                                                  className="font-bold text-slate-900 text-sm sm:text-base pt-2.5 pb-1 border-b border-slate-200 flex items-center gap-2"
+                                                >
+                                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
+                                                  <span>{line}</span>
+                                                </h5>
+                                              );
+                                            }
+
+                                            if (isBullet) {
+                                              const cleanBullet = line.replace(/^[•\-\*\+\s]+/, '');
+                                              return (
+                                                <div key={lIdx} className="flex items-start gap-2.5 py-1 pl-3 sm:pl-5">
+                                                  <span className="text-blue-500 font-bold shrink-0 mt-0.5 text-base sm:text-lg">•</span>
+                                                  <div className="flex-1 text-sm text-slate-800 leading-relaxed">
+                                                    {renderChunkWithBlanks(cleanBullet, `bullet-${lIdx}`)}
+                                                  </div>
+                                                </div>
+                                              );
+                                            }
+
+                                            return (
+                                              <p key={lIdx} className="text-sm text-slate-800 leading-relaxed my-1.5">
+                                                {renderChunkWithBlanks(line, `line-${lIdx}`)}
+                                              </p>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    }
+
+                                    return (
+                                      <div className="text-sm font-normal text-slate-800 leading-relaxed whitespace-pre-line">
+                                        {renderChunkWithBlanks(cleanReadingText(group.groupText), 'gen')}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               )}
 
@@ -3765,13 +3830,15 @@ export const AssignmentsView: React.FC = () => {
                               {(() => {
                                 const embeddedMatches = Array.from(cleanReadingText(group.groupText || '').matchAll(/\[(\d+)\]/g)).map((m) => m[1]);
                                 const unembeddedQuestions = group.groupText && embeddedMatches.length > 0
-                                  ? group.questions.filter(({ q, idx }) => {
+                                  ? group.questions.filter(({ q, idx }, qIdx) => {
                                       const qNumStr = String(idx + 1);
                                       const qNumberProp = String((q as any).questionNumber || (q as any).number || '');
+                                      const isEmbeddedByIndex = qIdx < embeddedMatches.length;
                                       return (
                                         !embeddedMatches.includes(qNumStr) &&
                                         !embeddedMatches.includes(qNumberProp) &&
-                                        !embeddedMatches.some((num) => q.id.endsWith(`_${num}`) || q.id === `q_${num}`)
+                                        !embeddedMatches.some((num) => q.id.endsWith(`_${num}`) || q.id === `q_${num}` || q.id.endsWith(num)) &&
+                                        !isEmbeddedByIndex
                                       );
                                     })
                                   : group.questions;

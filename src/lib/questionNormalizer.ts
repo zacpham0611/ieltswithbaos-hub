@@ -942,10 +942,14 @@ export function buildCompletionGroupText(
     questions.every(({ q }) => cleanReadingText(q.prompt || '').trim() === firstPrompt);
 
   if (allSharePrompt) {
-    return firstPrompt.replace(
+    let formatted = firstPrompt.replace(
       /(?:^|\s)(\d{1,2})\s*(?:[\.]{3,}|[_]{3,}|…{1,})/g,
       (_, num) => ` [${num}]`
     );
+    if (questions[0]?.q.type === 'note_completion' || /•|\u2022/.test(formatted)) {
+      formatted = formatted.replace(/\s*(?:•|\u2022|\*\s+)\s*/g, '\n• ');
+    }
+    return formatted;
   }
 
   // Otherwise, process each prompt individually, guarding against duplicated paragraphs / sentences

@@ -2458,10 +2458,10 @@ function parseSinglePassage(
         qPrompt = qPrompt.replace(/\[\s*\d{1,2}\s*\]\s*$/, '').trim();
       }
 
-      // Check for inline blanks (e.g. Summary Completion: "...in the 33 ……………. Another variable...")
-      const inlineMatches = Array.from(line.matchAll(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g));
+      // Check for inline blanks (e.g. Summary Completion: "...in the 33 ……………. Another variable...", or Note Completion: "• (31) languages: 8")
+      const inlineMatches = Array.from(line.matchAll(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|\(\s*(\d{1,2})\s*\)(?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g));
       if (!qNum && inlineMatches.length > 0) {
-        const normalizedLine = line.replace(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g, ' [$1$2] ');
+        const normalizedLine = line.replace(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|\(\s*(\d{1,2})\s*\)(?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g, ' [$1$2$3] ');
         inlineCompletionPassages.push(normalizedLine.trim());
         if (currentQ && currentQ.prompt) {
           finalizeQuestion(
@@ -2479,7 +2479,7 @@ function parseSinglePassage(
 
         const sentences = line.split(/(?<=[.!?])\s+/);
         for (const im of inlineMatches) {
-          const blankQNum = im[1] || im[2];
+          const blankQNum = im[1] || im[2] || im[3];
           const n = parseInt(blankQNum, 10);
           if (n >= 1 && n <= 40) {
             if (groupQuestions.some((q) => q.id === `q_${blankQNum}`)) {

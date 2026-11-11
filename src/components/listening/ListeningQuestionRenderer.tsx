@@ -501,6 +501,41 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     });
   };
 
+  // Helper to render table cell content with multi-bullet vertical spacing
+  const renderTableCellContent = (cellText: string, keyPrefix: string) => {
+    const hasBullets = /(?:^|\s+)(?:[•\u2022]|\*\s+)/.test(cellText);
+    const hasNewlines = cellText.includes('\n');
+    if (hasBullets || hasNewlines) {
+      const normalized = cellText
+        .replace(/(?:^|\s+)(?:[•\u2022]|\*\s+)/g, '\n• ')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      if (normalized.length > 1) {
+        return (
+          <div className="space-y-1.5 py-0.5">
+            {normalized.map((line, lIdx) => {
+              const isBullet = line.startsWith('•');
+              const cleanLine = line.replace(/^[•\s]+/, '');
+              return (
+                <div key={lIdx} className="flex items-start gap-2 text-slate-700 leading-relaxed">
+                  {isBullet && (
+                    <span className="text-blue-500 font-bold shrink-0 mt-0.5">•</span>
+                  )}
+                  <div className="flex-1">
+                    {renderTextWithEmbeddedInputs(cleanLine, `${keyPrefix}-l${lIdx}`)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+    }
+    return renderTextWithEmbeddedInputs(cellText, keyPrefix);
+  };
+
   // 1. Render Markdown Table with INTERACTIVE in-cell answer inputs
   const renderStructuredTable = (tableMarkdown: string) => {
     const lines = tableMarkdown
@@ -662,7 +697,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                         key={cIdx}
                         className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 leading-relaxed font-normal align-top"
                       >
-                        {renderTextWithEmbeddedInputs(cell, `table-${rIdx}-${cIdx}`)}
+                        {renderTableCellContent(cell, `table-${rIdx}-${cIdx}`)}
                       </td>
                     );
                   })}
@@ -801,7 +836,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     formattedText = formattedText.replace(/\b(Languages in|History of|Description of|Local languages:|Foreign languages:)\s*\n\s*/gi, '$1 ');
     // Normalize subheadings separated by whitespace or space
     formattedText = formattedText.replace(
-      /(?<=[^\n])\s+(?=(?:[A-Z][a-zA-Z0-9\s–\-]{1,35}:|(?:History of|Description of|Languages in|Local languages|Foreign languages|Bislama|General|Vocabulary|Grammar|Background|Summary|Topic|Location|Aim|Methods?|Results?|Conclusion)\b))/gm,
+      /(?<=[^\n])\s+(?=(?:[A-Z][a-zA-Z0-9\s–\-]{1,35}:|(?:History of\s+[A-Z]|Description of\s+[A-Z]|Languages in\s+[A-Z]|Local languages:|Foreign languages:|General\b|Vocabulary\b|Grammar\b|Background\b|Summary\b|Topic\b|Location\b|Aim\b|Methods?\b|Results?\b|Conclusion\b)))/gm,
       '\n'
     );
     // Normalize excessive line breaks
@@ -818,7 +853,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             !line.includes('[') &&
             (line.endsWith(':') ||
               line === line.toUpperCase() ||
-              /^(?:Aim|Background|Methods?|Results?|Conclusion|Location|Activities|Session|Topic|General|Vocabulary|Grammar|History of|Description of|Languages in|Local languages|Foreign languages|Bislama)\b/i.test(line) ||
+              /^(?:Aim|Background|Methods?|Results?|Conclusion|Location|Activities|Session|Topic|General|Vocabulary|Grammar|History of\s+[A-Z]|Description of\s+[A-Z]|Languages in\s+[A-Z]|Local languages|Foreign languages)\b/i.test(line) ||
               (line.length <= 45 && !/[,\.]$/.test(line) && /^[A-Z]/.test(line)));
 
           if (isHeading) {
@@ -1028,7 +1063,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
       .filter((l) => l.startsWith('|') && l.endsWith('|'));
     const isAuthenticTable =
       rawTableLines.length >= 2 &&
-      rawTableLines[0].slice(1, -1).split('|').map((c) => c.trim()).filter(Boolean).length >= 2;
+      rawTableLines.some((l) => l.slice(1, -1).split('|').length >= 2);
 
     if (isAuthenticTable) {
       const nonTableText = effectiveGroupContent
