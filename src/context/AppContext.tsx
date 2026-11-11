@@ -217,6 +217,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const currentUserRef = useRef<User | null>(null);
   const inFlightProfilePromiseRef = useRef<Map<string, Promise<User | null>>>(new Map());
+  const fetchSequenceRef = useRef<number>(0);
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
   const [loadingData, setLoadingData] = useState<boolean>(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -255,7 +256,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return [];
   });
-  const [regularTestAttempts, setRegularTestAttempts] = useState<RegularTestAttempt[]>([]);
+  const [regularTestAttempts, setRegularTestAttempts] = useState<RegularTestAttempt[]>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const storedUser = localStorage.getItem('ielts_user');
+        const userObj = storedUser ? JSON.parse(storedUser) : null;
+        const targetUserId = userObj?.id;
+        if (targetUserId) {
+          const raw = localStorage.getItem(`ielts_regular_test_attempts_${targetUserId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
   const [regularTestReportLinks, setRegularTestReportLinks] = useState<RegularTestReportLink[]>([]);
   const [activeExamAttempt, setActiveExamAttempt] = useState<RegularTestAttempt | null>(null);
 
@@ -276,6 +295,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setRegularTests(parsed);
           }
         }
+        const cachedAttempts = localStorage.getItem(`ielts_regular_test_attempts_${currentUser.id}`);
+        if (cachedAttempts) {
+          const parsedAttempts = JSON.parse(cachedAttempts);
+          if (Array.isArray(parsedAttempts) && parsedAttempts.length > 0) {
+            setRegularTestAttempts(parsedAttempts);
+          }
+        }
       } catch {
         // ignore
       }
@@ -291,6 +317,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
   }, [currentUser?.id, regularTests]);
+
+  useEffect(() => {
+    if (currentUser?.id && regularTestAttempts.length > 0) {
+      try {
+        localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(regularTestAttempts));
+      } catch (e) {
+        console.warn('Failed to cache regular test attempts:', e);
+      }
+    }
+  }, [currentUser?.id, regularTestAttempts]);
 
   // Generate 7-character course code helper
   const generateCode = () => {
@@ -377,6 +413,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 1. DATA REFRESH FUNCTION - Pulls real records from Supabase
   const refreshData = useCallback(async () => {
     if (!currentUser) return;
+    const fetchSeq = ++fetchSequenceRef.current;
     setLoadingData(true);
     setDataError(null);
 
@@ -879,8 +916,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             }
 
-            setRegularTests(
-              rtData.map((t: any) => ({
+            if (fetchSeq === fetchSequenceRef.current) {
+              const mappedTeacherTests: RegularTest[] = rtData.map((t: any) => ({
                 id: t.id,
                 courseId: t.course_id,
                 courseName: currentCourses.find((c: any) => c.id === t.course_id)?.name || 'Course',
@@ -907,11 +944,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 sections: (t.sections && t.sections.length > 0) ? t.sections : (versionSectionsMap[t.id] || []),
                 createdAt: t.created_at?.split('T')[0] || '',
                 updatedAt: t.updated_at?.split('T')[0] || '',
-              }))
-            );
+              }));
+              setRegularTests(mappedTeacherTests);
+              if (mappedTeacherTests.length > 0) {
+                try {
+                  localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTeacherTests));
+                } catch {}
+              }
+            }
           }
         } catch (rtErr) {
           console.warn('DB regular_tests fetch notice for teacher:', rtErr);
+        }
+
+        // Regular Test Attempts for Teacher (Live Monitor & Grading)
+        try {
+          const { data: teacherAttemptsData } = await supabase
+            .from('regular_test_attempts')
+            .select('*, profiles:student_id(*)')
+            .order('created_at', { ascending: false });
+
+          if (teacherAttemptsData && Array.isArray(teacherAttemptsData) && fetchSeq === fetchSequenceRef.current) {
+            const mappedTeacherAttempts: RegularTestAttempt[] = teacherAttemptsData.map((a: any) => ({
+              id: a.id,
+              testId: a.test_id,
+              testTitle: a.test_title || 'Regular Test',
+              versionId: a.version_id,
+              studentId: a.student_id,
+              studentName: a.profiles?.name || 'Student',
+              studentEmail: a.profiles?.email || '',
+              courseId: a.course_id,
+              courseName: currentCourses.find((c) => c.id === a.course_id)?.name || 'Course',
+              attemptNumber: a.attempt_number || 1,
+              serverStartTime: a.server_start_time,
+              serverDeadline: a.server_deadline,
+              extraTimeMinutes: a.extra_time_minutes || 0,
+              currentSectionIndex: a.current_section_index || 0,
+              status: a.status,
+              submittedAt: a.submitted_at,
+              autoSubmitted: Boolean(a.auto_submitted),
+              sessionToken: a.session_token,
+              deviceInfo: a.device_info,
+              answers: a.answers || { reading: {}, writing: { text: '', wordCount: 0 } },
+              flaggedQuestions: a.flagged_questions || {},
+              writingRevisions: a.writing_revisions || [],
+              saveRevisionSequence: a.save_revision_sequence || 0,
+              scores: a.scores,
+              overallBand: a.overall_band,
+              gradingStatus: a.grading_status || 'pending',
+              isReleased: Boolean(a.is_released),
+              releasedAt: a.released_at,
+              createdAt: a.created_at,
+              updatedAt: a.updated_at,
+            }));
+            setRegularTestAttempts(mappedTeacherAttempts);
+            try {
+              localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(mappedTeacherAttempts));
+            } catch {}
+          }
+        } catch (attErr) {
+          console.warn('Teacher regular_test_attempts fetch notice:', attErr);
         }
       } else {
         // STUDENT DATA FETCHING
@@ -1304,18 +1396,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // Student Regular Tests: fetch tests for approved courses and directly eligible students
         try {
-          let rtData: any[] | null = null;
-          if (approvedCourseIds.length > 0) {
-            const { data: courseTests } = await supabase
+          const testMap = new Map<string, any>();
+
+          // 1. Primary RLS query: Postgres RLS automatically filters eligible published tests
+          try {
+            const { data: rlsTests } = await supabase
               .from('regular_tests')
               .select('*')
-              .in('course_id', approvedCourseIds)
               .in('status', ['live', 'scheduled', 'completed', 'closed'])
               .order('created_at', { ascending: false });
-            if (courseTests) rtData = courseTests;
+
+            if (rlsTests && Array.isArray(rlsTests)) {
+              for (const t of rlsTests) {
+                testMap.set(t.id, t);
+              }
+            }
+          } catch (rlsErr) {
+            console.warn('Student RLS regular_tests fetch notice:', rlsErr);
           }
 
-          // Check if there are any regular tests directly assigning this student
+          // 2. Explicit approved courses filter
+          if (approvedCourseIds.length > 0) {
+            try {
+              const { data: courseTests } = await supabase
+                .from('regular_tests')
+                .select('*')
+                .in('course_id', approvedCourseIds)
+                .in('status', ['live', 'scheduled', 'completed', 'closed'])
+                .order('created_at', { ascending: false });
+
+              if (courseTests && Array.isArray(courseTests)) {
+                for (const t of courseTests) {
+                  testMap.set(t.id, t);
+                }
+              }
+            } catch {}
+          }
+
+          // 3. Explicit direct student assignment filter
           try {
             const { data: directTests } = await supabase
               .from('regular_tests')
@@ -1324,20 +1442,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               .in('status', ['live', 'scheduled', 'completed', 'closed'])
               .order('created_at', { ascending: false });
 
-            if (directTests && directTests.length > 0) {
-              const combined = [...(rtData || [])];
+            if (directTests && Array.isArray(directTests)) {
               for (const dt of directTests) {
-                if (!combined.some((t: any) => t.id === dt.id)) {
-                  combined.push(dt);
-                }
+                testMap.set(dt.id, dt);
               }
-              rtData = combined;
             }
-          } catch {
-            // direct assignment fallback if column not indexable
-          }
+          } catch {}
 
-          if (rtData) {
+          const rtData = Array.from(testMap.values());
+
+          if (rtData.length > 0 && fetchSeq === fetchSequenceRef.current) {
             // Hydrate sections from regular_test_versions if empty
             const missingSectionsTestIds = rtData
               .filter((t: any) => !t.sections || t.sections.length === 0)
@@ -1394,16 +1508,80 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }));
 
             setRegularTests(mappedTests);
-            if (mappedTests.length > 0) {
-              try {
-                localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTests));
-              } catch {
-                // ignore
+            try {
+              localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTests));
+            } catch {}
+          } else if (fetchSeq === fetchSequenceRef.current) {
+            // Resilient fallback to cached tests to prevent disappearing on transient network/reload blips
+            try {
+              const cached = localStorage.getItem(`ielts_regular_tests_${currentUser.id}`);
+              if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  setRegularTests(parsed);
+                }
               }
-            }
+            } catch {}
           }
         } catch (rtErr) {
           console.warn('DB regular_tests fetch notice for student:', rtErr);
+        }
+
+        // Student Regular Test Attempts (In-progress & Completed Attempts)
+        try {
+          const { data: studentAttemptsData } = await supabase
+            .from('regular_test_attempts')
+            .select('*')
+            .eq('student_id', currentUser.id)
+            .order('created_at', { ascending: false });
+
+          if (studentAttemptsData && Array.isArray(studentAttemptsData) && fetchSeq === fetchSequenceRef.current) {
+            const mappedStudentAttempts: RegularTestAttempt[] = studentAttemptsData.map((a: any) => ({
+              id: a.id,
+              testId: a.test_id,
+              testTitle: a.test_title || 'Regular Test',
+              versionId: a.version_id,
+              studentId: a.student_id,
+              studentName: currentUser.name,
+              studentEmail: currentUser.email,
+              courseId: a.course_id,
+              courseName: loadedCourses.find((c: any) => c.id === a.course_id)?.name || 'Course',
+              attemptNumber: a.attempt_number || 1,
+              serverStartTime: a.server_start_time,
+              serverDeadline: a.server_deadline,
+              extraTimeMinutes: a.extra_time_minutes || 0,
+              currentSectionIndex: a.current_section_index || 0,
+              status: a.status,
+              submittedAt: a.submitted_at,
+              autoSubmitted: Boolean(a.auto_submitted),
+              sessionToken: a.session_token,
+              deviceInfo: a.device_info,
+              answers: a.answers || { reading: {}, writing: { text: '', wordCount: 0 } },
+              flaggedQuestions: a.flagged_questions || {},
+              writingRevisions: a.writing_revisions || [],
+              saveRevisionSequence: a.save_revision_sequence || 0,
+              scores: a.scores,
+              overallBand: a.overall_band,
+              gradingStatus: a.grading_status || 'pending',
+              isReleased: Boolean(a.is_released),
+              releasedAt: a.released_at,
+              createdAt: a.created_at,
+              updatedAt: a.updated_at,
+            }));
+
+            setRegularTestAttempts(mappedStudentAttempts);
+            try {
+              localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(mappedStudentAttempts));
+            } catch {}
+
+            // Restore active exam attempt if student is in progress
+            const inProgressAttempt = mappedStudentAttempts.find((a) => a.status === 'in_progress');
+            if (inProgressAttempt) {
+              setActiveExamAttempt(inProgressAttempt);
+            }
+          }
+        } catch (attErr) {
+          console.warn('Student regular_test_attempts fetch notice:', attErr);
         }
       }
 
@@ -1437,7 +1615,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('Error fetching Supabase data:', err);
       setDataError(err?.message || 'Error loading records from database');
     } finally {
-      setLoadingData(false);
+      if (fetchSeq === fetchSequenceRef.current) {
+        setLoadingData(false);
+      }
     }
   }, [currentUser]);
 

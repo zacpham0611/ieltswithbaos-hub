@@ -850,14 +850,14 @@ export function buildQuestionRenderGroups(
 
     const effectiveType = q.questionTypeOverride || (q as any).typeOverride || q.type;
 
-    // Determine this question's word-list (only for true completion types, NOT button types)
-    const isButtonType = BUTTON_TYPES.has(effectiveType);
+    // Determine this question's word-list (strictly for summary_completion with word bank, NEVER for other types)
     const isCompletionType = COMPLETION_TYPES.has(effectiveType);
+    const isSummaryCompletion = effectiveType === 'summary_completion';
 
     const qWordList =
-      !isButtonType && isCompletionType && q.options && q.options.length > 0
+      isSummaryCompletion && q.options && q.options.length > 0
         ? q.options
-        : !isButtonType && (q as any).wordList && (q as any).wordList.length > 0
+        : isSummaryCompletion && (q as any).wordList && (q as any).wordList.length > 0
         ? (q as any).wordList
         : undefined;
 
@@ -872,11 +872,16 @@ export function buildQuestionRenderGroups(
     const sameWordList = (currentGroup?.wordList?.join('|') || '') === wordListKey;
     const sameInstruction = (currentGroup?.instructions || '') === instruction;
     const sameWordLimit = (currentGroup?.wordLimit || '') === (wordLimit || '');
-    // Button types must form their own groups, never merged with completion groups
-    const sameGroupType = (currentGroup?.groupType || effectiveType) === effectiveType;
+
+    // Strict type separation: completion groups and non-completion groups must NEVER be merged
+    const isCurrentCompletion = Boolean(currentGroup?.groupType && COMPLETION_TYPES.has(currentGroup.groupType));
+    const isNextCompletion = isCompletionType;
+    const sameCategory = !currentGroup || isCurrentCompletion === isNextCompletion;
+    const sameGroupType = Boolean(currentGroup && currentGroup.groupType === effectiveType);
 
     const shouldContinueGroup = Boolean(
       currentGroup &&
+      sameCategory &&
       sameGroupType &&
       (headingsKey ? sameHeadings : true) &&
       (featuresKey ? sameFeatures : true) &&

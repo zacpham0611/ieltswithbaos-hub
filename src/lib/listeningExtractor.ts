@@ -81,8 +81,16 @@ export function convertHtmlTablesToMarkdown(html: string): string {
 
     const normalizedRows = rows.map((r) => {
       while (r.length < maxCols) r.push('');
-      // In authentic multi-column tables, cells should be inline
-      const cleanCells = r.map((c) => c.replace(/\s*\n+\s*/g, ' ').trim());
+      // In authentic multi-column tables, preserve multi-line cell content using <br />
+      const cleanCells = r.map((c) =>
+        c
+          .replace(/\r\n/g, '\n')
+          .replace(/\r/g, '\n')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .join('<br />')
+      );
       return '| ' + cleanCells.join(' | ') + ' |';
     });
     const headerSep = '| ' + Array(maxCols).fill('---').join(' | ') + ' |';

@@ -3605,16 +3605,15 @@ export const AssignmentsView: React.FC = () => {
                     <div className="space-y-8">
                       {questionRenderGroups.map((group) => {
                         const isCompletionGroup = Boolean(
-                          (group.groupType && COMPLETION_TYPES.has(group.groupType) && !BUTTON_TYPES.has(group.groupType)) ||
-                          (group.questions.length > 0 &&
-                            group.questions.some(({ q }) => COMPLETION_TYPES.has(q.type)) &&
-                            !group.questions.some(({ q }) => BUTTON_TYPES.has(q.type)))
+                          group.groupType && COMPLETION_TYPES.has(group.groupType) && !BUTTON_TYPES.has(group.groupType)
                         );
 
                         const effectiveWordList =
-                          group.wordList && group.wordList.length > 0
+                          group.groupType === 'summary_completion' && group.wordList && group.wordList.length > 0
                             ? group.wordList
-                            : group.questions.find(({ q }) => q.options && q.options.length > 0)?.q.options;
+                            : group.groupType === 'summary_completion'
+                            ? group.questions.find(({ q }) => q.options && q.options.length > 0)?.q.options
+                            : undefined;
 
                         if (isCompletionGroup) {
                           const typeLabel = (group.groupType || 'Completion')
@@ -3731,15 +3730,18 @@ export const AssignmentsView: React.FC = () => {
 
                                     const isNoteCompletion = group.groupType === 'note_completion';
                                     const cleanNotes = cleanReadingText(group.groupText)
+                                      .replace(/\r\n/g, '\n')
+                                      .replace(/\r/g, '\n')
                                       .replace(/\s*(?:•|\u2022|\*\s+)\s*/g, '\n• ')
                                       .trim();
                                     const noteLines = cleanNotes.split('\n').map((l) => l.trim()).filter(Boolean);
 
-                                    if (isNoteCompletion && noteLines.length > 1) {
+                                    if ((isNoteCompletion || noteLines.some((l) => l.startsWith('•') || l.endsWith(':'))) && noteLines.length > 1) {
                                       return (
                                         <div className="space-y-2 py-1">
                                           {noteLines.map((line, lIdx) => {
                                             const isBullet = /^[•\-\*\+]\s*/.test(line);
+                                            const isSubBullet = /^(?:[ \t]{2,}[•\-\*\+]|--|–)\s*/.test(line);
                                             const isHeading =
                                               !isBullet &&
                                               !line.includes('[') &&
@@ -3762,8 +3764,8 @@ export const AssignmentsView: React.FC = () => {
                                             if (isBullet) {
                                               const cleanBullet = line.replace(/^[•\-\*\+\s]+/, '');
                                               return (
-                                                <div key={lIdx} className="flex items-start gap-2.5 py-1 pl-3 sm:pl-5">
-                                                  <span className="text-blue-500 font-bold shrink-0 mt-0.5 text-base sm:text-lg">•</span>
+                                                <div key={lIdx} className={`flex items-start gap-2.5 py-1 ${isSubBullet ? 'pl-6 sm:pl-8' : 'pl-3 sm:pl-5'}`}>
+                                                  <span className={`text-blue-500 font-bold shrink-0 mt-0.5 ${isSubBullet ? 'text-xs' : 'text-base sm:text-lg'}`}>•</span>
                                                   <div className="flex-1 text-sm text-slate-800 leading-relaxed">
                                                     {renderChunkWithBlanks(cleanBullet, `bullet-${lIdx}`)}
                                                   </div>
@@ -3790,8 +3792,8 @@ export const AssignmentsView: React.FC = () => {
                                 </div>
                               )}
 
-                              {/* 2. Word Bank (rendered alongside/below text, before answer fields) */}
-                              {effectiveWordList && effectiveWordList.length > 0 && (
+                              {/* 2. Word Bank (rendered strictly for summary_completion with word list) */}
+                              {group.groupType === 'summary_completion' && effectiveWordList && effectiveWordList.length > 0 && (
                                 <div className="p-4 bg-gradient-to-br from-blue-50/80 to-indigo-50/60 border border-blue-200 rounded-xl space-y-2.5">
                                   <div className="flex items-center justify-between">
                                     <span className="font-bold text-blue-900 uppercase text-xs flex items-center space-x-1.5">
@@ -3833,7 +3835,7 @@ export const AssignmentsView: React.FC = () => {
                                   ? group.questions.filter(({ q, idx }, qIdx) => {
                                       const qNumStr = String(idx + 1);
                                       const qNumberProp = String((q as any).questionNumber || (q as any).number || '');
-                                      const isEmbeddedByIndex = qIdx < embeddedMatches.length;
+                                      const isEmbeddedByIndex = qIdx < embeddedMatches.length && (embeddedMatches[qIdx] === qNumStr || embeddedMatches[qIdx] === qNumberProp);
                                       return (
                                         !embeddedMatches.includes(qNumStr) &&
                                         !embeddedMatches.includes(qNumberProp) &&
@@ -4084,7 +4086,7 @@ export const AssignmentsView: React.FC = () => {
                             )}
 
                             {/* Reference Box: Word List for Summary Completion (Rendered ONCE per group) */}
-                            {group.wordList && group.wordList.length > 0 && (
+                            {group.groupType === 'summary_completion' && group.wordList && group.wordList.length > 0 && (
                               <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2 text-xs">
                                 <div className="flex items-center justify-between">
                                   <span className="font-bold text-blue-900 uppercase text-[11px] flex items-center space-x-1.5">
@@ -4132,6 +4134,7 @@ export const AssignmentsView: React.FC = () => {
                               const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
                               const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
                               const displayPrompt = resolveQuestionPrompt(q, idx + 1);
+                              const effectiveQType = q.questionTypeOverride || (q as any).typeOverride || q.type;
 
                               return (
                                 <div
@@ -4197,9 +4200,9 @@ export const AssignmentsView: React.FC = () => {
                                   )}
 
                                   {/* Question Type Interactive Controls */}
-                                  {q.type === 'true_false_not_given' || q.type === 'yes_no_not_given' ? (
+                                  {effectiveQType === 'true_false_not_given' || effectiveQType === 'yes_no_not_given' ? (
                                     <div className="flex flex-wrap gap-2 pt-1">
-                                      {(q.type === 'true_false_not_given'
+                                      {(effectiveQType === 'true_false_not_given'
                                         ? ['TRUE', 'FALSE', 'NOT GIVEN']
                                         : ['YES', 'NO', 'NOT GIVEN']
                                       ).map((choice) => (
@@ -4218,7 +4221,7 @@ export const AssignmentsView: React.FC = () => {
                                         </button>
                                       ))}
                                     </div>
-                                  ) : q.type === 'matching_information' ? (
+                                  ) : effectiveQType === 'matching_information' ? (
                                     (() => {
                                       const matchInfoParagraphs = (q.options && q.options.length > 0)
                                         ? q.options
@@ -4283,7 +4286,7 @@ export const AssignmentsView: React.FC = () => {
                                         </div>
                                       );
                                     })()
-                                  ) : q.type === 'matching_headings' && (group.headingsList || q.headingsList) && (group.headingsList || q.headingsList)!.length > 0 ? (
+                                  ) : effectiveQType === 'matching_headings' && (group.headingsList || q.headingsList) && (group.headingsList || q.headingsList)!.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
                                         disabled={isReadOnly}
@@ -4303,7 +4306,7 @@ export const AssignmentsView: React.FC = () => {
                                         })}
                                       </select>
                                     </div>
-                                  ) : q.type === 'matching_features' && (group.featuresList || q.featuresList || q.options) && (group.featuresList || q.featuresList || q.options)!.length > 0 ? (
+                                  ) : effectiveQType === 'matching_features' && (group.featuresList || q.featuresList || q.options) && (group.featuresList || q.featuresList || q.options)!.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
                                         disabled={isReadOnly}
@@ -4323,7 +4326,7 @@ export const AssignmentsView: React.FC = () => {
                                         })}
                                       </select>
                                     </div>
-                                  ) : q.type === 'matching_sentence_endings' && q.options && q.options.length > 0 ? (
+                                  ) : effectiveQType === 'matching_sentence_endings' && q.options && q.options.length > 0 ? (
                                     <div className="space-y-1.5">
                                       <select
                                         disabled={isReadOnly}
@@ -4339,7 +4342,7 @@ export const AssignmentsView: React.FC = () => {
                                         ))}
                                       </select>
                                     </div>
-                                  ) : q.type === 'multiple_select' && q.options && q.options.length > 0 ? (
+                                  ) : effectiveQType === 'multiple_select' && q.options && q.options.length > 0 ? (
                                     <div className="space-y-1.5">
                                       {(() => {
                                         const requiredCount = q.multipleSelectCount ?? 2;
@@ -4392,7 +4395,7 @@ export const AssignmentsView: React.FC = () => {
                                         );
                                       })()}
                                     </div>
-                                  ) : (COMPLETION_TYPES.has(q.type) || group.wordList) && (group.wordList || (q.options && q.options.length > 0)) ? (
+                                  ) : (effectiveQType === 'summary_completion' || (group.groupType === 'summary_completion' && group.wordList)) && (group.wordList || (q.options && q.options.length > 0)) ? (
                                     <div className="space-y-2 pt-1">
                                       <select
                                         disabled={isReadOnly}

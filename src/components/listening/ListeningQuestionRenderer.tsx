@@ -419,7 +419,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     return (
       <span
         key={`${keyPrefix}-q${qNum}`}
-        className="inline-flex items-center gap-1.5 align-middle mx-1.5 my-1 flex-wrap"
+        className="inline-flex items-center gap-1.5 align-middle mx-1.5 my-0.5 whitespace-nowrap flex-nowrap"
       >
         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 font-bold text-xs sm:text-sm border border-blue-300 shrink-0">
           {qNum}
@@ -432,7 +432,20 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
           onChange={(e) => onAnswerChange(effectiveId, e.target.value)}
           className="px-3 py-1 text-sm sm:text-base bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-semibold text-blue-900 min-w-[105px] max-w-[190px] transition-colors"
         />
-        {targetQ && renderFlagButton(targetQ.id)}
+        {targetQ && onToggleFlag && (
+          <button
+            type="button"
+            onClick={() => onToggleFlag(targetQ.id)}
+            className={`p-1 rounded-md transition-colors shrink-0 ${
+              flaggedQuestionIds.has(targetQ.id)
+                ? 'text-amber-500 bg-amber-50 hover:bg-amber-100'
+                : 'text-slate-300 hover:text-slate-500 hover:bg-slate-100'
+            }`}
+            title={flaggedQuestionIds.has(targetQ.id) ? 'Bỏ đánh dấu (Unflag)' : 'Đánh dấu xem lại (Flag)'}
+          >
+            <Flag className={`w-3.5 h-3.5 ${flaggedQuestionIds.has(targetQ.id) ? 'fill-amber-500 text-amber-500' : ''}`} />
+          </button>
+        )}
         {showCorrectAnswers && targetQ?.correctAnswer && (
           <span className="text-xs sm:text-sm text-emerald-700 font-bold whitespace-nowrap">
             [{cleanListeningText(targetQ.correctAnswer)}]
@@ -501,12 +514,13 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     });
   };
 
-  // Helper to render table cell content with multi-bullet vertical spacing
+  // Helper to render table cell content with multi-bullet and multiline vertical spacing
   const renderTableCellContent = (cellText: string, keyPrefix: string) => {
-    const hasBullets = /(?:^|\s+)(?:[•\u2022]|\*\s+)/.test(cellText);
-    const hasNewlines = cellText.includes('\n');
+    const rawClean = cellText.replace(/<br\s*\/?>/gi, '\n');
+    const hasBullets = /(?:^|\s+)(?:[•\u2022]|\*\s+)/.test(rawClean);
+    const hasNewlines = rawClean.includes('\n');
     if (hasBullets || hasNewlines) {
-      const normalized = cellText
+      const normalized = rawClean
         .replace(/(?:^|\s+)(?:[•\u2022]|\*\s+)/g, '\n• ')
         .split('\n')
         .map((l) => l.trim())
@@ -533,14 +547,21 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         );
       }
     }
-    return renderTextWithEmbeddedInputs(cellText, keyPrefix);
+    return renderTextWithEmbeddedInputs(rawClean, keyPrefix);
   };
 
   // 1. Render Markdown Table with INTERACTIVE in-cell answer inputs
   const renderStructuredTable = (tableMarkdown: string) => {
     const lines = tableMarkdown
       .split('\n')
-      .map((l) => l.trim())
+      .map((l) => {
+        let trimmed = l.trim();
+        if (trimmed.includes('|')) {
+          if (!trimmed.startsWith('|')) trimmed = '| ' + trimmed;
+          if (!trimmed.endsWith('|')) trimmed = trimmed + ' |';
+        }
+        return trimmed;
+      })
       .filter((l) => l.startsWith('|') && l.endsWith('|'));
 
     if (lines.length < 2) return null;
@@ -770,10 +791,17 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // 3. Render Structured Form Completion
   const renderStructuredForm = (formText: string) => {
-    // Remove markdown table separator lines like | --- | --- |
+    // Remove markdown table separator lines like | --- | --- | and normalize pipes
     const rawLines = formText
       .split('\n')
-      .map((l) => l.trim())
+      .map((l) => {
+        let trimmed = l.trim();
+        if (trimmed.includes('|')) {
+          if (!trimmed.startsWith('|')) trimmed = '| ' + trimmed;
+          if (!trimmed.endsWith('|')) trimmed = trimmed + ' |';
+        }
+        return trimmed;
+      })
       .filter((l) => Boolean(l) && !/^\|?(?:\s*:?-{3,}:?\s*\|?)+$/.test(l));
 
     return (
@@ -789,7 +817,6 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             // Detect Example row
             if (/^example\b/i.test(firstCell)) {
               const exLabel = restCells.length > 0 && secondCell ? secondCell : '';
-              // Look ahead to next row if next row contains the actual example value
               return (
                 <div
                   key={lIdx}
@@ -805,25 +832,27 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
             // Normal form row | Label: | Value |
             const label = cleanListeningText(firstCell.replace(/:$/, '').trim());
-            const val = cleanListeningText(secondCell.trim());
+            const cleanVal = cleanListeningText(secondCell.trim());
 
             // If the label is empty or just whitespace, render value directly
             if (!label) {
               return (
                 <div key={lIdx} className="text-xs text-slate-800 py-1 px-3">
-                  {renderTextWithEmbeddedInputs(val, `form-txt-${lIdx}`)}
+                  {renderTextWithEmbeddedInputs(cleanVal, `form-txt-${lIdx}`)}
                 </div>
               );
             }
 
-            // Check if val contains multiple bullet points
-            const hasBullets = /(?:^|\s+)(?:[•\u2022]|\*\s+)/.test(val);
-            const bulletItems = hasBullets
-              ? val
-                  .split(/(?:^|\s+)(?:[•\u2022]|\*\s+)/)
+            // Check if val contains multiple bullet points or multiline cell entries
+            const valNormalized = cleanVal.replace(/<br\s*\/?>/gi, '\n');
+            const hasBullets = /(?:^|\s+)(?:[•\u2022]|\*\s+)/.test(valNormalized);
+            const valLines = (hasBullets || valNormalized.includes('\n'))
+              ? valNormalized
+                  .replace(/(?:^|\s+)(?:[•\u2022]|\*\s+)/g, '\n• ')
+                  .split('\n')
                   .map((b) => b.trim())
                   .filter(Boolean)
-              : [];
+              : [cleanVal];
 
             return (
               <div
@@ -834,19 +863,25 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                   {label}:
                 </span>
                 <div className="flex-1 text-xs text-slate-800 leading-relaxed">
-                  {bulletItems.length > 1 ? (
+                  {valLines.length > 1 ? (
                     <div className="space-y-1.5 pt-0.5">
-                      {bulletItems.map((b, bIdx) => (
-                        <div key={bIdx} className="flex items-start gap-2">
-                          <span className="text-blue-500 font-bold shrink-0 mt-0.5">•</span>
-                          <div className="flex-1 text-xs text-slate-800 leading-relaxed">
-                            {renderTextWithEmbeddedInputs(b, `form-${lIdx}-b${bIdx}`)}
+                      {valLines.map((b, bIdx) => {
+                        const isBullet = b.startsWith('•');
+                        const lineText = b.replace(/^[•\s]+/, '');
+                        return (
+                          <div key={bIdx} className="flex items-start gap-2">
+                            {isBullet && (
+                              <span className="text-blue-500 font-bold shrink-0 mt-0.5">•</span>
+                            )}
+                            <div className="flex-1 text-xs text-slate-800 leading-relaxed">
+                              {renderTextWithEmbeddedInputs(lineText, `form-${lIdx}-b${bIdx}`)}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
-                    renderTextWithEmbeddedInputs(val, `form-${lIdx}`)
+                    renderTextWithEmbeddedInputs(cleanVal, `form-${lIdx}`)
                   )}
                 </div>
               </div>
@@ -1187,15 +1222,20 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
       (questionGroup as any).groupType === 'table_completion';
 
     // 1. Table Completion: pipe-separated Markdown table (must have at least 2 rows and at least 2 columns)
-    const rawTableLines = effectiveGroupContent
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith('|') && l.endsWith('|'));
+    const normalizedLines = effectiveGroupContent.split('\n').map((l) => {
+      let trimmed = l.trim();
+      if (!trimmed.includes('|')) return trimmed;
+      if (!trimmed.startsWith('|')) trimmed = '| ' + trimmed;
+      if (!trimmed.endsWith('|')) trimmed = trimmed + ' |';
+      return trimmed;
+    });
+
+    const rawTableLines = normalizedLines.filter((l) => l.startsWith('|') && l.endsWith('|'));
     const isAuthenticTable =
       rawTableLines.length >= 2 &&
       rawTableLines.some((l) => l.slice(1, -1).split('|').length >= 2);
 
-    // Check if table rows are actually key-value form lines (e.g. Rental Property Application Form)
+    // Check if table rows are actually key-value form lines (e.g. Riverdale Pre-school or Application Form)
     const isKeyValueFormTable =
       !isExplicitTableType &&
       rawTableLines.length >= 2 &&
@@ -1208,7 +1248,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         const first = parts[0]?.trim() || '';
         return (
           first.endsWith(':') ||
-          /^(?:Name|Phone|Email|Address|Employer|Occupation|Date|Rent|Location|Price|Cost|Age|Example)\b/i.test(first)
+          /^(?:Name|Phone|Email|Address|Employer|Occupation|Date|Rent|Location|Price|Cost|Age|Example|Children|Classes|Hours|Activities|Fees|Sessions)\b/i.test(first)
         );
       });
 
