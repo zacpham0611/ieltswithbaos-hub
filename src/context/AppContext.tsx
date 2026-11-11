@@ -946,11 +946,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 updatedAt: t.updated_at?.split('T')[0] || '',
               }));
               setRegularTests(mappedTeacherTests);
-              if (mappedTeacherTests.length > 0) {
-                try {
-                  localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTeacherTests));
-                } catch {}
-              }
+              try {
+                localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTeacherTests));
+              } catch {}
             }
           }
         } catch (rtErr) {
@@ -1463,76 +1461,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           const rtData = Array.from(testMap.values());
 
-          if (rtData.length > 0 && fetchSeq === fetchSequenceRef.current) {
-            // Hydrate sections from regular_test_versions if empty
-            const missingSectionsTestIds = rtData
-              .filter((t: any) => !t.sections || t.sections.length === 0)
-              .map((t: any) => t.id);
+          if (fetchSeq === fetchSequenceRef.current) {
+            let mappedTests: RegularTest[] = [];
 
-            const versionSectionsMap: Record<string, any[]> = {};
-            if (missingSectionsTestIds.length > 0) {
-              try {
-                const { data: vData } = await supabase
-                  .from('regular_test_versions')
-                  .select('test_id, sections')
-                  .in('test_id', missingSectionsTestIds)
-                  .order('version_number', { ascending: false });
+            if (rtData.length > 0) {
+              // Hydrate sections from regular_test_versions if empty
+              const missingSectionsTestIds = rtData
+                .filter((t: any) => !t.sections || t.sections.length === 0)
+                .map((t: any) => t.id);
 
-                if (vData) {
-                  for (const v of vData) {
-                    if (!versionSectionsMap[v.test_id] && v.sections?.length) {
-                      versionSectionsMap[v.test_id] = v.sections;
+              const versionSectionsMap: Record<string, any[]> = {};
+              if (missingSectionsTestIds.length > 0) {
+                try {
+                  const { data: vData } = await supabase
+                    .from('regular_test_versions')
+                    .select('test_id, sections')
+                    .in('test_id', missingSectionsTestIds)
+                    .order('version_number', { ascending: false });
+
+                  if (vData) {
+                    for (const v of vData) {
+                      if (!versionSectionsMap[v.test_id] && v.sections?.length) {
+                        versionSectionsMap[v.test_id] = v.sections;
+                      }
                     }
                   }
+                } catch (vErr) {
+                  console.warn('Student hydrating sections from regular_test_versions warning:', vErr);
                 }
-              } catch (vErr) {
-                console.warn('Student hydrating sections from regular_test_versions warning:', vErr);
               }
-            }
 
-            const mappedTests: RegularTest[] = rtData.map((t: any) => ({
-              id: t.id,
-              courseId: t.course_id,
-              courseName: loadedCourses.find((c: any) => c.id === t.course_id)?.name || 'Course',
-              teacherId: t.teacher_id,
-              teacherName: 'Teacher',
-              title: t.title,
-              instructions: t.instructions,
-              skills: t.skills || [],
-              availabilityStart: t.availability_start,
-              availabilityEnd: t.availability_end,
-              hardDeadline: t.hard_deadline,
-              durationMinutes: t.duration_minutes,
-              timingMode: t.timing_mode,
-              sectionTimers: t.section_timers || {},
-              eligibleStudentIds: t.eligible_student_ids || [],
-              maxAttempts: t.max_attempts || 1,
-              accessCodeEnabled: Boolean(t.access_code_enabled),
-              accessCodeHash: t.access_code_hash,
-              strictPreset: t.strict_preset,
-              strictSettings: t.strict_settings,
-              status: t.status,
-              currentVersion: t.current_version || 1,
-              releaseSettings: t.release_settings,
-              sections: (t.sections && t.sections.length > 0) ? t.sections : (versionSectionsMap[t.id] || []),
-              createdAt: t.created_at?.split('T')[0] || '',
-              updatedAt: t.updated_at?.split('T')[0] || '',
-            }));
+              mappedTests = rtData.map((t: any) => ({
+                id: t.id,
+                courseId: t.course_id,
+                courseName: loadedCourses.find((c: any) => c.id === t.course_id)?.name || 'Course',
+                teacherId: t.teacher_id,
+                teacherName: 'Teacher',
+                title: t.title,
+                instructions: t.instructions,
+                skills: t.skills || [],
+                availabilityStart: t.availability_start,
+                availabilityEnd: t.availability_end,
+                hardDeadline: t.hard_deadline,
+                durationMinutes: t.duration_minutes,
+                timingMode: t.timing_mode,
+                sectionTimers: t.section_timers || {},
+                eligibleStudentIds: t.eligible_student_ids || [],
+                maxAttempts: t.max_attempts || 1,
+                accessCodeEnabled: Boolean(t.access_code_enabled),
+                accessCodeHash: t.access_code_hash,
+                strictPreset: t.strict_preset,
+                strictSettings: t.strict_settings,
+                status: t.status,
+                currentVersion: t.current_version || 1,
+                releaseSettings: t.release_settings,
+                sections: (t.sections && t.sections.length > 0) ? t.sections : (versionSectionsMap[t.id] || []),
+                createdAt: t.created_at?.split('T')[0] || '',
+                updatedAt: t.updated_at?.split('T')[0] || '',
+              }));
+            }
 
             setRegularTests(mappedTests);
             try {
               localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTests));
-            } catch {}
-          } else if (fetchSeq === fetchSequenceRef.current) {
-            // Resilient fallback to cached tests to prevent disappearing on transient network/reload blips
-            try {
-              const cached = localStorage.getItem(`ielts_regular_tests_${currentUser.id}`);
-              if (cached) {
-                const parsed = JSON.parse(cached);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                  setRegularTests(parsed);
-                }
-              }
             } catch {}
           }
         } catch (rtErr) {
@@ -2263,6 +2254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updates.title !== undefined) payload.title = updates.title;
     if (updates.type !== undefined) payload.type = updates.type;
     if (updates.url !== undefined) payload.url = updates.url;
+    else if (updates.audioUrl !== undefined) payload.url = updates.audioUrl;
     if (updates.tags !== undefined) payload.tags = [];
     if (updates.skill !== undefined) payload.skill = updates.skill;
     if (updates.folder !== undefined) payload.folder = updates.folder;
@@ -2288,9 +2280,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (Object.keys(payload).length > 0) {
-      await supabase.from('resources').update(payload).eq('id', id);
+      const { error } = await supabase.from('resources').update(payload).eq('id', id);
+      if (error) {
+        console.warn('updateResource DB error:', error.message);
+      }
     }
     setResources((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates, content: finalContent } : r)));
+    refreshData();
   };
 
   const deleteResource = async (id: string) => {
@@ -3979,14 +3975,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteRegularTest = async (id: string): Promise<{ success: boolean; message?: string }> => {
     // Unrestricted deletion regardless of status: cascade delete associated attempts and records cleanly
-    setRegularTests((prev) => prev.filter((t) => t.id !== id));
-    setRegularTestAttempts((prev) => prev.filter((a) => a.testId !== id));
+    setRegularTests((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      if (currentUser?.id) {
+        try {
+          localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
+    setRegularTestAttempts((prev) => {
+      const updated = prev.filter((a) => a.testId !== id);
+      if (currentUser?.id) {
+        try {
+          localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
+
     try {
       await supabase.from('regular_test_events').delete().eq('test_id', id);
+      await supabase.from('regular_test_report_links').delete().eq('test_id', id);
       await supabase.from('regular_test_attempts').delete().eq('test_id', id);
-      await supabase.from('regular_tests').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Delete test DB notice:', err);
+      await supabase.from('regular_test_versions').delete().eq('test_id', id);
+      const { error } = await supabase.from('regular_tests').delete().eq('id', id);
+      if (error) {
+        console.warn('Delete test DB notice:', error.message);
+        return { success: false, message: error.message };
+      }
+    } catch (err: any) {
+      console.warn('Delete test DB exception:', err);
+      return { success: false, message: err?.message || 'Database deletion failed' };
     }
 
     return { success: true };

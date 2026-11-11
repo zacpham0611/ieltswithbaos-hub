@@ -1,9 +1,9 @@
 import React from 'react';
 import { Flag, AlertCircle, Volume2, ChevronDown } from 'lucide-react';
 import type { ListeningQuestion, ListeningQuestionGroup } from '../../types';
-import { cleanListeningText } from '../../lib/listeningExtractor';
+import { cleanListeningText, normalizeListeningStructuredText } from '../../lib/listeningExtractor';
 
-export { cleanListeningText };
+export { cleanListeningText, normalizeListeningStructuredText };
 
 interface ListeningQuestionRendererProps {
   questionGroup: ListeningQuestionGroup;
@@ -73,7 +73,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   const embeddedQuestionIds = new Set<string>();
 
   // Extract all blank numbers [31], [32], etc. inside structured group text for reliable index mapping
-  const effectiveGroupContent = groupText || questionGroup.sharedContent || '';
+  const rawGroupContent = groupText || questionGroup.sharedContent || '';
+  const effectiveGroupContent = React.useMemo(() => {
+    return normalizeListeningStructuredText(rawGroupContent);
+  }, [rawGroupContent]);
   const embeddedBlankNumbers = React.useMemo(() => {
     if (!effectiveGroupContent) return [];
     let norm = effectiveGroupContent.replace(
@@ -801,8 +804,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // 3. Render Structured Form Completion
   const renderStructuredForm = (formText: string) => {
-    // Remove markdown table separator lines like | --- | --- | and normalize pipes
-    const rawLines = formText
+    // Normalize multi-row text and remove markdown table separator lines like | --- | --- |
+    const normalizedFormText = normalizeListeningStructuredText(formText);
+    const rawLines = normalizedFormText
       .split('\n')
       .map((l) => {
         let trimmed = cleanListeningText(l);
@@ -972,8 +976,11 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // 4. Render Structured Notes, Summaries, or Sentences
   const renderStructuredNotesOrSummary = (notesText: string) => {
-    // 1. Remove orphaned table dividers (| ---, |:---|) and table syntax remnants
-    let formattedText = notesText.replace(/^\s*\|?\s*:?-{3,}:?\s*\|?\s*$/gm, '');
+    // 1. Normalize multi-row lines and remove orphaned table dividers (| ---, |:---|) and table syntax remnants
+    let formattedText = normalizeListeningStructuredText(notesText);
+    formattedText = formattedText.replace(/^\s*\|?\s*:?-{2,}:?\s*\|?\s*$/gm, '');
+    formattedText = formattedText.replace(/^(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/gm, '');
+    formattedText = formattedText.replace(/(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/g, '');
     // Remove leading and trailing pipe characters per line
     formattedText = formattedText.replace(/^\s*\|\s*/gm, '').replace(/\s*\|\s*$/gm, '');
     // Normalize bullets to separate lines

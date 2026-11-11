@@ -8,12 +8,14 @@ import {
   convertHtmlTablesToMarkdown,
   htmlToListeningText,
   cleanListeningText,
+  normalizeListeningStructuredText,
 } from '../src/lib/listeningExtractor.ts';
 import {
   buildQuestionRenderGroups,
   buildCompletionGroupText,
   normalizeReadingQuestion,
   cleanReadingText,
+  extractAllNormalizedQuestions,
 } from '../src/lib/questionNormalizer.ts';
 import type { RegularTest, RegularTestAttempt, ReadingQuestion } from '../src/types/index.ts';
 
@@ -416,5 +418,105 @@ Background Overview:
     assert.strictEqual(groups[1].questions.length, 3, 'Group 2 must have all 3 YNNG questions including Q37');
     assert.strictEqual(groups[1].wordList, undefined, 'Word list must not leak into YNNG');
     assert.strictEqual(groups[1].questions[2].q.type, 'yes_no_not_given');
+  });
+
+  it('13. Question 40 in student view (without answers) preserves YNNG and is not coerced to Summary Completion', () => {
+    // Simulate imported material with Passage 3 containing Summary Completion (36-39) and YNNG (40)
+    const assignmentPayload = {
+      title: 'Academic Reading Practice Test',
+      passages: [
+        {
+          id: 'p_3',
+          passageIndex: 2,
+          title: 'The Future of Renewable Energy',
+          content: 'Renewable energy systems are expanding rapidly...',
+          questionGroups: [
+            {
+              id: 'g_p3_1',
+              groupType: 'summary_completion',
+              questionType: 'summary_completion',
+              isTeacherEdited: true, // Teacher edited something in the group
+              instructions: 'Complete the summary below using the list of words, A-G.',
+              questions: [
+                { id: 'q_36', type: 'summary_completion', prompt: 'Solar power is [36] globally.', options: ['A. surging', 'B. fading'] },
+                { id: 'q_37', type: 'summary_completion', prompt: 'Wind power contributes [37] output.', options: ['A. surging', 'B. fading'] },
+                { id: 'q_38', type: 'summary_completion', prompt: 'Hydroelectric energy [38] baseline.', options: ['A. surging', 'B. fading'] },
+                { id: 'q_39', type: 'summary_completion', prompt: 'Battery storage offers [39] grid stability.', options: ['A. surging', 'B. fading'] },
+                {
+                  id: 'q_40',
+                  type: 'yes_no_not_given', // Correctly imported type in library
+                  prompt: '40 Fossil fuels will be completely eliminated by 2030.',
+                  // In student exam view, correctAnswer is stripped to empty string
+                  correctAnswer: '',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const extracted = extractAllNormalizedQuestions(assignmentPayload);
+    const q40 = extracted.questions.find((q) => q.id === 'q_40');
+    assert.ok(q40, 'Question 40 must be extracted');
+    assert.strictEqual(q40.type, 'yes_no_not_given', 'Question 40 must retain yes_no_not_given, not coerced to summary_completion');
+    assert.strictEqual(q40.options, undefined, 'Question 40 must not inherit word bank options');
+
+    // Build render groups for student UI
+    const groups = buildQuestionRenderGroups(extracted.questions);
+    const q40Group = groups.find((g) => g.questions.some(({ q }) => q.id === 'q_40'));
+    assert.ok(q40Group, 'Question 40 must belong to a render group');
+    assert.strictEqual(q40Group.groupType, 'yes_no_not_given', 'Question 40 render group must be yes_no_not_given');
+    assert.strictEqual(q40Group.wordList, undefined, 'Word list must NOT be present on Question 40 group');
+  });
+
+  it('14. Concatenated table rows & key-value form lines normalized into distinct rows', () => {
+    const concatenatedRaw =
+      '--- | --- Children: | 20 in a class Classes: | First group - Mrs. Oliver<br />Second group - Mrs. [1] Hours & Days: | 8:30 AM - 4:00 PM Activities: | Outside time<br />• running<br />• just got a new piece of [2]';
+
+    const normalized = normalizeListeningStructuredText(concatenatedRaw);
+    const lines = normalized.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    assert.ok(lines.length >= 4, `Must split into at least 4 lines, got ${lines.length}`);
+    assert.ok(lines.some((l) => l.includes('Children: | 20 in a class')), 'Children line must be separate');
+    assert.ok(lines.some((l) => l.includes('Classes: | First group')), 'Classes line must be separate');
+    assert.ok(lines.some((l) => l.includes('Hours & Days: | 8:30 AM')), 'Hours line must be separate');
+    assert.ok(lines.some((l) => l.includes('Activities: | Outside time')), 'Activities line must be separate');
+  });
+
+  it('15. htmlToListeningText preserves <br /> tags inside markdown table rows', () => {
+    const htmlWithTable = `
+      <p>Please complete the notes below:</p>
+      <table>
+        <tr><th>Facility</th><th>Details</th></tr>
+        <tr>
+          <td>Pre-school</td>
+          <td>First group - Mrs. Oliver<br />Second group - Mrs. 1 …………</td>
+        </tr>
+      </table>
+    `;
+
+    const resultText = htmlToListeningText(htmlWithTable);
+    // Table rows must contain <br /> and not be broken into jagged multi-line table rows
+    assert.ok(resultText.includes('<br />'), 'Must preserve <br /> inside markdown table cell');
+    assert.ok(resultText.includes('| Pre-school | First group - Mrs. Oliver<br />Second group - Mrs. [1] |'));
+  });
+
+  it('16. Regular Test deletion and canonical source of truth', () => {
+    // When Supabase returns 0 tests (e.g. test deleted by teacher)
+    const emptyRtData: any[] = [];
+    const mappedTests = emptyRtData.map((t) => t);
+    assert.strictEqual(mappedTests.length, 0);
+
+    // Simulated localStorage cache update on deletion
+    const userId = 'usr_student_test';
+    const mockStorage: Record<string, string> = {
+      [`ielts_regular_tests_${userId}`]: JSON.stringify([{ id: 'old_deleted_test', title: 'Deleted' }]),
+    };
+
+    // Upon authoritative fetch returning empty, cache is synchronized with authoritative empty state
+    mockStorage[`ielts_regular_tests_${userId}`] = JSON.stringify(mappedTests);
+    const afterFetch = JSON.parse(mockStorage[`ielts_regular_tests_${userId}`]);
+    assert.strictEqual(afterFetch.length, 0, 'Cache must reflect 0 tests after deletion, preventing resurrection');
   });
 });

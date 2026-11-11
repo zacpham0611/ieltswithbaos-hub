@@ -1259,6 +1259,7 @@ export const AssignmentsView: React.FC = () => {
         passages: passages.length > 0 ? passages : undefined,
         readingTestType: 'academic',
         answerReleasePolicy: 'after_submission',
+        resourceId: resource.id,
         sourceDocumentName: resource.title,
       });
       setShowImportLibraryModal(false);

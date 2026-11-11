@@ -21,12 +21,34 @@ export function cleanListeningText(text?: string): string {
     .replace(/<svg[\s\S]*?<\/svg>/gi, '')
     .replace(/<svg[^>]*>|<\/svg>/gi, '')
     .replace(/svgFlag/gi, '')
-    // Fix serialized svg glued to question numbers and words (e.g. **2**svghours -> **2** hours, **1**svg -> **1**)
+    // Fix serialized svg glued to question numbers, punctuation, or words
     .replace(/(?<=[0-9\*_\]\)])svg(?=[a-zA-Z])/gi, ' ')
-    .replace(/(?<=[0-9\*_\]\)])svg\b/gi, '')
+    .replace(/(?<=[0-9\*_\]\)])svg(?=[^a-zA-Z0-9\s]|\b)/gi, '')
     .replace(/\bsvg\b/gi, '')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .trim();
+}
+
+/**
+ * Normalizes multi-row listening structured text by restoring newlines between concatenated table rows / key-value lines
+ */
+export function normalizeListeningStructuredText(text: string): string {
+  if (!text) return '';
+  let cleaned = cleanListeningText(text);
+
+  // 1. Separate table separator rows from following content if glued together
+  // e.g. "--- | --- Children: | 20 in a class" -> "--- | ---\nChildren: | 20 in a class"
+  cleaned = cleaned.replace(/(?:^|\s)(:?-{2,}:?(?:\s*\|\s*:?-{2,}:?)+\s*\|?)\s+(?=[A-Za-z0-9])/gi, '\n$1\n');
+
+  // 2. Separate pipe table rows glued on the same line
+  // Matches a capitalized label (1 to 5 words e.g. "Classes:", "Hours & Days:", "Activities:", "Example:") immediately preceding ': |'
+  const labelBoundaryRegex = /(?<=\S)\s+((?:[A-Z][a-zA-Z0-9/&()\-–]*(?:\s+(?:&|and|of|in|for|[A-Z][a-zA-Z0-9/&()\-–]*)){0,4}|Example):)\s*\|/g;
+  cleaned = cleaned.replace(labelBoundaryRegex, '\n$1 |');
+
+  // 3. Separate pipe lines where closing pipe is glued to next pipe e.g. "| text | | next |" -> "| text |\n| next |"
+  cleaned = cleaned.replace(/\|\s+(?=\|)/g, '|\n');
+
+  return cleaned.trim();
 }
 
 /**
@@ -109,6 +131,10 @@ export function convertHtmlTablesToMarkdown(html: string): string {
  */
 export function htmlToListeningText(html: string): string {
   let text = convertHtmlTablesToMarkdown(html);
+  // Protect <br /> tags inside markdown table rows so they do not break table rows
+  text = text.replace(/\|([^\n]+)\|/g, (match) => {
+    return match.replace(/<br\s*\/?>/gi, '___CELL_BR___');
+  });
   text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n• $1\n');
   text = text.replace(/<\/p>/gi, '\n\n');
   text = text.replace(/<br\s*\/?>/gi, '\n');
@@ -121,6 +147,7 @@ export function htmlToListeningText(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"');
+  text = text.replace(/___CELL_BR___/g, '<br />');
   return text;
 }
 

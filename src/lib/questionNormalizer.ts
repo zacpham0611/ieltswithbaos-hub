@@ -349,7 +349,9 @@ export function normalizeReadingQuestion(
       rawPromptStr.includes('true/false/not given') ||
       rawPromptStr.includes('true / false / not given');
 
-    if (
+    if (type === 'yes_no_not_given' || type === 'true_false_not_given') {
+      options = undefined;
+    } else if (
       upperKey === 'YES' ||
       upperKey === 'NO' ||
       upperKey === 'Y' ||
@@ -370,12 +372,8 @@ export function normalizeReadingQuestion(
       type = 'true_false_not_given';
       options = undefined;
     } else if (upperKey === 'NOT GIVEN' || upperKey === 'NG') {
-      if (type === 'yes_no_not_given' || type === 'true_false_not_given') {
-        options = undefined;
-      } else {
-        type = 'yes_no_not_given';
-        options = undefined;
-      }
+      type = 'yes_no_not_given';
+      options = undefined;
     } else if (type === 'multiple_choice' || type === 'short_answer') {
       // Distinguish summary completion with numbered blanks (e.g. "in the 33 ...............")
       // from standard MCQ sentence stems ending in blanks (e.g. "29 According to paragraph 3, _______ are needed.")
@@ -451,9 +449,11 @@ export function normalizeReadingQuestion(
   }
 
   // Preserve teacher overrides and detected type
-  if (isTeacherEdited || rawOverride) {
+  if (rawOverride) {
     normalized.isTeacherEdited = true;
-    normalized.questionTypeOverride = normalizeQuestionType(rawOverride || type);
+    normalized.questionTypeOverride = normalizeQuestionType(rawOverride);
+  } else if (raw.isTeacherEdited) {
+    normalized.isTeacherEdited = true;
   }
   if (raw.detectedQuestionType || raw.detectedType) {
     normalized.detectedQuestionType = normalizeQuestionType(raw.detectedQuestionType || raw.detectedType);
@@ -546,11 +546,23 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       }
     }
 
-    // Inherit questionTypeOverride or isTeacherEdited from parent group if not already specified on question
+    // Inherit questionTypeOverride or isTeacherEdited from parent group only if question doesn't have an explicit specific type
     let effectiveRawQ = rawQ;
     const groupOverride = parentGroup?.questionTypeOverride;
     const groupIsEdited = parentGroup?.isTeacherEdited;
-    if (groupOverride || groupIsEdited) {
+
+    const rawType = normalizeQuestionType(rawQ.type || rawQ.questionType || rawQ.question_type);
+    const hasSpecificExplicitType =
+      rawType &&
+      rawType !== 'short_answer' &&
+      (rawType === 'yes_no_not_given' ||
+        rawType === 'true_false_not_given' ||
+        rawType === 'multiple_choice' ||
+        rawType === 'multiple_select' ||
+        rawType === 'matching_headings' ||
+        rawType === 'matching_features');
+
+    if ((groupOverride || groupIsEdited) && !hasSpecificExplicitType) {
       effectiveRawQ = {
         ...rawQ,
         questionTypeOverride: rawQ.questionTypeOverride || groupOverride || parentGroup?.questionType,
@@ -567,7 +579,13 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       if (existingQ) {
         // Prioritize group override / teacher override over any previous detected type
         const authoritativeGroupType = parentGroup?.questionTypeOverride || parentGroup?.questionType;
-        if (authoritativeGroupType || norm.questionTypeOverride || parentGroup?.isTeacherEdited) {
+        const existingHasSpecificType =
+          existingQ.type === 'yes_no_not_given' ||
+          existingQ.type === 'true_false_not_given' ||
+          existingQ.type === 'multiple_choice' ||
+          existingQ.type === 'multiple_select';
+
+        if (!existingHasSpecificType && (authoritativeGroupType || norm.questionTypeOverride || parentGroup?.isTeacherEdited)) {
           const authType = norm.questionTypeOverride || authoritativeGroupType || norm.type;
           existingQ.type = authType;
           if (norm.questionTypeOverride || parentGroup?.questionTypeOverride || parentGroup?.isTeacherEdited) {
@@ -709,17 +727,41 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     const groupType = g.questionTypeOverride || g.questionType;
     const gQuestions = (g.questions || []).map((gq) => {
       const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
-      const authType = gq.questionTypeOverride || g.questionTypeOverride || matched?.questionTypeOverride || groupType || gq.type;
-      const isEdited = Boolean(gq.questionTypeOverride || g.questionTypeOverride || g.isTeacherEdited || gq.isTeacherEdited || matched?.isTeacherEdited);
+      const hasSpecificMatchedType =
+        matched &&
+        (matched.type === 'yes_no_not_given' ||
+          matched.type === 'true_false_not_given' ||
+          matched.type === 'multiple_choice' ||
+          matched.type === 'multiple_select' ||
+          matched.type === 'matching_headings' ||
+          matched.type === 'matching_features');
 
-      const normalizedQ = matched || normalizeReadingQuestion({
-        ...gq,
-        type: authType,
-        questionTypeOverride: authType,
-        isTeacherEdited: isEdited,
-      });
+      const authType =
+        gq.questionTypeOverride ||
+        (hasSpecificMatchedType ? matched?.type : undefined) ||
+        g.questionTypeOverride ||
+        matched?.questionTypeOverride ||
+        gq.type ||
+        groupType;
 
-      if (matched && (g.questionTypeOverride || g.isTeacherEdited)) {
+      const isEdited = Boolean(
+        gq.questionTypeOverride ||
+          g.questionTypeOverride ||
+          g.isTeacherEdited ||
+          gq.isTeacherEdited ||
+          matched?.isTeacherEdited
+      );
+
+      const normalizedQ =
+        matched ||
+        normalizeReadingQuestion({
+          ...gq,
+          type: authType,
+          questionTypeOverride: authType,
+          isTeacherEdited: isEdited,
+        });
+
+      if (matched && !hasSpecificMatchedType && (g.questionTypeOverride || g.isTeacherEdited)) {
         matched.type = authType;
         matched.questionTypeOverride = authType;
         matched.isTeacherEdited = true;
@@ -746,17 +788,40 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       const groupType = g.questionTypeOverride || g.questionType;
       const gQuestions = (g.questions || []).map((gq) => {
         const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
-        const authType = gq.questionTypeOverride || g.questionTypeOverride || matched?.questionTypeOverride || groupType || gq.type;
-        const isEdited = Boolean(gq.questionTypeOverride || g.questionTypeOverride || g.isTeacherEdited || gq.isTeacherEdited || matched?.isTeacherEdited);
+        const hasSpecificMatchedType =
+          matched &&
+          (matched.type === 'yes_no_not_given' ||
+            matched.type === 'true_false_not_given' ||
+            matched.type === 'multiple_choice' ||
+            matched.type === 'multiple_select' ||
+            matched.type === 'matching_headings' ||
+            matched.type === 'matching_features');
 
-        const normalizedQ = matched || normalizeReadingQuestion({
-          ...gq,
-          type: authType,
-          questionTypeOverride: authType,
-          isTeacherEdited: isEdited,
-        });
+        const authType =
+          gq.questionTypeOverride ||
+          (hasSpecificMatchedType ? matched?.type : undefined) ||
+          g.questionTypeOverride ||
+          matched?.questionTypeOverride ||
+          gq.type ||
+          groupType;
+        const isEdited = Boolean(
+          gq.questionTypeOverride ||
+            g.questionTypeOverride ||
+            g.isTeacherEdited ||
+            gq.isTeacherEdited ||
+            matched?.isTeacherEdited
+        );
 
-        if (matched && (g.questionTypeOverride || g.isTeacherEdited)) {
+        const normalizedQ =
+          matched ||
+          normalizeReadingQuestion({
+            ...gq,
+            type: authType,
+            questionTypeOverride: authType,
+            isTeacherEdited: isEdited,
+          });
+
+        if (matched && !hasSpecificMatchedType && (g.questionTypeOverride || g.isTeacherEdited)) {
           matched.type = authType;
           matched.questionTypeOverride = authType;
           matched.isTeacherEdited = true;
@@ -764,8 +829,8 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
 
         return {
           ...normalizedQ,
-          type: authType,
-          ...(isEdited ? { questionTypeOverride: authType, isTeacherEdited: true } : {}),
+          type: hasSpecificMatchedType ? matched.type : authType,
+          ...(isEdited ? { questionTypeOverride: hasSpecificMatchedType ? matched.type : authType, isTeacherEdited: true } : {}),
         };
       });
       return {
