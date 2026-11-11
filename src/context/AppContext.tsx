@@ -9,6 +9,7 @@ import {
   Assignment,
   Submission,
   MonthlyReport,
+  AssessmentState,
   FeeConfiguration,
   TuitionStatement,
   ActivityItem,
@@ -547,35 +548,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
 
-        // Monthly Assessments
-        const { data: assessmentsData } = await supabase
-          .from('monthly_assessments')
-          .select('*, profiles:student_id(*), courses:course_id(*)')
-          .eq('teacher_id', currentUser.id)
-          .order('created_at', { ascending: false });
+        // Monthly Assessments (Resilient fetching with local fallback)
+        try {
+          const { data: assessmentsData, error: assessErr } = await supabase
+            .from('monthly_assessments')
+            .select('*')
+            .eq('teacher_id', currentUser.id)
+            .order('created_at', { ascending: false });
 
-        if (assessmentsData) {
-          setMonthlyReports(
-            assessmentsData.map((m: any) => ({
-              id: m.id,
-              courseId: m.course_id,
-              courseName: m.courses?.name || 'Course',
-              studentId: m.student_id,
-              studentName: m.profiles?.name || 'Student',
-              studentEmail: m.profiles?.email || '',
-              teacherId: m.teacher_id,
-              teacherName: currentUser.name,
-              month: m.month,
-              targetBand: m.target_band,
-              state: m.state,
-              createdAt: m.created_at?.replace('T', ' ').substring(0, 16) || '',
-              publishedAt: m.published_at?.replace('T', ' ').substring(0, 16),
-              learningEvidence: m.learning_evidence || {},
-              aiDraft: m.ai_draft || {},
-              teacherEvaluation: m.teacher_evaluation || {},
-              history: m.history || [],
-            }))
-          );
+          if (assessErr) {
+            console.warn('DB monthly_assessments query notice for teacher:', assessErr);
+          }
+
+          if (assessmentsData && Array.isArray(assessmentsData)) {
+            const mapped = assessmentsData.map((m: any) => {
+              const matchedCourse = currentCourses.find((c: any) => c.id === m.course_id);
+              const matchedMember = courseMembers.find((cm) => cm.studentId === m.student_id);
+              return {
+                id: m.id,
+                courseId: m.course_id,
+                courseName: matchedCourse?.name || 'Course',
+                studentId: m.student_id,
+                studentName: matchedMember?.studentName || 'Student',
+                studentEmail: matchedMember?.studentEmail || '',
+                teacherId: m.teacher_id,
+                teacherName: currentUser.name,
+                month: m.month,
+                targetBand: m.target_band,
+                state: m.state,
+                createdAt: m.created_at?.replace('T', ' ').substring(0, 16) || '',
+                publishedAt: m.published_at?.replace('T', ' ').substring(0, 16),
+                learningEvidence: m.learning_evidence || {},
+                aiDraft: m.ai_draft || {},
+                teacherEvaluation: m.teacher_evaluation || {},
+                history: m.history || [],
+              };
+            });
+            setMonthlyReports(mapped);
+            try {
+              localStorage.setItem(`ielts_monthly_assessments_${currentUser.id}`, JSON.stringify(mapped));
+            } catch {}
+          } else {
+            const cached = localStorage.getItem(`ielts_monthly_assessments_${currentUser.id}`);
+            if (cached) {
+              try {
+                setMonthlyReports(JSON.parse(cached));
+              } catch {}
+            }
+          }
+        } catch (mErr) {
+          console.warn('monthly_assessments fetch fallback triggered:', mErr);
+          const cached = localStorage.getItem(`ielts_monthly_assessments_${currentUser.id}`);
+          if (cached) {
+            try {
+              setMonthlyReports(JSON.parse(cached));
+            } catch {}
+          }
         }
 
         // Tuition Statements
@@ -942,11 +970,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   metadata.modelAnswerReleaseCondition ||
                   'after_graded';
 
-                const canSeeAnswers = isGraded && isScorePublic && releaseCondition !== 'never';
+                const canSeeAnswers =
+                  (isGraded && releaseCondition !== 'never') ||
+                  (isScorePublic && (releaseCondition === 'immediate' || (releaseCondition === 'after_submission' && hasSubmitted)));
                 const canSeeModelAnswer =
                   releaseCondition === 'immediate' ||
                   (releaseCondition === 'after_submission' && hasSubmitted) ||
-                  (releaseCondition === 'after_graded' && isGraded && isScorePublic);
+                  (releaseCondition === 'after_graded' && isGraded) ||
+                  (isGraded && isScorePublic);
 
                 const sanitizedQuestions = questionsList.map((q: any) => {
                   if (canSeeAnswers) return q;
@@ -1078,8 +1109,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const isScorePublic = (parentAssign?.score_visibility || assignMeta?.scoreVisibility || 'private') === 'public';
 
               // For Writing and Speaking, a graded assessment published by teacher is always accessible to the student.
-              // For Reading, score_visibility controls whether automated reading scores/keys are released.
-              const isGradedPublished = s.status === 'graded' && !isDraft && (s.skill !== 'reading' || isScorePublic);
+              // For Reading, a finalized teacher grade is published; if score_visibility is public, student sees automated score immediately.
+              const isGradedPublished = (s.status === 'graded' && !isDraft) || (s.status === 'submitted' && isScorePublic);
               const hasTeacherFeedback = isGradedPublished || s.status === 'returned';
 
               let finalScore: number | undefined = undefined;
@@ -1109,8 +1140,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 submittedAt: s.submitted_at?.replace('T', ' ').substring(0, 16) || '',
                 updatedAt: s.updated_at?.replace('T', ' ').substring(0, 16) || '',
                 readingAnswers: s.reading_answers,
-                readingScore: isScorePublic ? s.reading_score : undefined,
-                readingErrorAnalysis: isScorePublic ? s.reading_error_analysis : undefined,
+                readingScore: (isGradedPublished || isScorePublic) ? s.reading_score : undefined,
+                readingErrorAnalysis: (isGradedPublished || isScorePublic) ? s.reading_error_analysis : undefined,
                 writingText: s.writing_text,
                 writingWordCount: s.writing_word_count,
                 writingRevisions: s.writing_revisions,
@@ -1132,36 +1163,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      // Student Published Monthly Reports
-        const { data: assessmentsData } = await supabase
-          .from('monthly_assessments')
-          .select('*, courses:course_id(*)')
-          .eq('student_id', currentUser.id)
-          .eq('state', 'published')
-          .order('created_at', { ascending: false });
+        // Student Published Monthly Reports (Resilient fetching)
+        try {
+          const { data: assessmentsData, error: stErr } = await supabase
+            .from('monthly_assessments')
+            .select('*')
+            .eq('student_id', currentUser.id)
+            .eq('state', 'published')
+            .order('created_at', { ascending: false });
 
-        if (assessmentsData) {
-          setMonthlyReports(
-            assessmentsData.map((m: any) => ({
-              id: m.id,
-              courseId: m.course_id,
-              courseName: m.courses?.name || 'Course',
-              studentId: currentUser.id,
-              studentName: currentUser.name,
-              studentEmail: currentUser.email,
-              teacherId: m.teacher_id,
-              teacherName: 'Teacher',
-              month: m.month,
-              targetBand: m.target_band,
-              state: m.state,
-              createdAt: m.created_at?.replace('T', ' ').substring(0, 16) || '',
-              publishedAt: m.published_at?.replace('T', ' ').substring(0, 16),
-              learningEvidence: m.learning_evidence || {},
-              aiDraft: m.ai_draft || {},
-              teacherEvaluation: m.teacher_evaluation || {},
-              history: m.history || [],
-            }))
-          );
+          if (stErr) {
+            console.warn('DB student monthly_assessments notice:', stErr);
+          }
+
+          if (assessmentsData && Array.isArray(assessmentsData)) {
+            setMonthlyReports(
+              assessmentsData.map((m: any) => {
+                const matchedCourse = loadedCourses.find((c: any) => c.id === m.course_id);
+                return {
+                  id: m.id,
+                  courseId: m.course_id,
+                  courseName: matchedCourse?.name || 'Course',
+                  studentId: currentUser.id,
+                  studentName: currentUser.name,
+                  studentEmail: currentUser.email,
+                  teacherId: m.teacher_id,
+                  teacherName: 'Teacher',
+                  month: m.month,
+                  targetBand: m.target_band,
+                  state: m.state,
+                  createdAt: m.created_at?.replace('T', ' ').substring(0, 16) || '',
+                  publishedAt: m.published_at?.replace('T', ' ').substring(0, 16),
+                  learningEvidence: m.learning_evidence || {},
+                  aiDraft: m.ai_draft || {},
+                  teacherEvaluation: m.teacher_evaluation || {},
+                  history: m.history || [],
+                };
+              })
+            );
+          }
+        } catch (stAssessErr) {
+          console.warn('Student monthly assessment fetch fallback:', stAssessErr);
         }
 
         // Student Tuition Statements
@@ -2479,31 +2521,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    if (existing) {
+    let targetExistingId = existing?.id;
+    if (!targetExistingId) {
+      try {
+        const { data: dbSub } = await supabase
+          .from('submissions')
+          .select('id')
+          .eq('assignment_id', assignmentId)
+          .eq('student_id', currentUser.id)
+          .maybeSingle();
+        if (dbSub?.id) {
+          targetExistingId = dbSub.id;
+        }
+      } catch {
+        // fallback to memory state
+      }
+    }
+
+    if (targetExistingId) {
       await supabase
         .from('submissions')
         .update({
-          status: data.status || (existing.status === 'returned' ? 'resubmitted' : 'submitted'),
+          status: data.status || (existing?.status === 'returned' ? 'resubmitted' : 'submitted'),
           updated_at: now,
-          writing_text: data.writingText ?? existing.writingText,
-          writing_word_count: data.writingWordCount ?? existing.writingWordCount,
+          writing_text: data.writingText ?? existing?.writingText,
+          writing_word_count: data.writingWordCount ?? existing?.writingWordCount,
           writing_revisions: [
-            ...(existing.writingRevisions || []),
+            ...(existing?.writingRevisions || []),
             {
               text: data.writingText || '',
               timestamp: now.replace('T', ' ').substring(0, 16),
               wordCount: data.writingWordCount || 0,
             },
           ],
-          reading_answers: data.readingAnswers ?? existing.readingAnswers,
-          reading_score: data.readingScore ?? existing.readingScore,
-          reading_error_analysis: data.readingErrorAnalysis ?? existing.readingErrorAnalysis,
-          speaking_audio_url: data.speakingAudioUrl ?? existing.speakingAudioUrl,
-          speaking_transcript: data.speakingTranscript ?? existing.speakingTranscript,
-          speaking_duration: data.speakingDuration ?? existing.speakingDuration,
-          score: data.score !== undefined ? data.score : existing.score,
+          reading_answers: data.readingAnswers ?? existing?.readingAnswers,
+          reading_score: data.readingScore ?? existing?.readingScore,
+          reading_error_analysis: data.readingErrorAnalysis ?? existing?.readingErrorAnalysis,
+          speaking_audio_url: data.speakingAudioUrl ?? existing?.speakingAudioUrl,
+          speaking_transcript: data.speakingTranscript ?? existing?.speakingTranscript,
+          speaking_duration: data.speakingDuration ?? existing?.speakingDuration,
+          score: data.score !== undefined ? data.score : existing?.score,
         })
-        .eq('id', existing.id);
+        .eq('id', targetExistingId);
     } else {
       await supabase.from('submissions').insert({
         assignment_id: assignmentId,
@@ -2658,7 +2717,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         scoreSource: source,
         readingCorrect: s.readingScore?.correct,
         readingTotal: s.readingScore?.total,
-        criteriaScores: s.rubricScores?.map((r) => ({ criterion: r.criterion, score: r.score })),
+        criteriaScores: s.skill === 'reading' ? undefined : s.rubricScores?.map((r) => ({ criterion: r.criterion, score: r.score })),
         comments: s.teacherComments || s.strengths || s.areasToImprove || undefined,
       };
     });
@@ -2776,12 +2835,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       history: data.history,
     };
 
-    setMonthlyReports((prev) => [created, ...prev]);
+    setMonthlyReports((prev) => {
+      const updated = [created, ...prev];
+      try {
+        localStorage.setItem(`ielts_monthly_assessments_${currentUser.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
     return created;
   };
 
   const updateMonthlyReport = async (id: string, updates: Partial<MonthlyReport>) => {
-    await supabase
+    const { error } = await supabase
       .from('monthly_assessments')
       .update({
         teacher_evaluation: updates.teacherEvaluation,
@@ -2789,7 +2854,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
       .eq('id', id);
 
-    setMonthlyReports((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+    if (error) console.warn('DB updateMonthlyReport notice:', error);
+
+    setMonthlyReports((prev) => {
+      const updated = prev.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      try {
+        localStorage.setItem(`ielts_monthly_assessments_${currentUser?.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const approveMonthlyReport = async (id: string) => {
@@ -2806,7 +2879,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
     ];
 
-    await supabase
+    const { error } = await supabase
       .from('monthly_assessments')
       .update({
         state: 'approved',
@@ -2814,9 +2887,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
       .eq('id', id);
 
-    setMonthlyReports((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, state: 'approved', history: newHistory } : r))
-    );
+    if (error) console.warn('DB approveMonthlyReport notice:', error);
+
+    setMonthlyReports((prev) => {
+      const updated = prev.map((r) => (r.id === id ? { ...r, state: 'approved' as AssessmentState, history: newHistory } : r));
+      try {
+        localStorage.setItem(`ielts_monthly_assessments_${currentUser?.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const publishMonthlyReport = async (id: string) => {
@@ -2839,7 +2918,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
     ];
 
-    await supabase
+    const { error } = await supabase
       .from('monthly_assessments')
       .update({
         state: 'published',
@@ -2848,14 +2927,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
       .eq('id', id);
 
-    setMonthlyReports((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, state: 'published', publishedAt: now, history: newHistory } : r))
-    );
+    if (error) console.warn('DB publishMonthlyReport notice:', error);
+
+    setMonthlyReports((prev) => {
+      const updated = prev.map((r) => (r.id === id ? { ...r, state: 'published' as AssessmentState, publishedAt: now, history: newHistory } : r));
+      try {
+        localStorage.setItem(`ielts_monthly_assessments_${currentUser?.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const voidMonthlyReport = async (id: string) => {
-    await supabase.from('monthly_assessments').update({ state: 'void' }).eq('id', id);
-    setMonthlyReports((prev) => prev.map((r) => (r.id === id ? { ...r, state: 'void' } : r)));
+    const { error } = await supabase.from('monthly_assessments').update({ state: 'void' }).eq('id', id);
+    if (error) console.warn('DB voidMonthlyReport notice:', error);
+    setMonthlyReports((prev) => {
+      const updated = prev.map((r) => (r.id === id ? { ...r, state: 'void' as AssessmentState } : r));
+      try {
+        localStorage.setItem(`ielts_monthly_assessments_${currentUser?.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const deleteMonthlyReport = async (id: string): Promise<void> => {
@@ -2872,7 +2964,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error(error.message || 'Failed to delete assessment');
     }
 
-    setMonthlyReports((prev) => prev.filter((r) => r.id !== id));
+    setMonthlyReports((prev) => {
+      const updated = prev.filter((r) => r.id !== id);
+      try {
+        localStorage.setItem(`ielts_monthly_assessments_${currentUser.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   // TUITION OPERATIONS

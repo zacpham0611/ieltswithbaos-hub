@@ -52,14 +52,45 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   } = questionGroup;
 
   const safeQuestions = questions || [];
-  const firstQNum = safeQuestions[0]?.questionNumber || safeQuestions[0]?.number || 1;
+
+  // Parse potential question range from title, e.g. "Questions 31-40" or "Part 4 (31 - 40)"
+  const titleRangeMatch = (title || '').match(/(?:Questions?|Part|Section)?\s*([0-9]{1,2})\s*[-–—to]+\s*([0-9]{1,2})/i);
+  const titleStartNum = titleRangeMatch ? parseInt(titleRangeMatch[1], 10) : undefined;
+  const titleEndNum = titleRangeMatch ? parseInt(titleRangeMatch[2], 10) : undefined;
+
+  const firstQNum =
+    safeQuestions[0]?.questionNumber ||
+    safeQuestions[0]?.number ||
+    titleStartNum ||
+    1;
   const lastQNum =
     safeQuestions[safeQuestions.length - 1]?.questionNumber ||
     safeQuestions[safeQuestions.length - 1]?.number ||
-    safeQuestions.length;
+    titleEndNum ||
+    (firstQNum + Math.max(0, safeQuestions.length - 1));
 
   // Set of question IDs whose inputs are directly embedded inside structured content (tables, forms, notes, flowcharts)
   const embeddedQuestionIds = new Set<string>();
+
+  // Extract all blank numbers [31], [32], etc. inside structured group text for reliable index mapping
+  const effectiveGroupContent = groupText || questionGroup.sharedContent || '';
+  const embeddedBlankNumbers = React.useMemo(() => {
+    if (!effectiveGroupContent) return [];
+    let norm = effectiveGroupContent.replace(
+      /((?:[…\.]{2,}|_{2,}|\.{3,}|…+))([\s\S]*?)(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\])/gi,
+      (_m, _blank, middle, g3, g4) => `[${g3 || g4}]${middle}`
+    );
+    norm = norm.replace(
+      /((?:by|in|at|to|for|is|are|on|of|^|[•\-\*\s]+)\s*)([0-9]{1,2})[\.\:\)]\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/gi,
+      '$1[$2]'
+    );
+    norm = norm.replace(
+      /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\(([0-9]{1,2})\)\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g,
+      '[$1$2$3]'
+    );
+    const matches = Array.from(norm.matchAll(/\[([0-9]{1,2})\]/g)).map((m) => parseInt(m[1], 10));
+    return Array.from(new Set(matches));
+  }, [effectiveGroupContent]);
 
   // Render question flag button
   const renderFlagButton = (questionId: string) => {
@@ -366,50 +397,47 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // Render an inline interactive input for a question embedded within structured content
   const renderInlineQuestionInput = (qNum: number, keyPrefix: string) => {
+    const blankIdx = embeddedBlankNumbers.indexOf(qNum);
     const targetQ = safeQuestions.find(
-      (q) =>
+      (q, idx) =>
         Number(q.questionNumber || q.number) === qNum ||
         q.id.endsWith(`_${qNum}`) ||
         q.id === `q_${qNum}` ||
-        q.prompt === `Question ${qNum}`
+        q.prompt === `Question ${qNum}` ||
+        (q.prompt && (q.prompt.startsWith(`${qNum}.`) || q.prompt.startsWith(`Question ${qNum}`))) ||
+        (blankIdx !== -1 && idx === blankIdx) ||
+        (safeQuestions.length > 0 && firstQNum <= qNum && qNum <= lastQNum && idx === qNum - firstQNum)
     );
 
+    const effectiveId = targetQ ? targetQ.id : `q_${qNum}`;
+    embeddedQuestionIds.add(effectiveId);
     if (targetQ) {
       embeddedQuestionIds.add(targetQ.id);
-      const userVal = answers[targetQ.id] || '';
-
-      return (
-        <span
-          key={`${keyPrefix}-q${qNum}`}
-          className="inline-flex items-center gap-1.5 align-middle mx-1 my-0.5 flex-wrap"
-        >
-          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 shrink-0">
-            {qNum}
-          </span>
-          <input
-            type="text"
-            value={userVal}
-            disabled={isReadOnly}
-            placeholder={`[${qNum}]`}
-            onChange={(e) => onAnswerChange(targetQ.id, e.target.value)}
-            className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[95px] max-w-[170px] transition-colors"
-          />
-          {renderFlagButton(targetQ.id)}
-          {showCorrectAnswers && targetQ.correctAnswer && (
-            <span className="text-[11px] text-emerald-700 font-bold whitespace-nowrap">
-              [{cleanListeningText(targetQ.correctAnswer)}]
-            </span>
-          )}
-        </span>
-      );
     }
+    const userVal = answers[effectiveId] || (targetQ ? answers[targetQ.id] : '') || '';
 
     return (
       <span
         key={`${keyPrefix}-q${qNum}`}
-        className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 mx-1 shadow-2xs"
+        className="inline-flex items-center gap-1.5 align-middle mx-1 my-0.5 flex-wrap"
       >
-        [{qNum}]
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 shrink-0">
+          {qNum}
+        </span>
+        <input
+          type="text"
+          value={userVal}
+          disabled={isReadOnly}
+          placeholder={`[${qNum}]`}
+          onChange={(e) => onAnswerChange(effectiveId, e.target.value)}
+          className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[95px] max-w-[170px] transition-colors"
+        />
+        {targetQ && renderFlagButton(targetQ.id)}
+        {showCorrectAnswers && targetQ?.correctAnswer && (
+          <span className="text-[11px] text-emerald-700 font-bold whitespace-nowrap">
+            [{cleanListeningText(targetQ.correctAnswer)}]
+          </span>
+        )}
       </span>
     );
   };
@@ -741,11 +769,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     // 1. Normalize note text if it was single-line or wrapped in callout box pipes
     let formattedText = notesText.replace(/^\|\s*|\s*\|$/g, '').trim();
     // Normalize bullets to separate lines
-    formattedText = formattedText.replace(/\s*(?:•|\u2022)\s*/g, '\n• ');
-    // Normalize subheadings separated by multi-space (>= 2 spaces)
-    formattedText = formattedText.replace(/(?<=[^\n])\s{2,}(?=[A-Z][a-zA-Z0-9\s–\-]{1,35}:)/g, '\n');
+    formattedText = formattedText.replace(/\s*(?:•|\u2022|\*)\s*/g, '\n• ');
+    // Normalize subheadings separated by whitespace or space
     formattedText = formattedText.replace(
-      /(?<=[^\n])\s{2,}(?=(?:History of|Description of|Languages in|Local languages|Foreign languages|Bislama|General|Vocabulary|Grammar|Background|Summary|Topic|Location|Aim|Methods?|Results?|Conclusion)\b)/gm,
+      /(?<=[^\n])\s+(?=(?:[A-Z][a-zA-Z0-9\s–\-]{1,35}:|(?:History of|Description of|Languages in|Local languages|Foreign languages|Bislama|General|Vocabulary|Grammar|Background|Summary|Topic|Location|Aim|Methods?|Results?|Conclusion)\b))/gm,
       '\n'
     );
 
@@ -760,7 +787,8 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             !line.includes('[') &&
             (line.endsWith(':') ||
               line === line.toUpperCase() ||
-              /^(?:Aim|Background|Methods?|Results?|Conclusion|Location|Activities|Session|Topic)\b/i.test(line));
+              /^(?:Aim|Background|Methods?|Results?|Conclusion|Location|Activities|Session|Topic|General|Vocabulary|Grammar|History of|Description of|Languages in|Local languages|Foreign languages|Bislama)\b/i.test(line) ||
+              (line.length <= 45 && !/[,\.]$/.test(line) && /^[A-Z]/.test(line)));
 
           if (isHeading) {
             return (
@@ -944,7 +972,6 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     );
   };
 
-  const effectiveGroupContent = groupText || questionGroup.sharedContent || '';
   const isGroupMultiSelect = type === 'multiple_select';
 
   // Filter raw option lines from displayed groupText so options are not duplicated visually

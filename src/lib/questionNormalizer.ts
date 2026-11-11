@@ -533,10 +533,12 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     if (seenIds.has(finalId)) {
       const existingQ = resultQuestions.find((q) => q.id === finalId);
       if (existingQ) {
-        // If the question was previously seen without an explicit override, but now carries an authoritative override from group, apply it
-        if (norm.questionTypeOverride && !existingQ.questionTypeOverride) {
-          existingQ.type = norm.type;
-          existingQ.questionTypeOverride = norm.questionTypeOverride;
+        // Prioritize group override / teacher override over any previous detected type
+        const authoritativeGroupType = parentGroup?.questionTypeOverride || parentGroup?.questionType;
+        if (parentGroup?.questionTypeOverride || parentGroup?.isTeacherEdited || norm.questionTypeOverride) {
+          const authType = norm.questionTypeOverride || authoritativeGroupType || norm.type;
+          existingQ.type = authType;
+          existingQ.questionTypeOverride = authType;
           existingQ.isTeacherEdited = true;
         }
       }
@@ -673,13 +675,27 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     const groupType = g.questionTypeOverride || g.questionType;
     const gQuestions = (g.questions || []).map((gq) => {
       const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
-      if (matched) return matched;
-      return normalizeReadingQuestion({
+      const authType = gq.questionTypeOverride || g.questionTypeOverride || matched?.questionTypeOverride || groupType || gq.type;
+      const isEdited = Boolean(gq.questionTypeOverride || g.questionTypeOverride || g.isTeacherEdited || gq.isTeacherEdited || matched?.isTeacherEdited);
+
+      const normalizedQ = matched || normalizeReadingQuestion({
         ...gq,
-        type: gq.questionTypeOverride || groupType || gq.type,
-        questionTypeOverride: gq.questionTypeOverride || g.questionTypeOverride,
-        isTeacherEdited: gq.isTeacherEdited || g.isTeacherEdited,
+        type: authType,
+        questionTypeOverride: authType,
+        isTeacherEdited: isEdited,
       });
+
+      if (matched && (g.questionTypeOverride || g.isTeacherEdited)) {
+        matched.type = authType;
+        matched.questionTypeOverride = authType;
+        matched.isTeacherEdited = true;
+      }
+
+      return {
+        ...normalizedQ,
+        type: authType,
+        ...(isEdited ? { questionTypeOverride: authType, isTeacherEdited: true } : {}),
+      };
     });
     return {
       ...g,
@@ -696,12 +712,27 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       const groupType = g.questionTypeOverride || g.questionType;
       const gQuestions = (g.questions || []).map((gq) => {
         const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
-        return matched || normalizeReadingQuestion({
+        const authType = gq.questionTypeOverride || g.questionTypeOverride || matched?.questionTypeOverride || groupType || gq.type;
+        const isEdited = Boolean(gq.questionTypeOverride || g.questionTypeOverride || g.isTeacherEdited || gq.isTeacherEdited || matched?.isTeacherEdited);
+
+        const normalizedQ = matched || normalizeReadingQuestion({
           ...gq,
-          type: gq.questionTypeOverride || groupType || gq.type,
-          questionTypeOverride: gq.questionTypeOverride || g.questionTypeOverride,
-          isTeacherEdited: gq.isTeacherEdited || g.isTeacherEdited,
+          type: authType,
+          questionTypeOverride: authType,
+          isTeacherEdited: isEdited,
         });
+
+        if (matched && (g.questionTypeOverride || g.isTeacherEdited)) {
+          matched.type = authType;
+          matched.questionTypeOverride = authType;
+          matched.isTeacherEdited = true;
+        }
+
+        return {
+          ...normalizedQ,
+          type: authType,
+          ...(isEdited ? { questionTypeOverride: authType, isTeacherEdited: true } : {}),
+        };
       });
       return {
         ...g,
@@ -806,9 +837,11 @@ export function buildQuestionRenderGroups(
         ? (rawItem as any).idx
         : i;
 
+    const effectiveType = q.questionTypeOverride || (q as any).typeOverride || q.type;
+
     // Determine this question's word-list (only for true completion types, NOT button types)
-    const isButtonType = BUTTON_TYPES.has(q.type);
-    const isCompletionType = COMPLETION_TYPES.has(q.type);
+    const isButtonType = BUTTON_TYPES.has(effectiveType);
+    const isCompletionType = COMPLETION_TYPES.has(effectiveType);
 
     const qWordList =
       !isButtonType && isCompletionType && q.options && q.options.length > 0
@@ -829,7 +862,7 @@ export function buildQuestionRenderGroups(
     const sameInstruction = (currentGroup?.instructions || '') === instruction;
     const sameWordLimit = (currentGroup?.wordLimit || '') === (wordLimit || '');
     // Button types must form their own groups, never merged with completion groups
-    const sameGroupType = (currentGroup?.groupType || q.type) === q.type;
+    const sameGroupType = (currentGroup?.groupType || effectiveType) === effectiveType;
 
     const shouldContinueGroup = Boolean(
       currentGroup &&
@@ -862,7 +895,7 @@ export function buildQuestionRenderGroups(
       currentGroup = {
         id: `g_${idx}`,
         rangeTitle: `Question ${idx + 1}`,
-        groupType: q.type,
+        groupType: effectiveType,
         instructions: instruction || undefined,
         headingsList: q.headingsList && q.headingsList.length > 0 ? q.headingsList : undefined,
         featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
@@ -921,7 +954,11 @@ export function buildCompletionGroupText(
 
   for (const { q, idx } of questions) {
     let rawPrompt = cleanReadingText(q.prompt || '').trim();
-    const qNum = idx + 1;
+    const qNum =
+      (q as any).questionNumber ||
+      (q as any).number ||
+      (rawPrompt.match(/(?:^|\s|\(|\[)([0-9]{1,2})(?:\)|\]|\.|\s)/)?.[1]) ||
+      (idx + 1);
 
     // Normalize whitespace for duplicate detection
     const normalizedPrompt = rawPrompt.replace(/\s+/g, ' ');
@@ -931,9 +968,9 @@ export function buildCompletionGroupText(
       continue;
     }
 
-    // Format numbered blanks like "33 ............" or "33 _____"
+    // Format numbered blanks like "33 ............", "(33) _____", "[33] _____", or "33 _____"
     let formatted = rawPrompt.replace(
-      /(?:^|\s)(\d{1,2})\s*(?:[\.]{3,}|[_]{3,}|…{1,})/g,
+      /(?:^|\s|\(|\[)(\d{1,2})(?:\)|\])?\s*(?:[\.]{3,}|[_]{3,}|…{1,})/g,
       (_, num) => ` [${num}]`
     );
 

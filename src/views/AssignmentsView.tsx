@@ -1277,6 +1277,8 @@ export const AssignmentsView: React.FC = () => {
         setGradingRubrics(currentSubmission.rubricScores);
       } else if (currentSubmission.skill === 'speaking') {
         setGradingRubrics(defaultSpeakingRubrics);
+      } else if (currentSubmission.skill === 'reading') {
+        setGradingRubrics([]);
       } else {
         setGradingRubrics(defaultWritingRubrics);
       }
@@ -1753,7 +1755,7 @@ export const AssignmentsView: React.FC = () => {
         }
         await updateAssignment(editingAssignmentId, payload);
       } else {
-        if (formSkill === 'reading' && formReadingPassage.trim()) {
+        if (formSkill === 'reading' && formReadingPassage.trim() && (!payload.readingQuestions || payload.readingQuestions.length === 0)) {
           const docStruct = parseDocumentStructure(formReadingPassage, formTitle.trim());
           if (docStruct.questions && docStruct.questions.length > 0) {
             payload.readingQuestions = docStruct.questions;
@@ -3270,8 +3272,8 @@ export const AssignmentsView: React.FC = () => {
         ========================================================================= */}
         {isReading && (
           <div className="space-y-6">
-            {/* If Graded & Score is Public, Show Full Performance & Band Score Report Card */}
-            {mySub && (mySub.status === 'graded' || mySub.status === 'submitted') && isScorePublic && (mySub.readingScore || mySub.score) && (
+            {/* If Graded or Score is Public, Show Full Performance & Band Score Report Card */}
+            {mySub && (mySub.status === 'graded' || (mySub.status === 'submitted' && isScorePublic)) && (mySub.readingScore || mySub.score) && (
               <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6 shadow-xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-200/60 pb-4">
                   <div>
@@ -3304,8 +3306,8 @@ export const AssignmentsView: React.FC = () => {
               </div>
             )}
 
-            {/* If Submitted/Graded but Score is Private, Show waiting notice */}
-            {mySub && (mySub.status === 'graded' || mySub.status === 'submitted') && !isScorePublic && (
+            {/* If Submitted (not yet graded) and Score is Private, Show waiting notice */}
+            {mySub && mySub.status === 'submitted' && !isScorePublic && (
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
@@ -3393,12 +3395,12 @@ export const AssignmentsView: React.FC = () => {
                 {/* Passage Header & Multi-Passage Tabs Container in normal flow */}
                 <div className="shrink-0 bg-white px-6 pt-4 pb-3 border-b border-slate-200 shadow-2xs space-y-3 z-10">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center space-x-2">
-                      <BookOpen className="w-5 h-5 text-blue-600" />
-                      <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <BookOpen className="w-5 h-5 text-blue-600 shrink-0" />
+                      <span className="text-sm font-bold text-slate-800 uppercase tracking-wider truncate">
                         {activeAssignment.passages && activeAssignment.passages.length > 1
-                          ? activeAssignment.passages[safePassageIndex]?.title || `Passage ${safePassageIndex + 1}`
-                          : t('assignments.readingPassageTitle')}
+                          ? `Passage ${safePassageIndex + 1}`
+                          : t('assignments.readingPassageTitle') || 'Reading Passage'}
                       </span>
                     </div>
 
@@ -3501,12 +3503,27 @@ export const AssignmentsView: React.FC = () => {
                     lineHeight: passageFontSize === '15px' ? 1.7 : passageFontSize === '19px' ? 1.8 : 1.75,
                   }}
                 >
-                  {renderHighlightedPassage(
-                    (activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) ||
-                      activeAssignment.readingPassage ||
-                      'No reading passage text provided.',
-                    safePassageIndex
-                  )}
+                  {(() => {
+                    const authenticTitle = activeAssignment.passages?.[safePassageIndex]?.title;
+                    const isGenericPassageLabel = !authenticTitle || /^Passage\s+\d+$/i.test(authenticTitle.trim());
+                    return (
+                      <>
+                        {!isGenericPassageLabel && (
+                          <div className="mb-6 pb-4 border-b border-slate-200/80 text-center">
+                            <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight font-sans uppercase">
+                              {authenticTitle}
+                            </h2>
+                          </div>
+                        )}
+                        {renderHighlightedPassage(
+                          (activeAssignment.passages && activeAssignment.passages[safePassageIndex]?.content) ||
+                            activeAssignment.readingPassage ||
+                            'No reading passage text provided.',
+                          safePassageIndex
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -6162,8 +6179,10 @@ export const AssignmentsView: React.FC = () => {
             const studentSub = submissions.find(
               (s) => s.assignmentId === a.id && s.studentId === currentUser.id
             );
-            const subCount = submissions.filter((s) => s.assignmentId === a.id).length;
-            const enrolledCount = courseMembers.filter((m) => m.courseId === a.courseId && m.status === 'enrolled').length || subCount;
+            const validSubs = submissions.filter((s) => s.assignmentId === a.id && !s.isDraft);
+            const subCount = new Set(validSubs.map((s) => s.studentId)).size;
+            const enrolledMembersCount = courseMembers.filter((m) => m.courseId === a.courseId && m.status === 'enrolled').length;
+            const enrolledCount = Math.max(enrolledMembersCount, subCount);
 
             return (
               <div

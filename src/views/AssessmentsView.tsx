@@ -85,8 +85,16 @@ export const AssessmentsView: React.FC = () => {
 
   // Scoped reports:
   const visibleReports = isTeacher
-    ? monthlyReports.filter((r) => r.teacherId === currentUser.id)
-    : monthlyReports.filter((r) => r.studentId === currentUser.id && r.state === 'published');
+    ? monthlyReports.filter((r) => !r.teacherId || r.teacherId === currentUser.id)
+    : monthlyReports.filter((r) => r.state === 'published' && (!r.studentId || r.studentId === currentUser.id));
+
+  const availableMonths = React.useMemo(() => {
+    const monthsSet = new Set<string>();
+    visibleReports.forEach((r) => {
+      if (r.month) monthsSet.add(r.month);
+    });
+    return Array.from(monthsSet);
+  }, [visibleReports]);
 
   const filteredReports = visibleReports.filter(
     (r) => filterMonth === 'all' || r.month === filterMonth
@@ -213,7 +221,7 @@ export const AssessmentsView: React.FC = () => {
         scoreSource: source,
         readingCorrect: s.readingScore?.correct,
         readingTotal: s.readingScore?.total,
-        criteriaScores: s.rubricScores?.map((r) => ({ criterion: r.criterion, score: r.score })),
+        criteriaScores: s.skill === 'reading' ? undefined : s.rubricScores?.map((r) => ({ criterion: r.criterion, score: r.score })),
         comments: s.teacherComments || s.strengths || s.areasToImprove || undefined,
       };
     });
@@ -635,7 +643,20 @@ export const AssessmentsView: React.FC = () => {
                             )}
                           </td>
                           <td className="py-3 px-4 text-slate-600 text-[11px]">
-                            {sub.criteriaScores && sub.criteriaScores.length > 0 && (
+                            {sub.skill === 'reading' ? (
+                              <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                {sub.readingCorrect !== undefined && (
+                                  <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-mono text-[10px] font-bold">
+                                    {sub.readingCorrect}/{sub.readingTotal || 40} câu đúng
+                                  </span>
+                                )}
+                                {sub.score !== undefined && (
+                                  <span className="bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded font-mono text-[10px] font-bold">
+                                    Band {Number(sub.score).toFixed(1)}
+                                  </span>
+                                )}
+                              </div>
+                            ) : sub.criteriaScores && sub.criteriaScores.length > 0 ? (
                               <div className="flex flex-wrap gap-1 mb-1">
                                 {sub.criteriaScores.map((c, i) => (
                                   <span key={i} className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-mono text-[10px]">
@@ -643,7 +664,7 @@ export const AssessmentsView: React.FC = () => {
                                   </span>
                                 ))}
                               </div>
-                            )}
+                            ) : null}
                             <p className="line-clamp-2 leading-relaxed">
                               {sub.comments || 'Bài làm đã được ghi nhận vào hồ sơ định kỳ.'}
                             </p>
@@ -935,6 +956,44 @@ export const AssessmentsView: React.FC = () => {
         )}
       </div>
 
+      {/* Month Selector Filter Bar */}
+      {availableMonths.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 pl-1.5 pr-1 flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-blue-600" />
+            <span>Tháng đánh giá:</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setFilterMonth('all')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              filterMonth === 'all'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+            }`}
+          >
+            Tất cả các tháng ({visibleReports.length})
+          </button>
+          {availableMonths.map((m) => {
+            const count = visibleReports.filter((r) => r.month === m).length;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setFilterMonth(m)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  filterMonth === m
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                }`}
+              >
+                {m} {count > 0 && `(${count})`}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Reports Table / List */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <table className="w-full text-left text-xs">
@@ -952,7 +1011,9 @@ export const AssessmentsView: React.FC = () => {
             {filteredReports.length === 0 ? (
               <tr>
                 <td colSpan={6} className="py-10 text-center text-slate-400">
-                  {isTeacher
+                  {filterMonth !== 'all'
+                    ? `Không tìm thấy báo cáo đánh giá nào trong tháng "${filterMonth}".`
+                    : isTeacher
                     ? 'No monthly reports created yet. Click "Generate New Report" to start an assessment.'
                     : 'No monthly learning reports published for you yet.'}
                 </td>
