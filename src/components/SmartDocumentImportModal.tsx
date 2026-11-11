@@ -754,13 +754,43 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           const testTitleToSave = cTests.length === 1
             ? (libraryMaterialName.trim() || ct.title)
             : (libraryMaterialName.trim() ? `${libraryMaterialName.trim()} - ${ct.title}` : ct.title);
+          const syncedQuestions = (ct.questions || []).map((q: any) => {
+            const edited = editableQuestions.find((eq) => eq.id === q.id || (eq.prompt && eq.prompt === q.prompt));
+            if (edited) {
+              const authType = edited.questionTypeOverride || edited.type;
+              return {
+                ...q,
+                ...edited,
+                type: authType,
+                questionTypeOverride: authType,
+                isTeacherEdited: true,
+              };
+            }
+            return q;
+          });
+
+          const syncedGroups = (ct.questionGroups || []).map((g: any) => {
+            const groupQs = syncedQuestions.filter((q: any) =>
+              g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
+            );
+            const dominantOverride = groupQs.find((q: any) => q.questionTypeOverride)?.questionTypeOverride;
+            const groupType = dominantOverride || g.questionType;
+            return {
+              ...g,
+              questionType: groupType,
+              questionTypeOverride: dominantOverride || g.questionTypeOverride,
+              questions: groupQs.length > 0 ? groupQs : g.questions,
+              isTeacherEdited: Boolean(dominantOverride || g.isTeacherEdited || groupQs.some((q: any) => q.isTeacherEdited)),
+            };
+          });
+
           const structuredPayload = {
             title: testTitleToSave,
             skill: 'reading',
             readingPassage: ct.passageText,
             content: ct.passageText,
-            questionGroups: ct.questionGroups || [],
-            questions: ct.questions || [],
+            questionGroups: syncedGroups,
+            questions: syncedQuestions,
           };
           await addResource({
             title: testTitleToSave,
@@ -1181,6 +1211,21 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           ? allPassageQuestions
           : reviewedQuestions;
 
+      const syncedGroups = (struct?.questionGroups || []).map((g: any) => {
+        const groupQs = finalReadingQuestions.filter((q: any) =>
+          g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
+        );
+        const dominantOverride = groupQs.find((q: any) => q.questionTypeOverride)?.questionTypeOverride;
+        const groupType = dominantOverride || g.questionType;
+        return {
+          ...g,
+          questionType: groupType,
+          questionTypeOverride: dominantOverride || g.questionTypeOverride,
+          questions: groupQs.length > 0 ? groupQs : g.questions,
+          isTeacherEdited: Boolean(dominantOverride || g.isTeacherEdited || groupQs.some((q: any) => q.isTeacherEdited)),
+        };
+      });
+
       await createAssignment({
         courseId: assignCourseId,
         title: reviewedTitle.trim(),
@@ -1192,6 +1237,7 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
         readingPassage: reviewedPassage,
         passages: isMultiPassage ? struct.passages : undefined,
         readingQuestions: finalReadingQuestions,
+        questionGroups: syncedGroups.length > 0 ? syncedGroups : undefined,
         writingPrompt: assignSkill === 'writing' ? reviewedPassage : undefined,
         answerReleasePolicy: assignReleasePolicy,
         sourceDocumentName: activeDoc?.name,

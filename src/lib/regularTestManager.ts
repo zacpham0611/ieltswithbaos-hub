@@ -449,7 +449,7 @@ export function categorizeStudentTests(
     const isPastEnd = endTime && now > endTime;
     const isPastHard = hardDeadline && now > hardDeadline;
 
-    if (!isPastEnd && !isPastHard && test.status === 'live') {
+    if (!isPastEnd && !isPastHard && (test.status === 'live' || test.status === 'scheduled')) {
       available.push({ test, attempt: latestAttempt });
     } else {
       // If closed and student never took it

@@ -770,17 +770,97 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // 3. Render Structured Form Completion
   const renderStructuredForm = (formText: string) => {
-    const lines = formText.split('\n').map((l) => l.trim()).filter(Boolean);
+    // Remove markdown table separator lines like | --- | --- |
+    const rawLines = formText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => Boolean(l) && !/^\|?(?:\s*:?-{3,}:?\s*\|?)+$/.test(l));
 
     return (
       <div className="space-y-1 my-2">
-        {lines.map((line, lIdx) => {
+        {rawLines.map((line, lIdx) => {
+          // If line is a markdown table row e.g. | Name: | Susan Smith |
+          if (line.startsWith('|') && line.endsWith('|')) {
+            const rawCells = line.slice(1, -1).split('|').map((c) => c.trim());
+            const firstCell = rawCells[0] || '';
+            const restCells = rawCells.slice(1);
+            const secondCell = restCells.join(' ').trim();
+
+            // Detect Example row
+            if (/^example\b/i.test(firstCell)) {
+              const exLabel = restCells.length > 0 && secondCell ? secondCell : '';
+              // Look ahead to next row if next row contains the actual example value
+              return (
+                <div
+                  key={lIdx}
+                  className="flex items-center gap-3 p-3 my-2 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs"
+                >
+                  <span className="px-2 py-0.5 rounded-md bg-amber-200 text-amber-900 text-[10px] font-black uppercase tracking-wider">
+                    Example
+                  </span>
+                  {exLabel && <span className="font-semibold text-slate-800">{cleanListeningText(exLabel)}</span>}
+                </div>
+              );
+            }
+
+            // Normal form row | Label: | Value |
+            const label = cleanListeningText(firstCell.replace(/:$/, '').trim());
+            const val = cleanListeningText(secondCell.trim());
+
+            // If the label is empty or just whitespace, render value directly
+            if (!label) {
+              return (
+                <div key={lIdx} className="text-xs text-slate-800 py-1 px-3">
+                  {renderTextWithEmbeddedInputs(val, `form-txt-${lIdx}`)}
+                </div>
+              );
+            }
+
+            // Check if val contains multiple bullet points
+            const hasBullets = /(?:^|\s+)(?:[•\u2022]|\*\s+)/.test(val);
+            const bulletItems = hasBullets
+              ? val
+                  .split(/(?:^|\s+)(?:[•\u2022]|\*\s+)/)
+                  .map((b) => b.trim())
+                  .filter(Boolean)
+              : [];
+
+            return (
+              <div
+                key={lIdx}
+                className="flex flex-col sm:flex-row sm:items-baseline gap-2 py-2.5 px-3 rounded-lg border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50 transition-colors"
+              >
+                <span className="text-xs font-bold text-slate-700 min-w-[140px] max-w-[240px] shrink-0">
+                  {label}:
+                </span>
+                <div className="flex-1 text-xs text-slate-800 leading-relaxed">
+                  {bulletItems.length > 1 ? (
+                    <div className="space-y-1.5 pt-0.5">
+                      {bulletItems.map((b, bIdx) => (
+                        <div key={bIdx} className="flex items-start gap-2">
+                          <span className="text-blue-500 font-bold shrink-0 mt-0.5">•</span>
+                          <div className="flex-1 text-xs text-slate-800 leading-relaxed">
+                            {renderTextWithEmbeddedInputs(b, `form-${lIdx}-b${bIdx}`)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    renderTextWithEmbeddedInputs(val, `form-${lIdx}`)
+                  )}
+                </div>
+              </div>
+            );
+          }
+
           const colonIdx = line.indexOf(':');
           const isHeader =
             colonIdx === -1 &&
             (line.startsWith('#') ||
               line === line.toUpperCase() ||
-              /^(?:Part|Section|Details|Applicant|Patient|Customer|Vehicle|Booking|Enquiry)\b/i.test(line));
+              /^(?:Part|Section|Details|Applicant|Patient|Customer|Vehicle|Booking|Enquiry|Rental Property Application Form)\b/i.test(
+                line
+              ));
 
           if (isHeader) {
             return (
@@ -797,6 +877,14 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             const label = line.slice(0, colonIdx).trim();
             const val = line.slice(colonIdx + 1).trim();
 
+            const hasBullets = /(?:^|\s+)(?:[•\u2022]|\*\s+)/.test(val);
+            const bulletItems = hasBullets
+              ? val
+                  .split(/(?:^|\s+)(?:[•\u2022]|\*\s+)/)
+                  .map((b) => b.trim())
+                  .filter(Boolean)
+              : [];
+
             return (
               <div
                 key={lIdx}
@@ -806,7 +894,20 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                   {cleanListeningText(label)}:
                 </span>
                 <div className="flex-1 text-xs text-slate-800 leading-relaxed">
-                  {renderTextWithEmbeddedInputs(val, `form-${lIdx}`)}
+                  {bulletItems.length > 1 ? (
+                    <div className="space-y-1.5 pt-0.5">
+                      {bulletItems.map((b, bIdx) => (
+                        <div key={bIdx} className="flex items-start gap-2">
+                          <span className="text-blue-500 font-bold shrink-0 mt-0.5">•</span>
+                          <div className="flex-1 text-xs text-slate-800 leading-relaxed">
+                            {renderTextWithEmbeddedInputs(b, `form-${lIdx}-b${bIdx}`)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    renderTextWithEmbeddedInputs(val, `form-${lIdx}`)
+                  )}
                 </div>
               </div>
             );
@@ -832,7 +933,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     formattedText = formattedText.replace(/\s*(?:•|\u2022)\s*/g, '\n• ');
     // Join isolated bullet lines with the next line (e.g. "•\nActively spoken languages: 81" -> "• Actively spoken languages: 81")
     formattedText = formattedText.replace(/^[•\-\*\+]\s*\n(?=[A-Za-z0-9\[])/gm, '• ');
-    // Reconnect broken line splits across headings and subheadings (e.g. "Languages in\nVanuatu" -> "Languages in Vanuatu", "History of\nBislama" -> "History of Bislama")
+    // Remove standalone empty bullet lines
+    formattedText = formattedText.replace(/^[•\-\*\+]\s*$/gm, '');
+    // Reconnect broken line splits across headings and subheadings
     formattedText = formattedText.replace(/\b(Languages in|History of|Description of|Local languages:|Foreign languages:)\s*\n\s*/gi, '$1 ');
     // Normalize subheadings separated by whitespace or space
     formattedText = formattedText.replace(
@@ -842,7 +945,25 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     // Normalize excessive line breaks
     formattedText = formattedText.replace(/\n{3,}/g, '\n\n').trim();
 
-    const lines = formattedText.split('\n').map((l) => l.trim()).filter(Boolean);
+    // Merge wrapped lines that belong to the previous bullet item
+    const rawLines = formattedText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const lines: string[] = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      const cur = rawLines[i];
+      if (
+        lines.length > 0 &&
+        !/^[•\-\*\+]/.test(cur) &&
+        !cur.endsWith(':') &&
+        !/^[A-Z][a-zA-Z\s]{1,35}$/.test(cur) &&
+        /^[•\-\*\+]/.test(lines[lines.length - 1]) &&
+        !lines[lines.length - 1].endsWith('.')
+      ) {
+        // Line continuation of previous bullet
+        lines[lines.length - 1] += ' ' + cur;
+      } else {
+        lines.push(cur);
+      }
+    }
 
     return (
       <div className="space-y-3 my-3">
@@ -869,7 +990,8 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
           }
 
           if (isBullet) {
-            const cleanBulletText = line.replace(/^[•\-\*\+\s]+/, '');
+            const cleanBulletText = line.replace(/^[•\-\*\+\s]+/, '').trim();
+            if (!cleanBulletText) return null; // Never render empty bullet point
             return (
               <div key={lIdx} className="flex items-start gap-3 py-1.5 pl-4">
                 <span className="text-blue-500 font-bold shrink-0 mt-0.5 text-base sm:text-lg">•</span>
@@ -1056,6 +1178,14 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
   const renderStructuredContent = () => {
     if (!effectiveGroupContent) return null;
 
+    const isFormType =
+      type === 'form_completion' ||
+      (questionGroup as any).groupType === 'form_completion';
+
+    const isExplicitTableType =
+      type === 'table_completion' ||
+      (questionGroup as any).groupType === 'table_completion';
+
     // 1. Table Completion: pipe-separated Markdown table (must have at least 2 rows and at least 2 columns)
     const rawTableLines = effectiveGroupContent
       .split('\n')
@@ -1065,7 +1195,24 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
       rawTableLines.length >= 2 &&
       rawTableLines.some((l) => l.slice(1, -1).split('|').length >= 2);
 
-    if (isAuthenticTable) {
+    // Check if table rows are actually key-value form lines (e.g. Rental Property Application Form)
+    const isKeyValueFormTable =
+      !isExplicitTableType &&
+      rawTableLines.length >= 2 &&
+      rawTableLines.every((l) => {
+        const parts = l.slice(1, -1).split('|');
+        return parts.length <= 2;
+      }) &&
+      rawTableLines.some((l) => {
+        const parts = l.slice(1, -1).split('|');
+        const first = parts[0]?.trim() || '';
+        return (
+          first.endsWith(':') ||
+          /^(?:Name|Phone|Email|Address|Employer|Occupation|Date|Rent|Location|Price|Cost|Age|Example)\b/i.test(first)
+        );
+      });
+
+    if (isAuthenticTable && !isFormType && !isKeyValueFormTable) {
       const nonTableText = effectiveGroupContent
         .split('\n')
         .filter((l) => !l.trim().startsWith('|'))
@@ -1112,7 +1259,6 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     // 3. Form Completion
     const lines = effectiveGroupContent.split('\n').map((l) => l.trim()).filter(Boolean);
     const colonCount = lines.filter((l) => l.includes(':')).length;
-    const hasBullets = /[•\*\u2022]/.test(effectiveGroupContent);
     const isNoteOrSummaryType =
       type === 'note_completion' ||
       type === 'summary_completion' ||
@@ -1120,8 +1266,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
     const isFormLike =
       !isNoteOrSummaryType &&
-      !hasBullets &&
-      (type === 'form_completion' || (colonCount >= 2 && lines.length >= 3 && colonCount >= lines.length * 0.5));
+      (isFormType ||
+        isKeyValueFormTable ||
+        (colonCount >= 2 && lines.length >= 3 && colonCount >= lines.length * 0.4));
 
     if (isFormLike) {
       return (

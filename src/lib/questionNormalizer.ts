@@ -354,11 +354,20 @@ export function normalizeReadingQuestion(
       type = 'true_false_not_given';
       options = undefined;
     } else if (type === 'multiple_choice' || type === 'short_answer') {
-      // If prompt contains blank patterns, it is a completion question (summary, sentence, or note)
-      const hasBlanks = /(?:\d{1,2}\s*)?(?:[\.]{3,}|_{3,}|…{2,})/.test(prompt);
-      if (hasBlanks) {
+      // Distinguish summary completion with numbered blanks (e.g. "in the 33 ...............")
+      // from standard MCQ sentence stems ending in blanks (e.g. "29 According to paragraph 3, _______ are needed.")
+      const hasNumberedBlank = /(?:(?:\(\d{1,2}\)|\[\d{1,2}\]|\b\d{1,2}\b)\s*[\.]{2,}|(?:\(\d{1,2}\)|\[\d{1,2}\]|\b\d{1,2}\b)\s*_{2,}|(?:\(\d{1,2}\)|\[\d{1,2}\]|\b\d{1,2}\b)\s*…{2,}|\[\d{1,2}\]|[\.]{2,}\s*\d{1,2}\b)/.test(prompt);
+      const hasGenericBlank = /(?:[\.]{3,}|_{3,}|…{2,})/.test(prompt);
+
+      if (hasNumberedBlank) {
         if (options && options.length > 0) {
           type = 'summary_completion';
+        } else {
+          type = 'sentence_completion';
+        }
+      } else if (type === 'short_answer' && hasGenericBlank) {
+        if (options && options.length > 0) {
+          type = 'multiple_choice';
         } else {
           type = 'sentence_completion';
         }
@@ -535,11 +544,13 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       if (existingQ) {
         // Prioritize group override / teacher override over any previous detected type
         const authoritativeGroupType = parentGroup?.questionTypeOverride || parentGroup?.questionType;
-        if (parentGroup?.questionTypeOverride || parentGroup?.isTeacherEdited || norm.questionTypeOverride) {
+        if (authoritativeGroupType || norm.questionTypeOverride || parentGroup?.isTeacherEdited) {
           const authType = norm.questionTypeOverride || authoritativeGroupType || norm.type;
           existingQ.type = authType;
-          existingQ.questionTypeOverride = authType;
-          existingQ.isTeacherEdited = true;
+          if (norm.questionTypeOverride || parentGroup?.questionTypeOverride || parentGroup?.isTeacherEdited) {
+            existingQ.questionTypeOverride = authType;
+            existingQ.isTeacherEdited = true;
+          }
         }
       }
       // If coming from top-level questions or already in the same passage, it is the exact same question
@@ -569,20 +580,20 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     resultQuestions.push(norm);
   };
 
-  // 1. Process passages if present
+  // 1. Process passages if present (groups first to inherit group structure and types)
   if (passages.length > 0) {
     passages.forEach((p, pIdx) => {
-      // Questions directly on passage
-      if (Array.isArray(p.questions)) {
-        p.questions.forEach((q) => addQuestion(q, pIdx));
-      }
-      // Questions nested in question groups of passage
+      // Questions nested in question groups of passage first
       if (Array.isArray(p.questionGroups)) {
         p.questionGroups.forEach((g) => {
           if (Array.isArray(g.questions)) {
             g.questions.forEach((q) => addQuestion(q, pIdx, g));
           }
         });
+      }
+      // Questions directly on passage
+      if (Array.isArray(p.questions)) {
+        p.questions.forEach((q) => addQuestion(q, pIdx));
       }
     });
   }

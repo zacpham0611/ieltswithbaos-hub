@@ -239,14 +239,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [regularTests, setRegularTests] = useState<RegularTest[]>(() => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        for (let i = 0; i < window.localStorage.length; i++) {
-          const key = window.localStorage.key(i);
-          if (key && key.startsWith('ielts_regular_tests_')) {
-            const raw = window.localStorage.getItem(key);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-            }
+        const storedUser = localStorage.getItem('ielts_user');
+        const userObj = storedUser ? JSON.parse(storedUser) : null;
+        const targetUserId = userObj?.id;
+        if (targetUserId) {
+          const raw = localStorage.getItem(`ielts_regular_tests_${targetUserId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
           }
         }
       }
@@ -273,7 +273,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (cached) {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setRegularTests((prev) => (prev.length === 0 ? parsed : prev));
+            setRegularTests(parsed);
           }
         }
       } catch {
@@ -1302,77 +1302,108 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
         }
 
-        // Student Regular Tests
-        if (approvedCourseIds.length > 0) {
-          try {
-            const { data: rtData } = await supabase
+        // Student Regular Tests: fetch tests for approved courses and directly eligible students
+        try {
+          let rtData: any[] | null = null;
+          if (approvedCourseIds.length > 0) {
+            const { data: courseTests } = await supabase
               .from('regular_tests')
               .select('*')
               .in('course_id', approvedCourseIds)
               .in('status', ['live', 'scheduled', 'completed', 'closed'])
               .order('created_at', { ascending: false });
+            if (courseTests) rtData = courseTests;
+          }
 
-            if (rtData) {
-              // Hydrate sections from regular_test_versions if empty
-              const missingSectionsTestIds = rtData
-                .filter((t: any) => !t.sections || t.sections.length === 0)
-                .map((t: any) => t.id);
+          // Check if there are any regular tests directly assigning this student
+          try {
+            const { data: directTests } = await supabase
+              .from('regular_tests')
+              .select('*')
+              .contains('eligible_student_ids', [currentUser.id])
+              .in('status', ['live', 'scheduled', 'completed', 'closed'])
+              .order('created_at', { ascending: false });
 
-              const versionSectionsMap: Record<string, any[]> = {};
-              if (missingSectionsTestIds.length > 0) {
-                try {
-                  const { data: vData } = await supabase
-                    .from('regular_test_versions')
-                    .select('test_id, sections')
-                    .in('test_id', missingSectionsTestIds)
-                    .order('version_number', { ascending: false });
-
-                  if (vData) {
-                    for (const v of vData) {
-                      if (!versionSectionsMap[v.test_id] && v.sections?.length) {
-                        versionSectionsMap[v.test_id] = v.sections;
-                      }
-                    }
-                  }
-                } catch (vErr) {
-                  console.warn('Student hydrating sections from regular_test_versions warning:', vErr);
+            if (directTests && directTests.length > 0) {
+              const combined = [...(rtData || [])];
+              for (const dt of directTests) {
+                if (!combined.some((t: any) => t.id === dt.id)) {
+                  combined.push(dt);
                 }
               }
-
-              setRegularTests(
-                rtData.map((t: any) => ({
-                  id: t.id,
-                  courseId: t.course_id,
-                  courseName: loadedCourses.find((c: any) => c.id === t.course_id)?.name || 'Course',
-                  teacherId: t.teacher_id,
-                  teacherName: 'Teacher',
-                  title: t.title,
-                  instructions: t.instructions,
-                  skills: t.skills || [],
-                  availabilityStart: t.availability_start,
-                  availabilityEnd: t.availability_end,
-                  hardDeadline: t.hard_deadline,
-                  durationMinutes: t.duration_minutes,
-                  timingMode: t.timing_mode,
-                  sectionTimers: t.section_timers || {},
-                  eligibleStudentIds: t.eligible_student_ids || [],
-                  maxAttempts: t.max_attempts || 1,
-                  accessCodeEnabled: Boolean(t.access_code_enabled),
-                  accessCodeHash: t.access_code_hash,
-                  strictPreset: t.strict_preset,
-                  strictSettings: t.strict_settings,
-                  status: t.status,
-                  currentVersion: t.current_version || 1,
-                  releaseSettings: t.release_settings,
-                  sections: (t.sections && t.sections.length > 0) ? t.sections : (versionSectionsMap[t.id] || []),
-                  createdAt: t.created_at?.split('T')[0] || '',
-                  updatedAt: t.updated_at?.split('T')[0] || '',
-                }))
-              );
+              rtData = combined;
             }
-          } catch (rtErr) {
-            console.warn('DB regular_tests fetch notice for student:', rtErr);
+          } catch {
+            // direct assignment fallback if column not indexable
           }
+
+          if (rtData) {
+            // Hydrate sections from regular_test_versions if empty
+            const missingSectionsTestIds = rtData
+              .filter((t: any) => !t.sections || t.sections.length === 0)
+              .map((t: any) => t.id);
+
+            const versionSectionsMap: Record<string, any[]> = {};
+            if (missingSectionsTestIds.length > 0) {
+              try {
+                const { data: vData } = await supabase
+                  .from('regular_test_versions')
+                  .select('test_id, sections')
+                  .in('test_id', missingSectionsTestIds)
+                  .order('version_number', { ascending: false });
+
+                if (vData) {
+                  for (const v of vData) {
+                    if (!versionSectionsMap[v.test_id] && v.sections?.length) {
+                      versionSectionsMap[v.test_id] = v.sections;
+                    }
+                  }
+                }
+              } catch (vErr) {
+                console.warn('Student hydrating sections from regular_test_versions warning:', vErr);
+              }
+            }
+
+            const mappedTests: RegularTest[] = rtData.map((t: any) => ({
+              id: t.id,
+              courseId: t.course_id,
+              courseName: loadedCourses.find((c: any) => c.id === t.course_id)?.name || 'Course',
+              teacherId: t.teacher_id,
+              teacherName: 'Teacher',
+              title: t.title,
+              instructions: t.instructions,
+              skills: t.skills || [],
+              availabilityStart: t.availability_start,
+              availabilityEnd: t.availability_end,
+              hardDeadline: t.hard_deadline,
+              durationMinutes: t.duration_minutes,
+              timingMode: t.timing_mode,
+              sectionTimers: t.section_timers || {},
+              eligibleStudentIds: t.eligible_student_ids || [],
+              maxAttempts: t.max_attempts || 1,
+              accessCodeEnabled: Boolean(t.access_code_enabled),
+              accessCodeHash: t.access_code_hash,
+              strictPreset: t.strict_preset,
+              strictSettings: t.strict_settings,
+              status: t.status,
+              currentVersion: t.current_version || 1,
+              releaseSettings: t.release_settings,
+              sections: (t.sections && t.sections.length > 0) ? t.sections : (versionSectionsMap[t.id] || []),
+              createdAt: t.created_at?.split('T')[0] || '',
+              updatedAt: t.updated_at?.split('T')[0] || '',
+            }));
+
+            setRegularTests(mappedTests);
+            if (mappedTests.length > 0) {
+              try {
+                localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTests));
+              } catch {
+                // ignore
+              }
+            }
+          }
+        } catch (rtErr) {
+          console.warn('DB regular_tests fetch notice for student:', rtErr);
         }
       }
 
