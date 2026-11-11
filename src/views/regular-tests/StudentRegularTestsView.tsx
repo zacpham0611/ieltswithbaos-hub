@@ -24,6 +24,7 @@ import {
 export const StudentRegularTestsView: React.FC = () => {
   const {
     currentUser,
+    loadingData,
     regularTests,
     regularTestAttempts,
     activeExamAttempt,
@@ -47,6 +48,25 @@ export const StudentRegularTestsView: React.FC = () => {
   if (!currentUser) return null;
 
   const categorized = categorizeStudentTests(regularTests, regularTestAttempts, currentUser.id);
+
+  if (loadingData && regularTests.length === 0) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto space-y-6">
+        <div className="h-8 w-64 bg-slate-200 animate-pulse rounded-lg" />
+        <div className="h-10 w-96 bg-slate-200 animate-pulse rounded-lg" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 animate-pulse">
+              <div className="h-4 w-20 bg-slate-200 rounded" />
+              <div className="h-6 w-48 bg-slate-200 rounded" />
+              <div className="h-4 w-full bg-slate-100 rounded" />
+              <div className="h-10 w-full bg-slate-200 rounded-xl" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // If active attempt is in progress, render exam view full screen
   if (activeExamAttempt) {

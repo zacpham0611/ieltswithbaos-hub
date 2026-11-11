@@ -236,7 +236,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   // Regular Tests & Strict Exam Mode state
-  const [regularTests, setRegularTests] = useState<RegularTest[]>([]);
+  const [regularTests, setRegularTests] = useState<RegularTest[]>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key && key.startsWith('ielts_regular_tests_')) {
+            const raw = window.localStorage.getItem(key);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
   const [regularTestAttempts, setRegularTestAttempts] = useState<RegularTestAttempt[]>([]);
   const [regularTestReportLinks, setRegularTestReportLinks] = useState<RegularTestReportLink[]>([]);
   const [activeExamAttempt, setActiveExamAttempt] = useState<RegularTestAttempt | null>(null);
@@ -246,6 +264,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+
+  // Hydrate & Cache Regular Tests in localStorage for instant hydration on page reload
+  useEffect(() => {
+    if (currentUser?.id) {
+      try {
+        const cached = localStorage.getItem(`ielts_regular_tests_${currentUser.id}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setRegularTests((prev) => (prev.length === 0 ? parsed : prev));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (currentUser?.id && regularTests.length > 0) {
+      try {
+        localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(regularTests));
+      } catch (e) {
+        console.warn('Failed to cache regular tests:', e);
+      }
+    }
+  }, [currentUser?.id, regularTests]);
 
   // Generate 7-character course code helper
   const generateCode = () => {
@@ -918,7 +963,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               rejectionReason: e.rejection_reason,
             });
 
-            if (e.status === 'approved') {
+            if (e.status === 'approved' || e.status === 'enrolled' || e.status === 'active') {
               approvedCourseIds.push(e.course_id);
               members.push({
                 id: e.id,
@@ -1626,6 +1671,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         refreshData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_tests' }, () => {
+        refreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_test_attempts' }, () => {
         refreshData();
       })
       .subscribe();

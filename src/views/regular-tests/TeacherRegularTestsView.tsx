@@ -72,6 +72,7 @@ export const TeacherRegularTestsView: React.FC = () => {
   const {
     courses,
     resources,
+    loadingData,
     regularTests,
     regularTestAttempts,
     createRegularTest,
@@ -3216,7 +3217,18 @@ export const TeacherRegularTestsView: React.FC = () => {
       </div>
 
       {/* Tests Grid */}
-      {filteredTests.length === 0 ? (
+      {loadingData && regularTests.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 animate-pulse">
+              <div className="h-4 w-24 bg-slate-200 rounded" />
+              <div className="h-6 w-48 bg-slate-200 rounded" />
+              <div className="h-4 w-full bg-slate-100 rounded" />
+              <div className="h-10 w-full bg-slate-200 rounded-xl" />
+            </div>
+          ))}
+        </div>
+      ) : filteredTests.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300 space-y-3">
           <ShieldCheck className="w-10 h-10 text-slate-300 mx-auto" />
           <h3 className="text-sm font-bold text-slate-700">Chưa có bài kiểm tra định kỳ nào</h3>
@@ -3377,7 +3389,8 @@ export const TeacherRegularTestsView: React.FC = () => {
 
       {/* Attempts List / Grading Selector Modal */}
       {attemptsListTest && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <Portal containerId="modal-root">
+        <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div>
@@ -3436,6 +3449,7 @@ export const TeacherRegularTestsView: React.FC = () => {
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

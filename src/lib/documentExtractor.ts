@@ -565,6 +565,57 @@ export function detectQuestionType(
     return 'multiple_select';
   }
 
+  // Ensure options is an actual Array
+  const safeOptions = Array.isArray(options) ? options : undefined;
+
+  // Matching Information or Matching Headings context should never be hijacked into MCQ
+  const isMatchingContext =
+    combined.includes('which paragraph') ||
+    combined.includes('which section') ||
+    combined.includes('contains the following information') ||
+    combined.includes('list of headings') ||
+    combined.includes('matching headings') ||
+    combined.includes('heading list') ||
+    combined.includes('nb you may use any letter more than once');
+
+  // Summary Completion indicators (summary text or word bank)
+  const isSummaryContext =
+    combined.includes('complete the summary') ||
+    combined.includes('summary completion') ||
+    combined.includes('list of words') ||
+    combined.includes('word bank');
+
+  if (isSummaryContext && (safeOptions && safeOptions.length >= 2)) {
+    return 'summary_completion';
+  }
+
+  // Strong Multiple Choice indicators:
+  // 1. Explicit MCQ instruction context
+  const isExplicitMcqInstruction =
+    !isMatchingContext &&
+    !isSummaryContext &&
+    (combined.includes('multiple choice') ||
+      combined.includes('multiple-choice') ||
+      combined.includes('choose the correct answer') ||
+      combined.includes('choose one letter') ||
+      (combined.includes('choose the correct letter') &&
+        (combined.includes('a, b') || combined.includes('a-d') || combined.includes('a–d') || combined.includes('a, b, c') || combined.includes('a, b, c or d'))));
+
+  // 2. Options labelled with A, B, C, D...
+  const hasLabelledMcqOptions = Boolean(
+    !isMatchingContext &&
+    !isSummaryContext &&
+    safeOptions &&
+    safeOptions.length >= 2 &&
+    safeOptions.some((opt) => /^[A-H][\.\:\)\s]/i.test(String(opt).trim()))
+  );
+
+  // If a question stem has labelled answer options A, B, C, D or explicit MCQ instruction,
+  // it is Multiple Choice (even if the question stem contains a blank like "_______ are needed.")
+  if (hasLabelledMcqOptions || (isExplicitMcqInstruction && safeOptions && safeOptions.length >= 2)) {
+    return 'multiple_choice';
+  }
+
   const hasBlanks = /(?:\d{1,2}\s*)?(?:[\.]{3,}|_{3,}|…{2,})/.test(combined);
   const isCompletionContext =
     hasBlanks ||
@@ -581,8 +632,7 @@ export function detectQuestionType(
 
   if (
     !isCompletionContext &&
-    (combined.includes('multiple choice') ||
-      (combined.includes('choose the correct letter') && (combined.includes('a, b') || combined.includes('a–d') || combined.includes('a-d') || combined.includes('a, b, c') || combined.includes('a, b, c or d'))) ||
+    (isExplicitMcqInstruction ||
       (options && options.length >= 2))
   ) {
     return 'multiple_choice';
@@ -711,6 +761,9 @@ export function detectQuestionType(
 
   if (combined.includes('fill in the blank') || combined.includes('blank') || hasBlanks) {
     if (options && options.length >= 2) {
+      if (hasLabelledMcqOptions || isExplicitMcqInstruction) {
+        return 'multiple_choice';
+      }
       return 'summary_completion';
     }
     return 'sentence_completion';
@@ -2696,7 +2749,14 @@ function parseSinglePassage(
       primaryType = 'matching_features';
     } else if (sentenceEndingsList.length > 0 || primaryType === 'matching_sentence_endings') {
       primaryType = 'matching_sentence_endings';
-    } else if (optionsBox.length > 0 && !isButtonInstruction) {
+    } else if (
+      optionsBox.length > 0 &&
+      !isButtonInstruction &&
+      primaryType !== 'multiple_choice' &&
+      primaryType !== 'multiple_select' &&
+      instructionType !== 'multiple_choice' &&
+      instructionType !== 'multiple_select'
+    ) {
       primaryType = 'summary_completion';
     }
 
@@ -2740,16 +2800,22 @@ function parseSinglePassage(
     }
     if (optionsBox.length > 0) {
       groupQuestions.forEach((q) => {
-        // Never override explicit button types, matching features, sentence endings, or headings
+        // Never override explicit button types, multiple choice, multiple select, matching features, sentence endings, or headings
         if (
           q.type !== 'yes_no_not_given' &&
           q.type !== 'true_false_not_given' &&
+          q.type !== 'multiple_choice' &&
+          q.type !== 'multiple_select' &&
           q.type !== 'matching_features' &&
           q.type !== 'matching_sentence_endings' &&
           q.type !== 'matching_headings' &&
+          primaryType !== 'multiple_choice' &&
+          primaryType !== 'multiple_select' &&
           primaryType !== 'matching_features' &&
           primaryType !== 'matching_sentence_endings' &&
-          primaryType !== 'matching_headings'
+          primaryType !== 'matching_headings' &&
+          instructionType !== 'multiple_choice' &&
+          instructionType !== 'multiple_select'
         ) {
           q.type = 'summary_completion';
           q.options = [...optionsBox];

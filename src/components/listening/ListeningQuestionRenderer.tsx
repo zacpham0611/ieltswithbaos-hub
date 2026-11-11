@@ -137,17 +137,17 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     return (
       <div key={q.id} className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-baseline gap-2">
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
+          <div className="flex items-baseline gap-2.5">
+            <span className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold shrink-0">
               {qNum}
             </span>
-            <p className="text-sm font-semibold text-slate-900 leading-snug">{cleanPrompt}</p>
+            <p className="text-base sm:text-[17px] font-semibold text-slate-900 leading-relaxed">{cleanPrompt}</p>
           </div>
           {renderFlagButton(q.id)}
         </div>
 
         {options.length > 0 ? (
-          <div className="space-y-2 pt-1 pl-8">
+          <div className="space-y-2.5 pt-1 pl-2 sm:pl-9">
             {options.map((opt, optIdx) => {
               const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
               const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
@@ -160,10 +160,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
               return (
                 <label
                   key={optIdx}
-                  className={`flex items-start gap-3 p-3 rounded-lg border text-sm cursor-pointer transition ${
+                  className={`flex items-start gap-3 p-3.5 rounded-xl border text-base font-medium cursor-pointer transition ${
                     isSelected
-                      ? 'bg-blue-50/90 border-blue-400 text-blue-900 font-medium ring-1 ring-blue-300'
-                      : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                      ? 'bg-blue-50/90 border-blue-400 text-blue-900 ring-1 ring-blue-300'
+                      : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-800'
                   } ${isReadOnly ? 'pointer-events-none' : ''}`}
                 >
                   <input
@@ -173,29 +173,29 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     checked={isSelected}
                     disabled={isReadOnly}
                     onChange={() => onAnswerChange(q.id, letter)}
-                    className="mt-0.5 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                    className="mt-1 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
                   />
-                  <span className="font-bold text-slate-600 w-4 shrink-0">{letter}.</span>
-                  <span className="flex-1 leading-relaxed">{cleanOpt || opt}</span>
+                  <span className="font-bold text-slate-700 w-5 shrink-0 text-base">{letter}.</span>
+                  <span className="flex-1 leading-relaxed text-base">{cleanOpt || opt}</span>
                 </label>
               );
             })}
           </div>
         ) : (
-          <div className="pl-8 pt-1">
+          <div className="pl-2 sm:pl-9 pt-1">
             <input
               type="text"
               value={userVal}
               disabled={isReadOnly}
               placeholder="Nhập đáp án (A, B, C...)"
               onChange={(e) => onAnswerChange(q.id, e.target.value.toUpperCase())}
-              className="w-44 px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium uppercase"
+              className="w-48 px-3.5 py-2 text-base bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium uppercase"
             />
           </div>
         )}
 
         {showCorrectAnswers && q.correctAnswer && (
-          <div className="pl-8 pt-1 text-xs text-emerald-700 font-medium">
+          <div className="pl-2 sm:pl-9 pt-1 text-sm text-emerald-700 font-medium">
             Đáp án đúng: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
           </div>
         )}
@@ -257,14 +257,14 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs font-bold">
+              <span className="px-2.5 py-1 rounded bg-blue-100 text-blue-800 text-sm font-bold">
                 Questions {firstQNum} - {lastQNum}
               </span>
-              <span className="text-xs font-semibold text-amber-700">
+              <span className="text-sm font-semibold text-amber-700">
                 (Chọn tối đa {maxChoices} đáp án)
               </span>
             </div>
-            <p className="text-sm font-semibold text-slate-900 leading-snug">{sharedPrompt}</p>
+            <p className="text-base sm:text-[17px] font-semibold text-slate-900 leading-relaxed">{sharedPrompt}</p>
           </div>
           <div className="flex items-center gap-1">
             {safeQuestions.map((q) => (
@@ -274,7 +274,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         </div>
 
         {/* Checkbox Options */}
-        <div className="space-y-2 pt-1 pl-2">
+        <div className="space-y-2.5 pt-1 pl-1 sm:pl-2">
           {options.map((opt, optIdx) => {
             const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
             const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + optIdx);
@@ -284,10 +284,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             return (
               <label
                 key={optIdx}
-                className={`flex items-start gap-3 p-3 rounded-lg border text-sm cursor-pointer transition ${
+                className={`flex items-start gap-3 p-3.5 rounded-xl border text-base font-medium cursor-pointer transition ${
                   isChecked
-                    ? 'bg-blue-50/90 border-blue-400 text-blue-900 font-medium ring-1 ring-blue-300'
-                    : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                    ? 'bg-blue-50/90 border-blue-400 text-blue-900 ring-1 ring-blue-300'
+                    : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-800'
                 } ${isReadOnly ? 'pointer-events-none' : ''}`}
               >
                 <input
@@ -295,24 +295,24 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                   checked={isChecked}
                   disabled={isReadOnly}
                   onChange={() => handleToggleOption(letter)}
-                  className="mt-0.5 text-blue-600 rounded focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                  className="mt-1 text-blue-600 rounded focus:ring-blue-500 accent-blue-600 cursor-pointer"
                 />
-                <span className="font-bold text-slate-600 w-4 shrink-0">{letter}.</span>
-                <span className="flex-1 leading-relaxed">{cleanOpt || opt}</span>
+                <span className="font-bold text-slate-700 w-5 shrink-0 text-base">{letter}.</span>
+                <span className="flex-1 leading-relaxed text-base">{cleanOpt || opt}</span>
               </label>
             );
           })}
         </div>
 
         {/* Selected answers display mapped to questions */}
-        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-4 text-xs">
+        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-4 text-sm">
           {safeQuestions.map((q, idx) => {
             const qNum = q.questionNumber || q.number || firstQNum + idx;
             const currentVal = answers[q.id] || '';
             return (
-              <div key={q.id} className="flex items-center gap-1.5 font-medium">
+              <div key={q.id} className="flex items-center gap-2 font-medium">
                 <span className="font-bold text-slate-700">Câu {qNum}:</span>
-                <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-bold font-mono">
+                <span className="px-2.5 py-1 bg-blue-100 text-blue-800 rounded-lg font-bold font-mono text-sm">
                   {currentVal || '---'}
                 </span>
                 {showCorrectAnswers && q.correctAnswer && (
@@ -344,13 +344,13 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     return (
       <div
         key={q.id}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-white rounded-xl border border-slate-200 hover:border-slate-300 transition shadow-2xs"
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white rounded-xl border border-slate-200 hover:border-slate-300 transition shadow-2xs"
       >
-        <div className="flex items-center gap-2.5 min-w-[200px] flex-1">
-          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
+        <div className="flex items-center gap-3 min-w-[200px] flex-1">
+          <span className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold shrink-0">
             {qNum}
           </span>
-          <span className="text-sm font-semibold text-slate-800 leading-snug">{cleanPrompt}</span>
+          <span className="text-base sm:text-[17px] font-semibold text-slate-800 leading-snug">{cleanPrompt}</span>
           {renderFlagButton(q.id)}
         </div>
 
@@ -360,7 +360,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
               value={userVal}
               disabled={isReadOnly}
               onChange={(e) => onAnswerChange(q.id, e.target.value.toUpperCase())}
-              className="px-3 py-1.5 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium max-w-[280px]"
+              className="px-3.5 py-2 text-sm sm:text-base bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium max-w-[320px]"
             >
               <option value="">-- Chọn đáp án --</option>
               {options.map((opt: string, idx: number) => {
@@ -381,12 +381,12 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
               disabled={isReadOnly}
               placeholder="Nhập chữ cái (A, B...)"
               onChange={(e) => onAnswerChange(q.id, e.target.value.toUpperCase())}
-              className="w-36 px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium uppercase"
+              className="w-40 px-3.5 py-2 text-base bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium uppercase"
             />
           )}
 
           {showCorrectAnswers && q.correctAnswer && (
-            <span className="text-xs text-emerald-700 font-bold ml-2">
+            <span className="text-sm text-emerald-700 font-bold ml-2">
               [{cleanListeningText(q.correctAnswer)}]
             </span>
           )}
@@ -419,9 +419,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     return (
       <span
         key={`${keyPrefix}-q${qNum}`}
-        className="inline-flex items-center gap-1.5 align-middle mx-1 my-0.5 flex-wrap"
+        className="inline-flex items-center gap-1.5 align-middle mx-1.5 my-1 flex-wrap"
       >
-        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 font-bold text-xs border border-blue-300 shrink-0">
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 font-bold text-xs sm:text-sm border border-blue-300 shrink-0">
           {qNum}
         </span>
         <input
@@ -430,14 +430,37 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
           disabled={isReadOnly}
           placeholder={`[${qNum}]`}
           onChange={(e) => onAnswerChange(effectiveId, e.target.value)}
-          className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[95px] max-w-[170px] transition-colors"
+          className="px-3 py-1 text-sm sm:text-base bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-semibold text-blue-900 min-w-[105px] max-w-[190px] transition-colors"
         />
         {targetQ && renderFlagButton(targetQ.id)}
         {showCorrectAnswers && targetQ?.correctAnswer && (
-          <span className="text-[11px] text-emerald-700 font-bold whitespace-nowrap">
+          <span className="text-xs sm:text-sm text-emerald-700 font-bold whitespace-nowrap">
             [{cleanListeningText(targetQ.correctAnswer)}]
           </span>
         )}
+      </span>
+    );
+  };
+
+  // Helper to render text with Markdown bold (**text**) as <strong>
+  const renderFormattedText = (rawText: string, keyPrefix: string) => {
+    const clean = cleanListeningText(rawText);
+    if (!clean.includes('**')) {
+      return <span key={keyPrefix}>{clean}</span>;
+    }
+    const chunks = clean.split(/(\*\*.*?\*\*)/g);
+    return (
+      <span key={keyPrefix}>
+        {chunks.map((chunk, cIdx) => {
+          if (chunk.startsWith('**') && chunk.endsWith('**') && chunk.length >= 4) {
+            return (
+              <strong key={`${keyPrefix}-b${cIdx}`} className="font-bold text-slate-900">
+                {chunk.slice(2, -2)}
+              </strong>
+            );
+          }
+          return <React.Fragment key={`${keyPrefix}-t${cIdx}`}>{chunk}</React.Fragment>;
+        })}
       </span>
     );
   };
@@ -474,7 +497,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         const qNum = parseInt(match[1], 10);
         return renderInlineQuestionInput(qNum, `${keyPrefix}-p${pIdx}`);
       }
-      return <span key={`${keyPrefix}-t${pIdx}`}>{cleanListeningText(part)}</span>;
+      return renderFormattedText(part, `${keyPrefix}-t${pIdx}`);
     });
   };
 
@@ -766,20 +789,28 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // 4. Render Structured Notes, Summaries, or Sentences
   const renderStructuredNotesOrSummary = (notesText: string) => {
-    // 1. Normalize note text if it was single-line or wrapped in callout box pipes
-    let formattedText = notesText.replace(/^\|\s*|\s*\|$/g, '').trim();
+    // 1. Remove orphaned table dividers (| ---, |:---|) and table syntax remnants
+    let formattedText = notesText.replace(/^\s*\|?\s*:?-{3,}:?\s*\|?\s*$/gm, '');
+    // Remove leading and trailing pipe characters per line
+    formattedText = formattedText.replace(/^\s*\|\s*/gm, '').replace(/\s*\|\s*$/gm, '');
     // Normalize bullets to separate lines
-    formattedText = formattedText.replace(/\s*(?:•|\u2022|\*)\s*/g, '\n• ');
+    formattedText = formattedText.replace(/\s*(?:•|\u2022)\s*/g, '\n• ');
+    // Join isolated bullet lines with the next line (e.g. "•\nActively spoken languages: 81" -> "• Actively spoken languages: 81")
+    formattedText = formattedText.replace(/^[•\-\*\+]\s*\n(?=[A-Za-z0-9\[])/gm, '• ');
+    // Reconnect broken line splits across headings and subheadings (e.g. "Languages in\nVanuatu" -> "Languages in Vanuatu", "History of\nBislama" -> "History of Bislama")
+    formattedText = formattedText.replace(/\b(Languages in|History of|Description of|Local languages:|Foreign languages:)\s*\n\s*/gi, '$1 ');
     // Normalize subheadings separated by whitespace or space
     formattedText = formattedText.replace(
       /(?<=[^\n])\s+(?=(?:[A-Z][a-zA-Z0-9\s–\-]{1,35}:|(?:History of|Description of|Languages in|Local languages|Foreign languages|Bislama|General|Vocabulary|Grammar|Background|Summary|Topic|Location|Aim|Methods?|Results?|Conclusion)\b))/gm,
       '\n'
     );
+    // Normalize excessive line breaks
+    formattedText = formattedText.replace(/\n{3,}/g, '\n\n').trim();
 
     const lines = formattedText.split('\n').map((l) => l.trim()).filter(Boolean);
 
     return (
-      <div className="space-y-1.5 my-2">
+      <div className="space-y-3 my-3">
         {lines.map((line, lIdx) => {
           const isBullet = /^[•\-\*\+]\s+/.test(line);
           const isHeading =
@@ -794,10 +825,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             return (
               <div
                 key={lIdx}
-                className="pt-3 pb-1 text-xs font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100"
+                className="pt-4 pb-1.5 text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2 border-b border-slate-200"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block shrink-0" />
-                <span>{cleanListeningText(line)}</span>
+                <span className="w-2 h-2 rounded-full bg-blue-600 inline-block shrink-0" />
+                <span>{renderFormattedText(line, `hd-${lIdx}`)}</span>
               </div>
             );
           }
@@ -805,9 +836,9 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
           if (isBullet) {
             const cleanBulletText = line.replace(/^[•\-\*\+\s]+/, '');
             return (
-              <div key={lIdx} className="flex items-start gap-2.5 py-1 pl-2">
-                <span className="text-blue-500 font-bold shrink-0 mt-0.5">•</span>
-                <div className="flex-1 text-xs text-slate-800 leading-relaxed">
+              <div key={lIdx} className="flex items-start gap-3 py-1.5 pl-4">
+                <span className="text-blue-500 font-bold shrink-0 mt-0.5 text-base sm:text-lg">•</span>
+                <div className="flex-1 text-base text-slate-800 leading-[1.7]">
                   {renderTextWithEmbeddedInputs(cleanBulletText, `note-${lIdx}`)}
                 </div>
               </div>
@@ -815,7 +846,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
           }
 
           return (
-            <p key={lIdx} className="text-xs text-slate-800 leading-relaxed my-1">
+            <p key={lIdx} className="text-base text-slate-800 leading-[1.7] my-2">
               {renderTextWithEmbeddedInputs(line, `para-${lIdx}`)}
             </p>
           );
@@ -835,10 +866,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
       return (
         <div
           key={q.id}
-          className="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition"
+          className="flex items-center justify-between gap-3 p-4 bg-white rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition"
         >
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
+          <div className="flex items-center gap-3.5 flex-1 min-w-0">
+            <span className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold shrink-0">
               {qNum}
             </span>
             <input
@@ -847,13 +878,13 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
               disabled={isReadOnly}
               placeholder={`Nhập đáp án câu ${qNum}...`}
               onChange={(e) => onAnswerChange(q.id, e.target.value)}
-              className="w-full max-w-md px-3.5 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium"
+              className="w-full max-w-lg px-4 py-2 text-base bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium"
             />
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {renderFlagButton(q.id)}
             {showCorrectAnswers && q.correctAnswer && (
-              <span className="text-xs text-emerald-700 font-semibold whitespace-nowrap">
+              <span className="text-sm text-emerald-700 font-semibold whitespace-nowrap">
                 Đáp án: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
               </span>
             )}
@@ -870,15 +901,15 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
       return (
         <div
           key={q.id}
-          className="flex items-start gap-2.5 py-2 px-3 bg-white rounded-lg border border-slate-200 shadow-2xs hover:border-slate-300 transition"
+          className="flex items-start gap-3 py-2.5 px-4 bg-white rounded-xl border border-slate-200 shadow-2xs hover:border-slate-300 transition"
         >
-          <span className="text-blue-500 font-bold shrink-0 mt-1">•</span>
-          <div className="text-sm text-slate-800 font-medium leading-relaxed flex-1">
+          <span className="text-blue-500 font-bold shrink-0 mt-1 text-base sm:text-lg">•</span>
+          <div className="text-base text-slate-800 font-medium leading-relaxed flex-1">
             {hasBlank ? (
               <span>
                 {bulletContent.split('_____')[0]}
-                <span className="inline-flex items-center gap-1.5 align-middle mx-1 my-0.5">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-xs font-bold border border-blue-300 shrink-0">
+                <span className="inline-flex items-center gap-1.5 align-middle mx-1.5 my-1">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold border border-blue-300 shrink-0">
                     {qNum}
                   </span>
                   <input
@@ -887,16 +918,16 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     disabled={isReadOnly}
                     placeholder={`[${qNum}]`}
                     onChange={(e) => onAnswerChange(q.id, e.target.value)}
-                    className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[95px] max-w-[170px]"
+                    className="px-3 py-1 text-sm sm:text-base bg-blue-50/70 hover:bg-blue-50 focus:bg-white border border-blue-400 focus:border-blue-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-semibold text-blue-900 min-w-[105px] max-w-[190px]"
                   />
                 </span>
                 {bulletContent.split('_____')[1]}
               </span>
             ) : (
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
                 <span>{bulletContent}</span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-xs font-bold shrink-0">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold shrink-0">
                     {qNum}
                   </span>
                   <input
@@ -905,7 +936,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     disabled={isReadOnly}
                     placeholder={`[${qNum}]`}
                     onChange={(e) => onAnswerChange(q.id, e.target.value)}
-                    className="px-2.5 py-0.5 text-xs sm:text-sm bg-blue-50/70 border border-blue-400 rounded-md font-semibold text-blue-900 min-w-[95px]"
+                    className="px-3 py-1 text-sm sm:text-base bg-blue-50/70 border border-blue-400 rounded-lg font-semibold text-blue-900 min-w-[105px]"
                   />
                 </span>
               </div>
@@ -913,7 +944,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
           </div>
           {renderFlagButton(q.id)}
           {showCorrectAnswers && q.correctAnswer && (
-            <span className="text-xs text-emerald-700 font-bold ml-2 shrink-0">
+            <span className="text-sm text-emerald-700 font-bold ml-2 shrink-0">
               [{cleanListeningText(q.correctAnswer)}]
             </span>
           )}
@@ -924,14 +955,14 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     return (
       <div
         key={q.id}
-        className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-2"
+        className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-2.5"
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-baseline gap-2.5 flex-1">
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">
+          <div className="flex items-baseline gap-3 flex-1">
+            <span className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-100 text-blue-800 text-xs sm:text-sm font-bold shrink-0">
               {qNum}
             </span>
-            <div className="text-sm text-slate-800 font-medium leading-relaxed flex-1">
+            <div className="text-base sm:text-[17px] text-slate-800 font-medium leading-relaxed flex-1">
               {hasBlank ? (
                 <span>
                   {cleanPrompt.split('_____')[0]}
@@ -941,12 +972,12 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     disabled={isReadOnly}
                     placeholder={`[${qNum}]`}
                     onChange={(e) => onAnswerChange(q.id, e.target.value)}
-                    className="inline-block mx-1.5 px-2.5 py-0.5 text-sm bg-blue-50/60 border border-blue-400 focus:border-blue-600 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold text-blue-900 min-w-[120px]"
+                    className="inline-block mx-2 px-3 py-1 text-sm sm:text-base bg-blue-50/60 border border-blue-400 focus:border-blue-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-semibold text-blue-900 min-w-[130px]"
                   />
                   {cleanPrompt.split('_____')[1]}
                 </span>
               ) : (
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
                   <span className="leading-snug">{cleanPrompt}</span>
                   <input
                     type="text"
@@ -954,7 +985,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     disabled={isReadOnly}
                     placeholder={`[${qNum}]`}
                     onChange={(e) => onAnswerChange(q.id, e.target.value)}
-                    className="px-3 py-1 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium min-w-[160px]"
+                    className="px-3.5 py-1.5 text-base bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium min-w-[180px]"
                   />
                 </div>
               )}
@@ -964,7 +995,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
         </div>
 
         {showCorrectAnswers && q.correctAnswer && (
-          <div className="pl-8 pt-1 text-xs text-emerald-700 font-semibold">
+          <div className="pl-2 sm:pl-10 pt-1 text-sm text-emerald-700 font-semibold">
             Đáp án: <span className="font-bold">{cleanListeningText(q.correctAnswer)}</span>
           </div>
         )}
@@ -1046,9 +1077,16 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     // 3. Form Completion
     const lines = effectiveGroupContent.split('\n').map((l) => l.trim()).filter(Boolean);
     const colonCount = lines.filter((l) => l.includes(':')).length;
+    const hasBullets = /[•\*\u2022]/.test(effectiveGroupContent);
+    const isNoteOrSummaryType =
+      type === 'note_completion' ||
+      type === 'summary_completion' ||
+      type === 'sentence_completion';
+
     const isFormLike =
-      type === 'form_completion' ||
-      (colonCount >= 2 && colonCount >= lines.length * 0.35);
+      !isNoteOrSummaryType &&
+      !hasBullets &&
+      (type === 'form_completion' || (colonCount >= 2 && lines.length >= 3 && colonCount >= lines.length * 0.5));
 
     if (isFormLike) {
       return (
@@ -1087,29 +1125,29 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     <div className="space-y-4 mb-6">
       {/* Group Header: Title, Instruction, Word Limit badge, Shared Audio/Image/Text */}
       {!isSingleIndependent && (
-        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-            <h4 className="text-sm font-bold text-slate-900">
+        <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+            <h4 className="text-lg sm:text-xl font-bold text-slate-900">
               {cleanListeningText(title) || `Questions ${firstQNum} - ${lastQNum}`}
             </h4>
             {wordLimit && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300">
-                <AlertCircle className="w-3.5 h-3.5" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs sm:text-sm font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300">
+                <AlertCircle className="w-4 h-4" />
                 {cleanListeningText(wordLimit)}
               </span>
             )}
           </div>
 
           {instructions && (
-            <p className="text-xs text-slate-600 italic font-medium mb-2">
+            <p className="text-[15px] sm:text-base text-slate-700 italic font-medium mb-3 leading-relaxed">
               {cleanListeningText(instructions)}
             </p>
           )}
 
           {/* Shared group audio recording */}
           {questionGroup.audioUrl && (
-            <div className="my-3 p-3 bg-blue-50/80 rounded-xl border border-blue-200 flex flex-col sm:flex-row items-center gap-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-blue-900 shrink-0">
+            <div className="my-3 p-3.5 bg-blue-50/80 rounded-xl border border-blue-200 flex flex-col sm:flex-row items-center gap-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-blue-900 shrink-0">
                 <Volume2 className="w-4 h-4 text-blue-700" />
                 <span>Audio dùng chung cho nhóm ({firstQNum}–{lastQNum}):</span>
               </div>
@@ -1131,7 +1169,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                 className="max-h-72 w-auto mx-auto object-contain rounded"
               />
               {imageCaption && (
-                <p className="text-xs text-slate-500 mt-1 italic">{cleanListeningText(imageCaption)}</p>
+                <p className="text-sm text-slate-600 mt-1.5 italic">{cleanListeningText(imageCaption)}</p>
               )}
             </div>
           )}
@@ -1150,11 +1188,11 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
             if (displayOpts.length === 0) return null;
 
             return (
-              <div className="p-3 bg-white rounded-lg border border-slate-200 my-2 shadow-2xs">
-                <span className="text-xs font-bold text-slate-700 block mb-1.5 uppercase tracking-wide">
+              <div className="p-3.5 bg-white rounded-xl border border-slate-200 my-2.5 shadow-2xs">
+                <span className="text-sm font-bold text-slate-700 block mb-2 uppercase tracking-wide">
                   Danh sách lựa chọn (Options):
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                   {displayOpts.map((opt, oIdx) => {
                     const letterMatch = opt.match(/^([A-Za-z])[\.\:\)]/i);
                     const letter = letterMatch ? letterMatch[1].toUpperCase() : String.fromCharCode(65 + oIdx);
@@ -1162,10 +1200,10 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                     return (
                       <div
                         key={oIdx}
-                        className="text-xs text-slate-800 flex items-start gap-1.5 p-2 bg-slate-50 rounded-lg border border-slate-200"
+                        className="text-base text-slate-800 flex items-start gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200"
                       >
-                        <span className="font-bold text-blue-700 shrink-0 w-4">{letter}.</span>
-                        <span className="flex-1 leading-relaxed">{text || opt}</span>
+                        <span className="font-bold text-blue-700 shrink-0 w-5 text-base">{letter}.</span>
+                        <span className="flex-1 leading-relaxed text-base">{text || opt}</span>
                       </div>
                     );
                   })}

@@ -45,20 +45,25 @@ export function convertHtmlTablesToMarkdown(html: string): string {
       const cells: string[] = [];
 
       while ((cMatch = cellRegex.exec(rMatch[1])) !== null) {
-        let cellText = cMatch[1]
+        let cellHtml = cMatch[1]
           .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}/gi, '[$1]')
           .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>/gi, '$1')
           .replace(/\b([0-9]{1,2})[\.\:\)]?\s*(?:[\$£€¥]|(?:every|in|at|by|for|the|a|an)\s+)*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)/gi, '[$1]')
           .replace(/(?:[…\.]{2,}|_{2,}|\.{3,}|…+)\s*(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\]|\b([0-9]{1,2})\b)/gi, '[$1$2$3]')
           .replace(/\b([0-9]{1,2})\s*[\u2026\.]{2,}/g, '[$1]')
-          .replace(/\b([0-9]{1,2})\s*_{2,}/g, '[$1]')
+          .replace(/\b([0-9]{1,2})\s*_{2,}/g, '[$1]');
+
+        let cellText = cellHtml
+          .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n• $1\n')
+          .replace(/<\/p>/gi, '\n\n')
+          .replace(/<br\s*\/?>/gi, '\n')
           .replace(/<[^>]+>/g, ' ')
           .replace(/&nbsp;/g, ' ')
           .replace(/&amp;/g, '&')
           .replace(/&lt;/g, '<')
           .replace(/&gt;/g, '>')
-          .replace(/\s+/g, ' ')
           .trim();
+
         cells.push(cellText);
       }
       if (cells.some((c) => c.length > 0)) {
@@ -68,9 +73,17 @@ export function convertHtmlTablesToMarkdown(html: string): string {
 
     if (rows.length === 0) return '';
     const maxCols = Math.max(...rows.map((r) => r.length));
+
+    // If table is 1x1 (a single-cell callout or notes container box), do not convert to Markdown table
+    if (rows.length === 1 && maxCols === 1) {
+      return '\n\n' + rows[0][0] + '\n\n';
+    }
+
     const normalizedRows = rows.map((r) => {
       while (r.length < maxCols) r.push('');
-      return '| ' + r.join(' | ') + ' |';
+      // In authentic multi-column tables, cells should be inline
+      const cleanCells = r.map((c) => c.replace(/\s*\n+\s*/g, ' ').trim());
+      return '| ' + cleanCells.join(' | ') + ' |';
     });
     const headerSep = '| ' + Array(maxCols).fill('---').join(' | ') + ' |';
     normalizedRows.splice(1, 0, headerSep);
