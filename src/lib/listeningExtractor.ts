@@ -19,7 +19,12 @@ export function cleanListeningText(text?: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&nbsp;/g, ' ')
     .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    .replace(/<svg[^>]*>|<\/svg>/gi, '')
     .replace(/svgFlag/gi, '')
+    // Fix serialized svg glued to question numbers and words (e.g. **2**svghours -> **2** hours, **1**svg -> **1**)
+    .replace(/(?<=[0-9\*_\]\)])svg(?=[a-zA-Z])/gi, ' ')
+    .replace(/(?<=[0-9\*_\]\)])svg\b/gi, '')
+    .replace(/\bsvg\b/gi, '')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .trim();
 }

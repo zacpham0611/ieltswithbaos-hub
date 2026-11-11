@@ -480,10 +480,14 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
   // Helper to parse text with embedded gap markers [1], [2], etc., or inline blanks like 1 …………
   const renderTextWithEmbeddedInputs = (rawText: string, keyPrefix: string) => {
+    // 0. Pre-clean text and strip orphaned markdown table separator fragments
+    let normalized = cleanListeningText(rawText);
+    normalized = normalized.replace(/^(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/, '');
+
     // 1. Normalize blanks followed anywhere by (Q<num>) or (<num>) or [<num>]
     // e.g. "- The main cause of the problem is ______ (Q31)."
     // e.g. "- The process usually takes ______ days (Q32)."
-    let normalized = rawText.replace(
+    normalized = normalized.replace(
       /((?:[…\.]{2,}|_{2,}|\.{3,}|…+))([\s\S]*?)(?:\([Qq]?\s*([0-9]{1,2})\)|\[([0-9]{1,2})\])/gi,
       (_m, _blank, middle, g3, g4) => {
         const n = g3 || g4;
@@ -500,6 +504,12 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     // 3. Normalize any 1 …………, 1 _____, (1) ………… into [1]
     normalized = normalized.replace(
       /(?:<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}|\b([0-9]{1,2})\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+)|\(([0-9]{1,2})\)\s*(?:[…\.]{2,}|_{2,}|\.{3,}|…+))/g,
+      '[$1$2$3]'
+    );
+
+    // 4. Normalize bolded question numbers that denote blanks (e.g. "**1**", "**2**", "<b>1</b>", "<strong>1</strong>")
+    normalized = normalized.replace(
+      /(?:\*\*([0-9]{1,2})\*\*|<strong[^>]*>([0-9]{1,2})<\/strong>|<b>([0-9]{1,2})<\/b>)/g,
       '[$1$2$3]'
     );
 
@@ -795,14 +805,16 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     const rawLines = formText
       .split('\n')
       .map((l) => {
-        let trimmed = l.trim();
+        let trimmed = cleanListeningText(l);
+        // Strip orphaned leading table separator artifacts like "--- | --- Children: | 20 in a class"
+        trimmed = trimmed.replace(/^(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/, '');
         if (trimmed.includes('|')) {
           if (!trimmed.startsWith('|')) trimmed = '| ' + trimmed;
           if (!trimmed.endsWith('|')) trimmed = trimmed + ' |';
         }
         return trimmed;
       })
-      .filter((l) => Boolean(l) && !/^\|?(?:\s*:?-{3,}:?\s*\|?)+$/.test(l));
+      .filter((l) => Boolean(l) && !/^\|?(?:\s*:?-{2,}:?\s*\|?)+$/.test(l));
 
     return (
       <div className="space-y-1 my-2">

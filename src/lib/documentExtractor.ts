@@ -2626,12 +2626,17 @@ function parseSinglePassage(
           continue;
         }
 
-        if (/^(TRUE|FALSE|NOT GIVEN)$/i.test(line)) {
+        if (/^(TRUE|FALSE)$/i.test(line)) {
           currentQ.type = 'true_false_not_given';
           continue;
         }
         if (/^(YES|NO)$/i.test(line)) {
           currentQ.type = 'yes_no_not_given';
+          continue;
+        }
+        if (/^(NOT\s*GIVEN|NG)$/i.test(line)) {
+          const isYnng = /yes|writer|claims|views/i.test(`${gRange.title} ${groupInstructions.join(' ')}`);
+          currentQ.type = isYnng ? 'yes_no_not_given' : 'true_false_not_given';
           continue;
         }
 
@@ -2809,11 +2814,15 @@ function parseSinglePassage(
           q.type !== 'matching_features' &&
           q.type !== 'matching_sentence_endings' &&
           q.type !== 'matching_headings' &&
+          primaryType !== 'yes_no_not_given' &&
+          primaryType !== 'true_false_not_given' &&
           primaryType !== 'multiple_choice' &&
           primaryType !== 'multiple_select' &&
           primaryType !== 'matching_features' &&
           primaryType !== 'matching_sentence_endings' &&
           primaryType !== 'matching_headings' &&
+          instructionType !== 'yes_no_not_given' &&
+          instructionType !== 'true_false_not_given' &&
           instructionType !== 'multiple_choice' &&
           instructionType !== 'multiple_select'
         ) {

@@ -959,10 +959,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // Regular Test Attempts for Teacher (Live Monitor & Grading)
         try {
-          const { data: teacherAttemptsData } = await supabase
+          let teacherAttemptsData: any[] | null = null;
+          const { data: joinedAttempts, error: joinErr } = await supabase
             .from('regular_test_attempts')
             .select('*, profiles:student_id(*)')
             .order('created_at', { ascending: false });
+
+          if (!joinErr && Array.isArray(joinedAttempts)) {
+            teacherAttemptsData = joinedAttempts;
+          } else {
+            // Resilient fallback query without foreign key join if profiles relation fails
+            const { data: rawAttempts } = await supabase
+              .from('regular_test_attempts')
+              .select('*')
+              .order('created_at', { ascending: false });
+            teacherAttemptsData = rawAttempts;
+          }
 
           if (teacherAttemptsData && Array.isArray(teacherAttemptsData) && fetchSeq === fetchSequenceRef.current) {
             const mappedTeacherAttempts: RegularTestAttempt[] = teacherAttemptsData.map((a: any) => ({
@@ -3970,8 +3982,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRegularTests((prev) => prev.filter((t) => t.id !== id));
     setRegularTestAttempts((prev) => prev.filter((a) => a.testId !== id));
     try {
-      await supabase.from('regular_test_events').delete().eq('testId', id);
-      await supabase.from('regular_test_attempts').delete().eq('testId', id);
+      await supabase.from('regular_test_events').delete().eq('test_id', id);
+      await supabase.from('regular_test_attempts').delete().eq('test_id', id);
       await supabase.from('regular_tests').delete().eq('id', id);
     } catch (err) {
       console.warn('Delete test DB notice:', err);
@@ -4020,13 +4032,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const sessionToken = `tok_${Math.random().toString(36).substring(2)}_${Date.now()}`;
-    const attemptId = `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    // PostgreSQL regular_test_attempts requires a valid UUID v4 for id
+    const attemptId = generateUUID();
+
+    // Resolve authoritative version_id UUID
+    let realVersionId: string | null = null;
+    try {
+      const { data: verData } = await supabase
+        .from('regular_test_versions')
+        .select('id')
+        .eq('test_id', testId)
+        .order('version_number', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (verData?.id) {
+        realVersionId = verData.id;
+      }
+    } catch {}
+
+    if (!realVersionId) {
+      realVersionId = generateUUID();
+    }
 
     const newAttempt: RegularTestAttempt = {
       id: attemptId,
       testId,
       testTitle: test.title,
-      versionId: `v_${test.currentVersion || 1}`,
+      versionId: realVersionId,
       studentId: currentUser.id,
       studentName: currentUser.name,
       studentEmail: currentUser.email,
@@ -4051,21 +4083,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     try {
-      await supabase.from('regular_test_attempts').insert({
+      const { error: insertError } = await supabase.from('regular_test_attempts').insert({
         id: newAttempt.id,
         test_id: newAttempt.testId,
+        version_id: newAttempt.versionId,
         student_id: newAttempt.studentId,
+        course_id: newAttempt.courseId,
         attempt_number: newAttempt.attemptNumber,
         server_start_time: newAttempt.serverStartTime,
         server_deadline: newAttempt.serverDeadline,
+        extra_time_minutes: 0,
+        current_section_index: 0,
         session_token: newAttempt.sessionToken,
         status: newAttempt.status,
         answers: newAttempt.answers,
         flagged_questions: newAttempt.flaggedQuestions,
         device_info: deviceInfo || {},
+        last_heartbeat: serverStartTime,
       });
+
+      if (insertError) {
+        console.warn('Start attempt DB error notice:', insertError);
+      }
     } catch (err) {
-      console.warn('Start attempt DB notice:', err);
+      console.warn('Start attempt DB catch notice:', err);
     }
 
     setRegularTestAttempts((prev) => [newAttempt, ...prev]);
@@ -4111,7 +4152,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     try {
-      await supabase
+      const { error: saveError } = await supabase
         .from('regular_test_attempts')
         .update({
           answers,
@@ -4119,10 +4160,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           save_revision_sequence: sequence,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', attemptId)
-        .eq('session_token', sessionToken);
+        .eq('id', attemptId);
+
+      if (saveError) {
+        console.warn('Save answers DB error notice:', saveError);
+      }
     } catch (err) {
-      console.warn('Save answers DB notice:', err);
+      console.warn('Save answers DB catch notice:', err);
     }
   };
 
@@ -4162,7 +4206,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     try {
-      await supabase
+      const { error: submitError } = await supabase
         .from('regular_test_attempts')
         .update({
           status: updatedAttempt.status,
@@ -4176,8 +4220,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           updated_at: new Date().toISOString(),
         })
         .eq('id', attemptId);
+
+      if (submitError) {
+        console.warn('Submit attempt DB error notice:', submitError);
+      }
     } catch (err) {
-      console.warn('Submit attempt DB notice:', err);
+      console.warn('Submit attempt DB catch notice:', err);
     }
 
     addActivity(

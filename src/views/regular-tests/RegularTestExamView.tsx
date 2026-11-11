@@ -1325,6 +1325,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                   const qNum = globalIdx >= 0 ? globalIdx + 1 : 1;
                   const isFlagged = Boolean(flaggedQuestions[q.id]);
                   const studentAns = answers.reading?.[q.id] || '';
+                  const effectiveQType = q.questionTypeOverride || (q as any).typeOverride || q.type;
 
                   return (
                     <div
@@ -1345,12 +1346,12 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                             {(() => {
                               const rawPrompt = q.prompt || (q as any).question || (q as any).questionText || '';
                               const isCompletion =
-                                q.type === 'sentence_completion' ||
-                                q.type === 'summary_completion' ||
-                                q.type === 'note_completion' ||
-                                q.type === 'table_completion' ||
-                                q.type === 'flowchart_completion' ||
-                                q.type === 'fill_in_the_blank';
+                                effectiveQType === 'sentence_completion' ||
+                                effectiveQType === 'summary_completion' ||
+                                effectiveQType === 'note_completion' ||
+                                effectiveQType === 'table_completion' ||
+                                effectiveQType === 'flowchart_completion' ||
+                                effectiveQType === 'fill_in_the_blank';
                               const blankRegex = /(\[\d+\]|\[blank\]|(?:\b\d{1,2}\s*)?[\.\_\…\–\-]{3,}|_{2,})/;
                               if (isCompletion && blankRegex.test(rawPrompt)) {
                                 const parts = rawPrompt.split(blankRegex);
@@ -1390,7 +1391,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       </div>
 
                       {/* Matching Information Question Layout */}
-                      {q.type === 'matching_information' && (
+                      {effectiveQType === 'matching_information' && (
                         <div className="mt-3 pl-2 sm:pl-8 space-y-3">
                           <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 text-xs md:text-sm text-amber-900 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
                             <span className="font-semibold">Which paragraph contains this information?</span>
@@ -1421,7 +1422,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       )}
 
                       {/* Matching Features Question Layout */}
-                      {q.type === 'matching_features' && (
+                      {effectiveQType === 'matching_features' && (
                         <div className="mt-3 pl-2 sm:pl-8 space-y-3">
                           <div className="text-xs font-semibold text-slate-600">
                             Select the matching feature:
@@ -1461,7 +1462,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       )}
 
                       {/* Matching Sentence Endings Question Layout */}
-                      {q.type === 'matching_sentence_endings' && (
+                      {effectiveQType === 'matching_sentence_endings' && (
                         <div className="mt-3 pl-2 sm:pl-8 space-y-3">
                           <div className="text-xs font-semibold text-slate-600">
                             Select the ending that completes this sentence:
@@ -1499,7 +1500,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       )}
 
                       {/* Multiple Choice Question Layout */}
-                      {q.type === 'multiple_choice' && q.options && (
+                      {effectiveQType === 'multiple_choice' && q.options && (
                         <div className="space-y-2 mt-3 pl-2 sm:pl-8">
                           {q.options.map((opt, oIdx) => (
                             <label
@@ -1525,7 +1526,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       )}
 
                       {/* Multiple Select Question Layout */}
-                      {q.type === 'multiple_select' && q.options && (
+                      {effectiveQType === 'multiple_select' && q.options && (
                         <div className="space-y-2 mt-3 pl-2 sm:pl-8">
                           {q.options.map((opt, oIdx) => {
                             const selectedArr: string[] = studentAns
@@ -1560,9 +1561,9 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       )}
 
                       {/* True/False/Not Given & Yes/No/Not Given */}
-                      {(q.type === 'true_false_not_given' || q.type === 'yes_no_not_given') && (
+                      {(effectiveQType === 'true_false_not_given' || effectiveQType === 'yes_no_not_given') && (
                         <div className="flex items-center gap-2.5 mt-3 pl-2 sm:pl-8">
-                          {(q.type === 'true_false_not_given'
+                          {(effectiveQType === 'true_false_not_given'
                             ? ['TRUE', 'FALSE', 'NOT GIVEN']
                             : ['YES', 'NO', 'NOT GIVEN']
                           ).map((val) => (
@@ -1583,13 +1584,13 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       )}
 
                       {/* Completion Answer Fields (Rendered ONLY if not already rendered inline inside prompt) */}
-                      {(q.type === 'sentence_completion' ||
-                        q.type === 'summary_completion' ||
-                        q.type === 'note_completion' ||
-                        q.type === 'table_completion' ||
-                        q.type === 'flowchart_completion' ||
-                        q.type === 'fill_in_the_blank' ||
-                        q.type === 'short_answer') &&
+                      {(effectiveQType === 'sentence_completion' ||
+                        effectiveQType === 'summary_completion' ||
+                        effectiveQType === 'note_completion' ||
+                        effectiveQType === 'table_completion' ||
+                        effectiveQType === 'flowchart_completion' ||
+                        effectiveQType === 'fill_in_the_blank' ||
+                        effectiveQType === 'short_answer') &&
                         !/(\[\d+\]|\[blank\]|(?:\b\d{1,2}\s*)?[\.\_\…\–\-]{3,}|_{2,})/.test(q.prompt || (q as any).question || (q as any).questionText || '') && (
                         <div className="mt-3 pl-2 sm:pl-8 flex flex-wrap items-center gap-3">
                           <span className="text-xs md:text-sm font-bold text-slate-700">Answer:</span>
@@ -1604,7 +1605,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       )}
 
                       {/* Matching Headings */}
-                      {q.type === 'matching_headings' && q.options && (
+                      {effectiveQType === 'matching_headings' && q.options && (
                         <div className="mt-3 pl-2 sm:pl-8">
                           <select
                             value={studentAns}

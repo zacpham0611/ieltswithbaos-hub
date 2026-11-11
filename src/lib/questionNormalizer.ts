@@ -333,26 +333,49 @@ export function normalizeReadingQuestion(
     const rawInstructionStr = String((raw as any).instruction || (raw as any).groupInstruction || '').toLowerCase();
     const rawPromptStr = String(prompt).toLowerCase();
 
+    const isYnngContext =
+      rawInstructionStr.includes('yes/no/not given') ||
+      rawInstructionStr.includes('yes / no / not given') ||
+      rawInstructionStr.includes('claims of the writer') ||
+      rawInstructionStr.includes('views of the writer') ||
+      rawPromptStr.includes('yes/no/not given') ||
+      rawPromptStr.includes('yes / no / not given');
+
+    const isTfngContext =
+      rawInstructionStr.includes('true/false/not given') ||
+      rawInstructionStr.includes('true / false / not given') ||
+      rawInstructionStr.includes('information in the text') ||
+      rawInstructionStr.includes('information in the passage') ||
+      rawPromptStr.includes('true/false/not given') ||
+      rawPromptStr.includes('true / false / not given');
+
     if (
       upperKey === 'YES' ||
       upperKey === 'NO' ||
-      rawInstructionStr.includes('yes/no/not given') ||
-      rawInstructionStr.includes('yes / no / not given') ||
-      rawPromptStr.includes('yes/no/not given') ||
-      rawPromptStr.includes('yes / no / not given')
+      upperKey === 'Y' ||
+      upperKey === 'N' ||
+      ((upperKey === 'NOT GIVEN' || upperKey === 'NG') && isYnngContext) ||
+      isYnngContext
     ) {
       type = 'yes_no_not_given';
       options = undefined;
     } else if (
       upperKey === 'TRUE' ||
       upperKey === 'FALSE' ||
-      rawInstructionStr.includes('true/false/not given') ||
-      rawInstructionStr.includes('true / false / not given') ||
-      rawPromptStr.includes('true/false/not given') ||
-      rawPromptStr.includes('true / false / not given')
+      upperKey === 'T' ||
+      upperKey === 'F' ||
+      ((upperKey === 'NOT GIVEN' || upperKey === 'NG') && isTfngContext) ||
+      isTfngContext
     ) {
       type = 'true_false_not_given';
       options = undefined;
+    } else if (upperKey === 'NOT GIVEN' || upperKey === 'NG') {
+      if (type === 'yes_no_not_given' || type === 'true_false_not_given') {
+        options = undefined;
+      } else {
+        type = 'yes_no_not_given';
+        options = undefined;
+      }
     } else if (type === 'multiple_choice' || type === 'short_answer') {
       // Distinguish summary completion with numbered blanks (e.g. "in the 33 ...............")
       // from standard MCQ sentence stems ending in blanks (e.g. "29 According to paragraph 3, _______ are needed.")

@@ -3732,22 +3732,24 @@ export const AssignmentsView: React.FC = () => {
                                     const cleanNotes = cleanReadingText(group.groupText)
                                       .replace(/\r\n/g, '\n')
                                       .replace(/\r/g, '\n')
-                                      .replace(/\s*(?:•|\u2022|\*\s+)\s*/g, '\n• ')
                                       .trim();
-                                    const noteLines = cleanNotes.split('\n').map((l) => l.trim()).filter(Boolean);
+                                    const noteLines = cleanNotes.split('\n').filter((l) => l.trim().length > 0);
 
-                                    if ((isNoteCompletion || noteLines.some((l) => l.startsWith('•') || l.endsWith(':'))) && noteLines.length > 1) {
+                                    if ((isNoteCompletion || noteLines.some((l) => /^[•\-\*\+\d+\.]/.test(l.trim()) || l.trim().endsWith(':'))) && noteLines.length > 1) {
                                       return (
                                         <div className="space-y-2 py-1">
                                           {noteLines.map((line, lIdx) => {
-                                            const isBullet = /^[•\-\*\+]\s*/.test(line);
-                                            const isSubBullet = /^(?:[ \t]{2,}[•\-\*\+]|--|–)\s*/.test(line);
+                                            const trimmed = line.trim();
+                                            const isSubBullet = /^(?:[ \t]{2,}[•\-\*\+]|--|–|\t)/.test(line) || (/^[•\-\*\+]/.test(trimmed) && line.startsWith('  '));
+                                            const isBullet = /^[•\-\*\+]\s*/.test(trimmed);
+                                            const isNumberedItem = /^\d+[\.\)]\s+/.test(trimmed);
                                             const isHeading =
                                               !isBullet &&
-                                              !line.includes('[') &&
-                                              (line.endsWith(':') ||
-                                                line === line.toUpperCase() ||
-                                                (line.length <= 45 && !/[,\.]$/.test(line) && /^[A-Z]/.test(line)));
+                                              !isNumberedItem &&
+                                              !trimmed.includes('[') &&
+                                              (trimmed.endsWith(':') ||
+                                                trimmed === trimmed.toUpperCase() ||
+                                                (trimmed.length <= 45 && !/[,\.]$/.test(trimmed) && /^[A-Z]/.test(trimmed)));
 
                                             if (isHeading) {
                                               return (
@@ -3756,16 +3758,31 @@ export const AssignmentsView: React.FC = () => {
                                                   className="font-bold text-slate-900 text-sm sm:text-base pt-2.5 pb-1 border-b border-slate-200 flex items-center gap-2"
                                                 >
                                                   <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
-                                                  <span>{line}</span>
+                                                  <span>{trimmed}</span>
                                                 </h5>
                                               );
                                             }
 
-                                            if (isBullet) {
-                                              const cleanBullet = line.replace(/^[•\-\*\+\s]+/, '');
+                                            if (isNumberedItem) {
+                                              const numPrefix = trimmed.match(/^(\d+[\.\)])/)?.[1] || '';
+                                              const cleanNumText = trimmed.replace(/^\d+[\.\)]\s*/, '');
                                               return (
-                                                <div key={lIdx} className={`flex items-start gap-2.5 py-1 ${isSubBullet ? 'pl-6 sm:pl-8' : 'pl-3 sm:pl-5'}`}>
-                                                  <span className={`text-blue-500 font-bold shrink-0 mt-0.5 ${isSubBullet ? 'text-xs' : 'text-base sm:text-lg'}`}>•</span>
+                                                <div key={lIdx} className="flex items-start gap-2.5 py-1 pl-3 sm:pl-5">
+                                                  <span className="text-blue-700 font-bold text-xs shrink-0 mt-0.5">{numPrefix}</span>
+                                                  <div className="flex-1 text-sm text-slate-800 leading-relaxed">
+                                                    {renderChunkWithBlanks(cleanNumText, `num-${lIdx}`)}
+                                                  </div>
+                                                </div>
+                                              );
+                                            }
+
+                                            if (isBullet) {
+                                              const cleanBullet = trimmed.replace(/^[•\-\*\+\s]+/, '');
+                                              return (
+                                                <div key={lIdx} className={`flex items-start gap-2.5 py-1 ${isSubBullet ? 'pl-7 sm:pl-9' : 'pl-3 sm:pl-5'}`}>
+                                                  <span className={`text-blue-500 font-bold shrink-0 mt-0.5 ${isSubBullet ? 'text-xs' : 'text-base sm:text-lg'}`}>
+                                                    {isSubBullet ? '◦' : '•'}
+                                                  </span>
                                                   <div className="flex-1 text-sm text-slate-800 leading-relaxed">
                                                     {renderChunkWithBlanks(cleanBullet, `bullet-${lIdx}`)}
                                                   </div>
@@ -3774,8 +3791,8 @@ export const AssignmentsView: React.FC = () => {
                                             }
 
                                             return (
-                                              <p key={lIdx} className="text-sm text-slate-800 leading-relaxed my-1.5">
-                                                {renderChunkWithBlanks(line, `line-${lIdx}`)}
+                                              <p key={lIdx} className="text-sm text-slate-800 leading-relaxed my-1.5 pl-1">
+                                                {renderChunkWithBlanks(trimmed, `line-${lIdx}`)}
                                               </p>
                                             );
                                           })}
@@ -4136,6 +4153,9 @@ export const AssignmentsView: React.FC = () => {
                               const displayPrompt = resolveQuestionPrompt(q, idx + 1);
                               const effectiveQType = q.questionTypeOverride || (q as any).typeOverride || q.type;
 
+                              const isYnng = effectiveQType === 'yes_no_not_given' || group.groupType === 'yes_no_not_given';
+                              const isTfng = effectiveQType === 'true_false_not_given' || group.groupType === 'true_false_not_given';
+
                               return (
                                 <div
                                   key={q.id}
@@ -4200,9 +4220,9 @@ export const AssignmentsView: React.FC = () => {
                                   )}
 
                                   {/* Question Type Interactive Controls */}
-                                  {effectiveQType === 'true_false_not_given' || effectiveQType === 'yes_no_not_given' ? (
+                                  {isYnng || isTfng ? (
                                     <div className="flex flex-wrap gap-2 pt-1">
-                                      {(effectiveQType === 'true_false_not_given'
+                                      {(isTfng
                                         ? ['TRUE', 'FALSE', 'NOT GIVEN']
                                         : ['YES', 'NO', 'NOT GIVEN']
                                       ).map((choice) => (
@@ -4395,7 +4415,7 @@ export const AssignmentsView: React.FC = () => {
                                         );
                                       })()}
                                     </div>
-                                  ) : (effectiveQType === 'summary_completion' || (group.groupType === 'summary_completion' && group.wordList)) && (group.wordList || (q.options && q.options.length > 0)) ? (
+                                  ) : !isYnng && !isTfng && (effectiveQType === 'summary_completion' || (group.groupType === 'summary_completion' && group.wordList)) && (group.wordList || (q.options && q.options.length > 0)) ? (
                                     <div className="space-y-2 pt-1">
                                       <select
                                         disabled={isReadOnly}

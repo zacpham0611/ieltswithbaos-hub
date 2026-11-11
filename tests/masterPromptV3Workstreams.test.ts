@@ -7,6 +7,7 @@ import {
 import {
   convertHtmlTablesToMarkdown,
   htmlToListeningText,
+  cleanListeningText,
 } from '../src/lib/listeningExtractor.ts';
 import {
   buildQuestionRenderGroups,
@@ -264,5 +265,156 @@ describe('MASTER PROMPT V3: WORKSTREAM C — READING MODULE PERSISTENCE & ISOLAT
     assert.strictEqual(groups.length, 1);
     assert.strictEqual(groups[0].groupType, 'yes_no_not_given', 'Group must inherit teacher override');
     assert.strictEqual(groups[0].wordList, undefined, 'Must not attach wordList when overridden to YNNG');
+  });
+
+  it('9. Regular test submission persistence preserves valid UUID v4 schema, versionId & courseId', () => {
+    // Standard UUID v4 validator regex
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    const testId = '44556677-8899-4000-8000-000000000001';
+    const versionId = '44556677-8899-4000-8000-000000000002';
+    const studentId = '44556677-8899-4000-8000-000000000003';
+    const courseId = '44556677-8899-4000-8000-000000000004';
+    const attemptId = '44556677-8899-4000-8000-000000000005';
+
+    assert.ok(uuidRegex.test(attemptId), 'Attempt ID must be a valid UUID v4');
+    assert.ok(uuidRegex.test(versionId), 'Version ID must be a valid UUID v4');
+    assert.ok(uuidRegex.test(courseId), 'Course ID must be a valid UUID v4');
+
+    const attempt: RegularTestAttempt = {
+      id: attemptId,
+      testId,
+      versionId,
+      studentId,
+      courseId,
+      attemptNumber: 1,
+      serverStartTime: new Date().toISOString(),
+      serverDeadline: new Date(Date.now() + 3600000).toISOString(),
+      extraTimeMinutes: 0,
+      currentSectionIndex: 0,
+      status: 'submitted',
+      submittedAt: new Date().toISOString(),
+      autoSubmitted: false,
+      sessionToken: 'tok_test',
+      answers: { reading: { q_1: 'YES', q_2: 'NO' }, writing: { text: '', wordCount: 0 } },
+      flaggedQuestions: {},
+    };
+
+    assert.strictEqual(attempt.status, 'submitted');
+    assert.ok(attempt.submittedAt);
+    assert.strictEqual(attempt.courseId, courseId);
+    assert.strictEqual(attempt.versionId, versionId);
+  });
+
+  it('10. Listening SVG artifact cleaning and markdown table separator stripping', () => {
+    const dirtyLine1 = 'Second group - Mrs.**1**svg';
+    const cleaned1 = cleanListeningText(dirtyLine1);
+    assert.strictEqual(cleaned1, 'Second group - Mrs.**1**', 'Serialized svg tag after bolded question number must be removed');
+
+    const dirtyLine2 = 'Hours & Days: | Suzie will attend 3 days a week for a total of **2**svghours';
+    const cleaned2 = cleanListeningText(dirtyLine2);
+    assert.strictEqual(
+      cleaned2,
+      'Hours & Days: | Suzie will attend 3 days a week for a total of **2** hours',
+      'svghours must be separated into hours without leaving svg'
+    );
+
+    const dirtyLine3 = '--- | --- Children: | 20 in a class';
+    const stripped3 = dirtyLine3.replace(/^(?:\|?\s*:?-{2,}:?\s*)+[\|\s]*/, '');
+    assert.strictEqual(stripped3, 'Children: | 20 in a class', 'Orphaned table separator prefix must be stripped');
+  });
+
+  it('11. Reading Note Completion visual hierarchy preserves numbered lists and sub-bullets', () => {
+    const rawNoteWithHierarchy = `
+Background Overview:
+1. Primary economic factor [31]
+• Environmental changes:
+  ◦ Water temperature variations [32]
+  ◦ Salinity shifts in estuarine areas [33]
+    `.trim();
+
+    const lines = rawNoteWithHierarchy.split('\n').filter((l) => l.trim().length > 0);
+    assert.strictEqual(lines.length, 5);
+
+    // Verify Heading
+    const line0 = lines[0].trim();
+    const isHeading = !line0.startsWith('•') && line0.endsWith(':');
+    assert.ok(isHeading, 'Background Overview: must be identified as Heading');
+
+    // Verify Numbered Item
+    const line1 = lines[1].trim();
+    const isNumbered = /^\d+[\.\)]\s+/.test(line1);
+    assert.ok(isNumbered, '1. Primary economic factor must be identified as Numbered List Item');
+
+    // Verify Sub-bullet
+    const line3 = lines[3];
+    const isSub = /^(?:[ \t]{2,}[•\-\*\+◦]|--|–|\t)/.test(line3);
+    assert.ok(isSub, 'Indented sub-bullet must be detected with isSubBullet = true');
+  });
+
+  it('12. Final question of Yes/No/Not Given with answer NOT GIVEN/NG correctly retains type and blocks Word List leakage', () => {
+    const rawSummaryQuestions = [
+      {
+        id: 'q_33',
+        type: 'summary_completion',
+        prompt: 'Marine ecosystems are impacted by [33] in global oceans.',
+        options: ['A. warming', 'B. acidity', 'C. currents', 'D. pressure'],
+        correctAnswer: 'A',
+      },
+      {
+        id: 'q_34',
+        type: 'summary_completion',
+        prompt: 'The greatest threat is accelerated [34] near the poles.',
+        options: ['A. warming', 'B. acidity', 'C. currents', 'D. pressure'],
+        correctAnswer: 'B',
+      },
+    ];
+
+    const rawYnngQuestions = [
+      {
+        id: 'q_35',
+        type: 'short_answer',
+        prompt: 'The coastal barrier will be completed ahead of schedule.',
+        correctAnswer: 'YES',
+        instruction: 'Do the following statements agree with the claims of the writer in Reading Passage 3? Write YES, NO or NOT GIVEN.',
+      },
+      {
+        id: 'q_36',
+        type: 'short_answer',
+        prompt: 'Local authorities opposed the implementation of environmental regulations.',
+        correctAnswer: 'NO',
+        instruction: 'Do the following statements agree with the claims of the writer in Reading Passage 3? Write YES, NO or NOT GIVEN.',
+      },
+      // Crucial test case: Final question with answer "NOT GIVEN" / "NG"
+      {
+        id: 'q_37',
+        type: 'short_answer',
+        prompt: 'International funding was sought to support ongoing conservation efforts.',
+        correctAnswer: 'NOT GIVEN',
+        instruction: 'Do the following statements agree with the claims of the writer in Reading Passage 3? Write YES, NO or NOT GIVEN.',
+      },
+    ];
+
+    // Normalize each question through normalizeReadingQuestion
+    const normSummary = rawSummaryQuestions.map((q, idx) => normalizeReadingQuestion(q, idx + 1));
+    const normYnng = rawYnngQuestions.map((q, idx) => normalizeReadingQuestion(q, idx + 3));
+
+    // The final question (Q37) must be resolved as yes_no_not_given despite having correctAnswer "NOT GIVEN"
+    assert.strictEqual(normYnng[2].type, 'yes_no_not_given', 'Question 37 with answer NOT GIVEN must be yes_no_not_given');
+    assert.strictEqual(normYnng[2].options, undefined, 'Question 37 must not carry options');
+
+    // Now test group building across the boundary
+    const allNormQuestions = [...normSummary, ...normYnng];
+    const groups = buildQuestionRenderGroups(allNormQuestions);
+
+    assert.strictEqual(groups.length, 2, 'Must strictly split into 2 groups: Summary Completion & YNNG');
+    assert.strictEqual(groups[0].groupType, 'summary_completion');
+    assert.strictEqual(groups[0].questions.length, 2);
+    assert.ok(groups[0].wordList && groups[0].wordList.length === 4);
+
+    assert.strictEqual(groups[1].groupType, 'yes_no_not_given');
+    assert.strictEqual(groups[1].questions.length, 3, 'Group 2 must have all 3 YNNG questions including Q37');
+    assert.strictEqual(groups[1].wordList, undefined, 'Word list must not leak into YNNG');
+    assert.strictEqual(groups[1].questions[2].q.type, 'yes_no_not_given');
   });
 });
