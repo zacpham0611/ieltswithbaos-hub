@@ -949,16 +949,38 @@ export const AssignmentsView: React.FC = () => {
   // Open Resource for Multi-Passage Assignment or Direct Assignment
   const handleOpenResourceAssignment = (res: any) => {
     let extractedPassages: any[] = [];
+    let isJsonPayload = false;
+
     if (res.content && (res.content.trim().startsWith('{') || res.content.trim().startsWith('['))) {
       try {
         const parsed = JSON.parse(res.content);
+        isJsonPayload = true;
         if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
           extractedPassages = parsed.passages;
+        } else if (
+          (parsed.questions && Array.isArray(parsed.questions) && parsed.questions.length > 0) ||
+          (parsed.questionGroups && Array.isArray(parsed.questionGroups) && parsed.questionGroups.length > 0) ||
+          parsed.readingPassage ||
+          parsed.content
+        ) {
+          extractedPassages = [
+            {
+              id: 'p_1',
+              passageIndex: 0,
+              title: parsed.title || res.title || 'Passage 1',
+              content: parsed.readingPassage || parsed.content || '',
+              questions: parsed.questions || parsed.readingQuestions || [],
+              questionGroups: parsed.questionGroups || [],
+            },
+          ];
         }
-      } catch {}
+      } catch {
+        isJsonPayload = false;
+      }
     }
 
-    if (extractedPassages.length === 0 && res.skill === 'reading' && res.content) {
+    // Only parse document structure from plain text if NOT a JSON payload!
+    if (!isJsonPayload && extractedPassages.length === 0 && res.skill === 'reading' && res.content) {
       const docStruct = parseDocumentStructure(res.content, res.title);
       if (docStruct.candidateTests && docStruct.candidateTests.length > 0) {
         extractedPassages = docStruct.candidateTests.map((ct: any, idx: number) => ({
@@ -1164,6 +1186,18 @@ export const AssignmentsView: React.FC = () => {
               questionGroups = extracted.questionGroups;
               passages = extracted.passages;
               readingPassage = passages[0]?.content || parsed.readingPassage || parsed.passageText || parsed.content || '';
+              if (passages.length === 0 && readingQuestions.length > 0) {
+                passages = [
+                  {
+                    id: 'p_1',
+                    passageIndex: 0,
+                    title: title,
+                    content: readingPassage,
+                    questions: readingQuestions,
+                    questionGroups: questionGroups,
+                  },
+                ];
+              }
             } else if (parsed.passages && Array.isArray(parsed.passages) && parsed.passages.length > 0) {
               passages = parsed.passages;
               readingPassage = parsed.passages[0]?.content || '';
@@ -1286,8 +1320,9 @@ export const AssignmentsView: React.FC = () => {
         return;
       }
 
-      // 3. If readingQuestions is empty and this is reading, parse document structure from text
-      if (readingQuestions.length === 0 && targetSkill === 'reading' && readingPassage) {
+      // 3. If readingQuestions is empty and this is reading, parse document structure from plain text ONLY (never JSON)
+      const isJsonText = readingPassage.trim().startsWith('{') || readingPassage.trim().startsWith('[');
+      if (!isJsonText && readingQuestions.length === 0 && targetSkill === 'reading' && readingPassage) {
         const docStruct = parseDocumentStructure(readingPassage, title);
         if (docStruct.questions && docStruct.questions.length > 0) {
           readingQuestions = docStruct.questions;
@@ -3443,6 +3478,175 @@ export const AssignmentsView: React.FC = () => {
       ? [...initialRenderGroups, ...buildQuestionRenderGroups(unrenderedQuestions)]
       : initialRenderGroups;
 
+    const renderMultipleSelectGroup = (group: QuestionRenderGroup) => {
+      const firstQ = group.questions[0]?.q;
+      const requiredCount = firstQ?.multipleSelectCount || group.questions.length;
+      const options = firstQ?.options || [];
+      const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
+
+      // Gather currently selected answers across all questions in the group
+      const currentSelectedList: string[] = [];
+      group.questions.forEach(({ q }) => {
+        const val = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
+        if (val.trim() && !currentSelectedList.includes(val.trim())) {
+          currentSelectedList.push(val.trim());
+        }
+      });
+      const atLimit = currentSelectedList.length >= requiredCount;
+
+      const handleToggleOption = (opt: string) => {
+        if (isReadOnly) return;
+        let updated = [...currentSelectedList];
+        if (updated.includes(opt)) {
+          updated = updated.filter((item) => item !== opt);
+        } else {
+          if (updated.length < requiredCount) {
+            updated.push(opt);
+          } else {
+            return; // at limit
+          }
+        }
+
+        // Map selected items sequentially to the question IDs in the group
+        group.questions.forEach(({ q }, qIdx) => {
+          const assignedVal = updated[qIdx] || '';
+          handleAnswerChange(q.id, assignedVal);
+        });
+      };
+
+      return (
+        <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
+          {/* Shared Question Prompt rendered ONCE */}
+          <div className="space-y-2">
+            <p className="font-bold text-slate-900 text-sm sm:text-base leading-relaxed whitespace-pre-line">
+              {renderCleanMarkdown(firstQ?.prompt || group.rangeTitle, group.questions[0]?.idx + 1)}
+            </p>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-200">
+                Select {requiredCount} answers&nbsp;
+                <span className={`font-bold ${atLimit ? 'text-emerald-600' : 'text-slate-500'}`}>
+                  ({currentSelectedList.length}/{requiredCount} selected)
+                </span>
+              </span>
+            </div>
+          </div>
+
+          {/* Answer Options */}
+          <div className="space-y-2 pt-1">
+            {options.map((opt) => {
+              const isChecked = currentSelectedList.includes(opt);
+              const isDisabledByLimit = !isChecked && atLimit;
+              return (
+                <label
+                  key={opt}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (!isReadOnly && (!isDisabledByLimit || isChecked)) {
+                      handleToggleOption(opt);
+                    }
+                  }}
+                  className={`flex items-center space-x-3 p-3 rounded-xl border transition-all ${
+                    isReadOnly || isDisabledByLimit
+                      ? 'opacity-60 cursor-not-allowed bg-slate-50 border-slate-200'
+                      : 'cursor-pointer hover:border-blue-400 hover:bg-blue-50/30'
+                  } ${
+                    isChecked
+                      ? 'bg-blue-50/80 border-blue-400 text-blue-950 font-semibold shadow-2xs'
+                      : 'bg-white border-slate-200 text-slate-800'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    readOnly
+                    disabled={isReadOnly || isDisabledByLimit}
+                    checked={isChecked}
+                    className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                  />
+                  <span className="text-sm leading-relaxed">{opt}</span>
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Question Slots Status & Grading Details */}
+          <div className="pt-2 border-t border-slate-100 space-y-2">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Your Answers for {group.rangeTitle}:
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {group.questions.map(({ q, idx }, slotIdx) => {
+                const assignedAns = currentSelectedList[slotIdx] || readingAnswers[q.id] || '';
+                const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
+                const isFlag = Boolean(flaggedQuestions[q.id]);
+
+                return (
+                  <div
+                    key={q.id}
+                    id={`q_${q.id}`}
+                    data-question-anchor={q.id}
+                    className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${
+                      result
+                        ? result.isCorrect
+                          ? 'border-emerald-300 bg-emerald-50/40'
+                          : 'border-red-300 bg-red-50/40'
+                        : assignedAns
+                        ? 'border-blue-300 bg-blue-50/30'
+                        : 'border-slate-200 bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-900">Q{idx + 1}:</span>
+                      <span className="font-mono font-semibold text-blue-900 truncate max-w-[140px]">
+                        {assignedAns || <span className="text-slate-400 italic">Not selected</span>}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFlaggedQuestions({ ...flaggedQuestions, [q.id]: !flaggedQuestions[q.id] })
+                        }
+                        className={`p-1 rounded ${
+                          isFlag ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                        title="Flag for review"
+                      >
+                        <Flag className="w-3 h-3" />
+                      </button>
+                      {result && canSeeAnswers && (
+                        <span
+                          className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
+                            result.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          {result.isCorrect ? 'Correct' : 'Incorrect'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {canSeeAnswers && (
+              <div className="mt-2 pt-2 border-t border-slate-100 text-xs space-y-1">
+                <p className="text-slate-600">
+                  <strong>Answer Key Pool:</strong>{' '}
+                  <span className="font-mono text-emerald-700">
+                    {group.questions.map(({ q }) => q.correctAnswer).filter(Boolean).join(', ') || 'Provided in review'}
+                  </span>
+                </p>
+                {firstQ?.explanation && (
+                  <p className="text-slate-500 italic">
+                    <strong>Citation:</strong> {firstQ.explanation}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
     return (
       <ErrorBoundary onReset={() => setSelectedAssignmentId(null)}>
         <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
@@ -4387,8 +4591,20 @@ export const AssignmentsView: React.FC = () => {
                           </div>
 
                           {/* Questions in this group */}
-                          <div className="space-y-4">
-                            {group.questions.map(({ q, idx }) => {
+                          {(() => {
+                            const isMultiSelectGroup =
+                              (group.groupType === 'multiple_select' ||
+                                (group.questions.length > 1 &&
+                                  group.questions.every(({ q }) => (q.questionTypeOverride || q.type) === 'multiple_select'))) &&
+                              Boolean(group.questions[0]?.q.options && group.questions[0].q.options.length > 0);
+
+                            if (isMultiSelectGroup) {
+                              return renderMultipleSelectGroup(group);
+                            }
+
+                            return (
+                              <div className="space-y-4">
+                                {group.questions.map(({ q, idx }) => {
                               const answer = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
                               const isReadOnly = isTeacher || Boolean(mySub && mySub.status !== 'returned');
                               const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
@@ -4787,6 +5003,8 @@ export const AssignmentsView: React.FC = () => {
                               );
                             })}
                           </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}

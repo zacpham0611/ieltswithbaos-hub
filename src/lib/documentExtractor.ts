@@ -1931,7 +1931,7 @@ export function formatPassageParagraphs(
   };
 }
 
-function parseSinglePassage(
+export function parseSinglePassage(
   passageChunk: string,
   passageIndex: number,
   globalAnswerKeys: Record<string, string>,
@@ -2697,22 +2697,47 @@ function parseSinglePassage(
       if (groupQuestions.length === 0) {
         const detectedOptions: string[] = [];
         const promptCandidates: string[] = [];
+        const extractedGroupInstructions: string[] = [];
 
         for (const line of gRange.lines) {
-          const optMatch = line.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+
+          // Check if this line is an option A-H
+          const optMatch = trimmedLine.match(/^([A-H])(?:[\.\:\)]|\t|\s{2,}|\s+(?=[A-Za-z0-9]))\s*(.*)/i);
           if (optMatch) {
             detectedOptions.push(`${optMatch[1].toUpperCase()}. ${optMatch[2].trim()}`);
-          } else if (
-            !/^(?:questions?|\d+[\.\:\)]|choose|write\s+the|which\s+(?:two|three|four)|select|dạng\s+câu\s+hỏi|question\s+type)/i.test(line) &&
-            line.length > 5
-          ) {
-            promptCandidates.push(line);
-          } else if (/^(?:which|what|select|choose)\b/i.test(line)) {
-            promptCandidates.push(line);
+            continue;
+          }
+
+          // Check if this line is an instructional directive (e.g. "Choose THREE letters, A-F.")
+          const isInstruction =
+            /^(?:choose\s+(?:the\s+)?(?:one|two|three|four|five|\d+)\s+letters?|write\s+(?:your\s+)?answers?\s+in\s+boxes|in\s+boxes\s+\d+|dạng\s+câu\s+hỏi|question\s+type|you\s+should\s+spend|spend\s+about)/i.test(trimmedLine);
+
+          if (isInstruction) {
+            extractedGroupInstructions.push(trimmedLine);
+            continue;
+          }
+
+          // Clean out leading "Questions X-Y" prefix if present on question prompt line
+          const cleanLine = trimmedLine
+            .replace(/^q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+\d+(?:[\s\-\–to\,and\&]+\d+)?[\:\.\s]*/i, '')
+            .trim();
+
+          if (cleanLine.length > 5) {
+            promptCandidates.push(cleanLine);
           }
         }
 
-        const qPrompt = cleanReadingText(promptCandidates.join(' ').trim()) || gRange.title;
+        // If instructions were collected, append to groupInstructions
+        if (extractedGroupInstructions.length > 0) {
+          groupInstructions.push(...extractedGroupInstructions);
+        }
+
+        const qPrompt = cleanReadingText(promptCandidates.join(' ').trim()) ||
+          cleanReadingText(gRange.lines.find(l => /^(?:which|what|according|the\s+author|how|why)\b/i.test(l.trim())) || '') ||
+          gRange.title;
+
         const targetNums = rangeNums.length > 0 ? rangeNums : [allQuestions.length + 1];
 
         for (const n of targetNums) {
@@ -2735,14 +2760,16 @@ function parseSinglePassage(
           };
           msQ.multipleSelectCount = reqCount;
           (msQ as any).questionRange = targetNums;
+          (msQ as any).isFirstInRange = (n === targetNums[0]);
           groupQuestions.push(msQ);
         }
       } else {
-        groupQuestions.forEach((q) => {
+        groupQuestions.forEach((q, qIndex) => {
           q.type = 'multiple_select';
           q.multipleSelectCount = reqCount;
           if (rangeNums.length > 0) {
             (q as any).questionRange = rangeNums;
+            (q as any).isFirstInRange = (qIndex === 0);
           }
         });
       }
@@ -2940,6 +2967,90 @@ function parseSinglePassage(
       }
     }
   }
+
+  // Deduplicate and consolidate overlapping groups (e.g. Summary Completion 20-26 and 24-26)
+  const consolidatedGroups: QuestionGroup[] = [];
+  for (let gi = 0; gi < questionGroups.length; gi++) {
+    const curG = questionGroups[gi];
+    if (curG.questions.length === 0) continue;
+
+    const curRange = parseQuestionNumbersFromRange(curG.groupTitle || '');
+    const curStart = curRange[0];
+    const curEnd = curRange[curRange.length - 1];
+
+    let mergedIntoExisting = false;
+    for (const prevG of consolidatedGroups) {
+      const prevRange = parseQuestionNumbersFromRange(prevG.groupTitle || '');
+      const prevStart = prevRange[0];
+      const prevEnd = prevRange[prevRange.length - 1];
+
+      // Check if curG is a subset of prevG or has overlapping range with matching completion/exercise type
+      const isSubset =
+        curStart !== undefined &&
+        curEnd !== undefined &&
+        prevStart !== undefined &&
+        prevEnd !== undefined &&
+        curStart >= prevStart &&
+        curEnd <= prevEnd;
+
+      const sameType =
+        curG.questionType === prevG.questionType ||
+        (curG.questionType.includes('completion') && prevG.questionType.includes('completion'));
+
+      if (isSubset || (sameType && curG.questions.some((q) => prevG.questions.some((pq) => pq.id === q.id)))) {
+        // Merge questions into prevG without duplication
+        curG.questions.forEach((cq) => {
+          if (!prevG.questions.some((pq) => pq.id === cq.id)) {
+            prevG.questions.push(cq);
+          }
+        });
+        prevG.questions.sort((a, b) => {
+          const na = parseInt(a.id.replace('q_', ''), 10) || 0;
+          const nb = parseInt(b.id.replace('q_', ''), 10) || 0;
+          return na - nb;
+        });
+
+        // Merge groupText if curG has text not present in prevG
+        if (curG.groupText && !prevG.groupText?.includes(curG.groupText)) {
+          prevG.groupText = prevG.groupText ? `${prevG.groupText}\n\n${curG.groupText}` : curG.groupText;
+        }
+
+        // Merge optionsBox / wordList
+        if (curG.optionsBox && curG.optionsBox.length > 0) {
+          prevG.optionsBox = Array.from(new Set([...(prevG.optionsBox || []), ...curG.optionsBox]));
+        }
+
+        mergedIntoExisting = true;
+        break;
+      }
+    }
+
+    if (!mergedIntoExisting) {
+      consolidatedGroups.push(curG);
+    }
+  }
+
+  // Replace questionGroups with consolidatedGroups
+  questionGroups.length = 0;
+  questionGroups.push(...consolidatedGroups);
+
+  // Synchronize groupTitle ranges with actual questions contained in each group
+  questionGroups.forEach((g) => {
+    if (g.questions.length > 0) {
+      const qNums = g.questions
+        .map((q) => parseInt(q.id.replace('q_', ''), 10))
+        .filter((n) => !isNaN(n))
+        .sort((a, b) => a - b);
+      if (qNums.length > 0) {
+        const first = qNums[0];
+        const last = qNums[qNums.length - 1];
+        const expectedRange = first === last ? `Question ${first}` : `Questions ${first}–${last}`;
+        if (!g.groupTitle || g.groupTitle === 'Questions' || !/\d/.test(g.groupTitle)) {
+          g.groupTitle = expectedRange;
+        }
+      }
+    }
+  });
 
   // Refresh allQuestions from questionGroups
   allQuestions.length = 0;

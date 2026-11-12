@@ -789,8 +789,26 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             skill: 'reading',
             readingPassage: ct.passageText,
             content: ct.passageText,
+            passages: [
+              {
+                id: ct.id || `p_1`,
+                passageIndex: 0,
+                title: testTitleToSave,
+                content: ct.passageText,
+                questions: syncedQuestions,
+                questionGroups: syncedGroups,
+                labeledParagraphs: ct.labeledParagraphs,
+              },
+            ],
             questionGroups: syncedGroups,
             questions: syncedQuestions,
+            readingQuestions: syncedQuestions,
+            allQuestions: syncedQuestions,
+            readingTestType: 'academic',
+            metadata: {
+              sourceDocumentName: activeDoc.name,
+              questionCount: syncedQuestions.length,
+            },
           };
           await addResource({
             title: testTitleToSave,
@@ -4280,3 +4298,6 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
     </Portal>
   );
 };
+
+export default SmartDocumentImportModal;
+

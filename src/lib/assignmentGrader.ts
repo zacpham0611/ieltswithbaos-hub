@@ -613,9 +613,69 @@ export function gradeAssignmentSubmission(
   let unansweredCount = 0;
   let hasOpenEnded = false;
 
+  // Pre-pool keys for multiple-select question groups so arbitrary student selection order does not penalize scores
+  const multiSelectPools: Record<string, { poolKeys: string[]; questions: ReadingQuestion[] }> = {};
+  questions.forEach((q) => {
+    if (q.type === 'multiple_select') {
+      const groupKey = (q as any).questionRange
+        ? `range_${((q as any).questionRange as number[]).join('_')}`
+        : q.prompt ? `prompt_${q.prompt.trim().toLowerCase()}` : '';
+
+      if (groupKey) {
+        if (!multiSelectPools[groupKey]) {
+          multiSelectPools[groupKey] = { poolKeys: [], questions: [] };
+        }
+        multiSelectPools[groupKey].questions.push(q);
+        if (q.correctAnswer) {
+          const keys = q.correctAnswer.split(/[,;/]+/).map((s: string) => s.trim().toUpperCase()).filter(Boolean);
+          keys.forEach((k: string) => {
+            const letter = extractChoiceLetter(k) || k;
+            if (!multiSelectPools[groupKey].poolKeys.includes(letter)) {
+              multiSelectPools[groupKey].poolKeys.push(letter);
+            }
+          });
+        }
+      }
+    }
+  });
+
+  const consumedPoolKeys: Record<string, Set<string>> = {};
+  Object.keys(multiSelectPools).forEach((gk) => {
+    consumedPoolKeys[gk] = new Set();
+  });
+
   const errorAnalysis: QuestionGradeResult[] = questions.map((q) => {
     const userAns = studentAnswers[q.id];
-    const result = gradeSingleQuestion(q, userAns);
+    let result = gradeSingleQuestion(q, userAns);
+
+    // Apply pooled evaluation for multiple-select questions if single check failed due to answer ordering
+    if (q.type === 'multiple_select' && !result.isCorrect && userAns && userAns.trim()) {
+      const groupKey = (q as any).questionRange
+        ? `range_${((q as any).questionRange as number[]).join('_')}`
+        : q.prompt ? `prompt_${q.prompt.trim().toLowerCase()}` : '';
+
+      const poolInfo = groupKey ? multiSelectPools[groupKey] : undefined;
+      if (poolInfo && poolInfo.poolKeys.length > 0) {
+        const userLetter = extractChoiceLetter(userAns) || userAns.trim().toUpperCase();
+        if (poolInfo.poolKeys.includes(userLetter) && !consumedPoolKeys[groupKey].has(userLetter)) {
+          consumedPoolKeys[groupKey].add(userLetter);
+          result = {
+            ...result,
+            isCorrect: true,
+            earnedPoints: q.points || 1,
+            explanation: result.explanation ? `${result.explanation} (Matched answer pool)` : 'Correct (matched answer pool)',
+          };
+        }
+      }
+    } else if (q.type === 'multiple_select' && result.isCorrect && userAns && userAns.trim()) {
+      const groupKey = (q as any).questionRange
+        ? `range_${((q as any).questionRange as number[]).join('_')}`
+        : q.prompt ? `prompt_${q.prompt.trim().toLowerCase()}` : '';
+      if (groupKey && consumedPoolKeys[groupKey]) {
+        const userLetter = extractChoiceLetter(userAns) || userAns.trim().toUpperCase();
+        consumedPoolKeys[groupKey].add(userLetter);
+      }
+    }
 
     maxScore += result.maxPoints;
     earnedScore += result.earnedPoints;
@@ -686,9 +746,69 @@ export function gradeListeningSubmission(
   let unansweredCount = 0;
   let hasOpenEnded = false;
 
+  // Pre-pool keys for multiple-select question groups so arbitrary student selection order does not penalize scores
+  const multiSelectPools: Record<string, { poolKeys: string[]; questions: ReadingQuestion[] }> = {};
+  questions.forEach((q) => {
+    if (q.type === 'multiple_select') {
+      const groupKey = (q as any).questionRange
+        ? `range_${((q as any).questionRange as number[]).join('_')}`
+        : q.prompt ? `prompt_${q.prompt.trim().toLowerCase()}` : '';
+
+      if (groupKey) {
+        if (!multiSelectPools[groupKey]) {
+          multiSelectPools[groupKey] = { poolKeys: [], questions: [] };
+        }
+        multiSelectPools[groupKey].questions.push(q);
+        if (q.correctAnswer) {
+          const keys = q.correctAnswer.split(/[,;/]+/).map((s: string) => s.trim().toUpperCase()).filter(Boolean);
+          keys.forEach((k: string) => {
+            const letter = extractChoiceLetter(k) || k;
+            if (!multiSelectPools[groupKey].poolKeys.includes(letter)) {
+              multiSelectPools[groupKey].poolKeys.push(letter);
+            }
+          });
+        }
+      }
+    }
+  });
+
+  const consumedPoolKeys: Record<string, Set<string>> = {};
+  Object.keys(multiSelectPools).forEach((gk) => {
+    consumedPoolKeys[gk] = new Set();
+  });
+
   const errorAnalysis: QuestionGradeResult[] = questions.map((q) => {
     const userAns = studentAnswers[q.id];
-    const result = gradeSingleQuestion(q, userAns);
+    let result = gradeSingleQuestion(q, userAns);
+
+    // Apply pooled evaluation for multiple-select questions if single check failed due to answer ordering
+    if (q.type === 'multiple_select' && !result.isCorrect && userAns && userAns.trim()) {
+      const groupKey = (q as any).questionRange
+        ? `range_${((q as any).questionRange as number[]).join('_')}`
+        : q.prompt ? `prompt_${q.prompt.trim().toLowerCase()}` : '';
+
+      const poolInfo = groupKey ? multiSelectPools[groupKey] : undefined;
+      if (poolInfo && poolInfo.poolKeys.length > 0) {
+        const userLetter = extractChoiceLetter(userAns) || userAns.trim().toUpperCase();
+        if (poolInfo.poolKeys.includes(userLetter) && !consumedPoolKeys[groupKey].has(userLetter)) {
+          consumedPoolKeys[groupKey].add(userLetter);
+          result = {
+            ...result,
+            isCorrect: true,
+            earnedPoints: q.points || 1,
+            explanation: result.explanation ? `${result.explanation} (Matched answer pool)` : 'Correct (matched answer pool)',
+          };
+        }
+      }
+    } else if (q.type === 'multiple_select' && result.isCorrect && userAns && userAns.trim()) {
+      const groupKey = (q as any).questionRange
+        ? `range_${((q as any).questionRange as number[]).join('_')}`
+        : q.prompt ? `prompt_${q.prompt.trim().toLowerCase()}` : '';
+      if (groupKey && consumedPoolKeys[groupKey]) {
+        const userLetter = extractChoiceLetter(userAns) || userAns.trim().toUpperCase();
+        consumedPoolKeys[groupKey].add(userLetter);
+      }
+    }
 
     maxScore += result.maxPoints;
     earnedScore += result.earnedPoints;

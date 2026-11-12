@@ -46,9 +46,8 @@ import { MergePassagesModal } from '../components/MergePassagesModal';
 import { ReadingResourceEditorModal } from '../components/ReadingResourceEditorModal';
 import { ListeningResourceEditorModal } from '../components/ListeningResourceEditorModal';
 import { BulkAudioUploadModal } from '../components/BulkAudioUploadModal';
-const SmartDocumentImportModal = React.lazy(() =>
-  import('../components/SmartDocumentImportModal').then((m) => ({ default: m.SmartDocumentImportModal }))
-);
+import { SmartDocumentImportModal } from '../components/SmartDocumentImportModal';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 export const ResourcesView: React.FC = () => {
   const {
@@ -514,6 +513,20 @@ export const ResourcesView: React.FC = () => {
 
         {isTeacher && (
           <div className="flex flex-wrap items-center gap-2">
+            {/* Direct Import Reading Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setSmartImportSkill('reading');
+                setShowSmartImportModal(true);
+              }}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all flex items-center space-x-1.5 cursor-pointer"
+              title="Nhập đề Reading (PDF/Word) trực tiếp"
+            >
+              <BookOpen className="w-4 h-4 text-white" />
+              <span>Import Reading</span>
+            </button>
+
             {/* Unified Smart Document Import Button */}
             <button
               type="button"
@@ -667,6 +680,22 @@ export const ResourcesView: React.FC = () => {
                 >
                   <FolderPlus className="w-4 h-4" />
                   <span>+ Thư mục mới</span>
+                </button>
+              )}
+
+              {/* Direct Import Reading in current folder */}
+              {isTeacher && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmartImportSkill('reading');
+                    setShowSmartImportModal(true);
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Nhập tài liệu Reading (PDF/Word) vào thư mục hiện tại"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>+ Import Reading</span>
                 </button>
               )}
 
@@ -2387,9 +2416,9 @@ export const ResourcesView: React.FC = () => {
         </Portal>
       )}
 
-      {/* Smart Document Import & Conversion Modal (Lazy Loaded) */}
+      {/* Smart Document Import & Conversion Modal */}
       {showSmartImportModal && (
-        <React.Suspense fallback={null}>
+        <ErrorBoundary onReset={() => setShowSmartImportModal(false)}>
           <SmartDocumentImportModal
             isOpen={showSmartImportModal}
             onClose={() => setShowSmartImportModal(false)}
@@ -2397,7 +2426,7 @@ export const ResourcesView: React.FC = () => {
             targetFolderId={currentFolderId}
             targetFolderName={currentFolder ? currentFolder.name : undefined}
           />
-        </React.Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Listening Document Import Modal */}
