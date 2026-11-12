@@ -16,6 +16,7 @@ import { SettingsView } from './views/SettingsView';
 import { RegularTestsView } from './views/RegularTestsView';
 import { RegularTestExamView } from './views/regular-tests/RegularTestExamView';
 import { AuthView } from './views/AuthView';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useI18n } from './i18n/context';
 import { useSeasonalTheme } from './theme/SeasonalThemeContext';
 import { SeasonalPageDecoration } from './theme/artwork';
@@ -115,7 +116,9 @@ export const AppContent: React.FC = () => {
           }}
         >
           <div key={activeTab} className="page-transition min-h-full">
-            {renderContent()}
+            <ErrorBoundary>
+              {renderContent()}
+            </ErrorBoundary>
           </div>
         </main>
       </div>

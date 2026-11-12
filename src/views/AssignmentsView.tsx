@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Portal } from '../components/Portal';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../i18n/context';
 import {
@@ -100,6 +101,9 @@ import {
   ZoomIn,
   Check,
   AlertTriangle,
+  Loader2,
+  FileQuestion,
+  ShieldAlert,
   Layers,
   Edit,
   HelpCircle,
@@ -249,6 +253,12 @@ export const AssignmentsView: React.FC = () => {
     submitAssignment,
     gradeSubmission,
     returnForRevision,
+    selectedAssignmentId,
+    setSelectedAssignmentId,
+    selectedSubmissionId,
+    setSelectedSubmissionId,
+    loadingData,
+    dataError,
   } = useApp();
 
   const { t } = useI18n();
@@ -258,8 +268,6 @@ export const AssignmentsView: React.FC = () => {
 
   const [selectedSkillFilter, setSelectedSkillFilter] = useState<string>('all');
   const [selectedCourseFilter, setSelectedCourseFilter] = useState<string>('all');
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
-  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [selectedAssignmentForRoster, setSelectedAssignmentForRoster] = useState<Assignment | null>(null);
   const [rosterFilter, setRosterFilter] = useState<'all' | 'pending' | 'graded' | 'not_submitted'>('all');
 
@@ -3062,6 +3070,94 @@ export const AssignmentsView: React.FC = () => {
   }
 
   // =========================================================================
+  // DISTINCT UI STATES FOR ASSIGNMENT SELECTION & NAVIGATION
+  // =========================================================================
+
+  // 1. Loading state: Assignment is selected but data is still fetching from Supabase
+  if (selectedAssignmentId && loadingData && !activeAssignment) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 space-y-4">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+        <p className="text-sm font-semibold text-slate-700">Đang tải bài tập...</p>
+        <p className="text-xs text-slate-400">Vui lòng chờ trong giây lát</p>
+      </div>
+    );
+  }
+
+  // 2. Error state: Database fetch failed with error and assignment is not available
+  if (selectedAssignmentId && dataError && !activeAssignment) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 space-y-4">
+        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-slate-800">Không thể tải dữ liệu bài tập</h3>
+        <p className="text-xs text-slate-500 max-w-md text-center">{dataError}</p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold"
+          >
+            Thử lại
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedAssignmentId(null)}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
+          >
+            Quay lại danh sách
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Not Found state: Data loaded, but assignment does not exist in database
+  if (selectedAssignmentId && !activeAssignment && !loadingData) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 space-y-4">
+        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
+          <FileQuestion className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-slate-800">Không tìm thấy bài tập</h3>
+        <p className="text-xs text-slate-500 max-w-md text-center">
+          Bài tập này có thể đã bị xóa hoặc liên kết không chính xác.
+        </p>
+        <button
+          type="button"
+          onClick={() => setSelectedAssignmentId(null)}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold"
+        >
+          Quay lại danh sách bài tập
+        </button>
+      </div>
+    );
+  }
+
+  // 4. Unauthorized state: Assignment exists, but student is not enrolled in the course
+  if (activeAssignment && !isTeacher && !accessibleCourses.some((c) => c.id === activeAssignment.courseId)) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 space-y-4">
+        <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-slate-800">Không có quyền truy cập bài tập này</h3>
+        <p className="text-xs text-slate-500 max-w-md text-center">
+          Bạn chưa được ghi danh vào khóa học chứa bài tập này hoặc quyền truy cập của bạn đã bị giới hạn.
+        </p>
+        <button
+          type="button"
+          onClick={() => setSelectedAssignmentId(null)}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold"
+        >
+          Quay lại danh sách bài tập
+        </button>
+      </div>
+    );
+  }
+
+  // =========================================================================
   // SCREEN 2: ACTIVE ASSIGNMENT (STUDENT PRACTICE / TEACHER PREVIEW)
   // =========================================================================
   if (activeAssignment) {
@@ -3205,10 +3301,8 @@ export const AssignmentsView: React.FC = () => {
       (!hasMultiPassages && activeAssignment.questionGroups) ||
       [];
 
-    const questionRenderGroups: QuestionRenderGroup[] = React.useMemo(() => {
-      if (currentPassageGroups && currentPassageGroups.length > 0) {
-        // Map authentic question groups directly so all headings, instructions, groupText, and boundaries are preserved
-        return currentPassageGroups.map((g, gIdx) => {
+    const questionRenderGroups: QuestionRenderGroup[] = (currentPassageGroups && currentPassageGroups.length > 0)
+      ? currentPassageGroups.map((g, gIdx) => {
           const groupType = g.questionTypeOverride || g.questionType;
           const isCompletion = COMPLETION_TYPES.has(groupType);
 
@@ -3262,15 +3356,12 @@ export const AssignmentsView: React.FC = () => {
             imageCaption: (g as any).imageCaption,
             questions: groupItems,
           };
-        });
-      }
-
-      // Fallback for assignments without questionGroups
-      return buildQuestionRenderGroups(activePassageQuestions);
-    }, [currentPassageGroups, activePassageQuestions, allQuestionsIndexed]);
+        })
+      : buildQuestionRenderGroups(activePassageQuestions);
 
     return (
-      <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
+      <ErrorBoundary onReset={() => setSelectedAssignmentId(null)}>
+        <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
         {/* Navigation & Header */}
         <div className={`flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 gap-3 ${
           isReading ? 'pb-2.5 mb-1' : 'pb-4'
@@ -6193,7 +6284,8 @@ export const AssignmentsView: React.FC = () => {
           </Portal>
         )}
       </div>
-    );
+    </ErrorBoundary>
+  );
   }
 
   // =========================================================================

@@ -149,6 +149,10 @@ interface AppContextType {
   setSelectedStatementId: (id: string | null) => void;
   selectedReportId: string | null;
   setSelectedReportId: (id: string | null) => void;
+  selectedAssignmentId: string | null;
+  setSelectedAssignmentId: (id: string | null) => void;
+  selectedSubmissionId: string | null;
+  setSelectedSubmissionId: (id: string | null) => void;
 
   // Regular Tests & Strict Exam Mode
   regularTests: RegularTest[];
@@ -242,11 +246,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [regularTestReportLinks, setRegularTestReportLinks] = useState<RegularTestReportLink[]>([]);
   const [activeExamAttempt, setActiveExamAttempt] = useState<RegularTestAttempt | null>(null);
 
+  // Read URL search params on initialization if in browser
+  const getInitialParam = (param: string): string | null => {
+    if (typeof window !== 'undefined' && window.location) {
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        return searchParams.get(param);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const initialTab = getInitialParam('tab') || (getInitialParam('assignmentId') ? 'assignments' : 'dashboard');
+  const initialAssignmentId = getInitialParam('assignmentId') || null;
+
   // Navigation state
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(initialAssignmentId);
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+
+  // Synchronize URL with activeTab and selectedAssignmentId
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.history && window.location) {
+      try {
+        const url = new URL(window.location.href);
+        if (activeTab && activeTab !== 'dashboard') {
+          url.searchParams.set('tab', activeTab);
+        } else {
+          url.searchParams.delete('tab');
+        }
+
+        if (selectedAssignmentId && activeTab === 'assignments') {
+          url.searchParams.set('assignmentId', selectedAssignmentId);
+        } else {
+          url.searchParams.delete('assignmentId');
+        }
+
+        const newUrlStr = url.pathname + (url.search ? url.search : '') + url.hash;
+        if (newUrlStr !== window.location.pathname + window.location.search + window.location.hash) {
+          window.history.replaceState(null, '', newUrlStr);
+        }
+      } catch {}
+    }
+  }, [activeTab, selectedAssignmentId]);
+
+  // Listen for browser popstate (Back/Forward buttons)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopState = () => {
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlTab = searchParams.get('tab') || 'dashboard';
+        const urlAssignmentId = searchParams.get('assignmentId') || null;
+        setActiveTab(urlTab);
+        setSelectedAssignmentId(urlAssignmentId);
+      } catch {}
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Restore in-progress session marker on page load if active
   useEffect(() => {
@@ -4593,6 +4656,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedStatementId,
         selectedReportId,
         setSelectedReportId,
+        selectedAssignmentId,
+        setSelectedAssignmentId,
+        selectedSubmissionId,
+        setSelectedSubmissionId,
         refreshData,
       }}
     >

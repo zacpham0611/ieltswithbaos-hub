@@ -25,6 +25,7 @@ export const StudentDashboard: React.FC = () => {
     setSelectedCourseId,
     setSelectedStatementId,
     setSelectedReportId,
+    setSelectedAssignmentId,
   } = useApp();
   const { t, formatCurrency, formatNumber } = useI18n();
   const { activeThemeId, currentTheme } = useSeasonalTheme();
@@ -314,7 +315,10 @@ export const StudentDashboard: React.FC = () => {
                   return (
                     <div
                       key={a.id}
-                      onClick={() => setActiveTab('assignments')}
+                      onClick={() => {
+                        setSelectedAssignmentId(a.id);
+                        setActiveTab('assignments');
+                      }}
                       className="py-3.5 flex items-center justify-between hover:bg-slate-50 px-2 rounded-lg cursor-pointer transition-colors"
                     >
                       <div>

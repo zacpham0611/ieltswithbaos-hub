@@ -41,6 +41,8 @@ export const TeacherDashboard: React.FC = () => {
     tuitionStatements,
     activities,
     setActiveTab,
+    setSelectedAssignmentId,
+    setSelectedSubmissionId,
   } = useApp();
   const { t, formatNumber } = useI18n();
   const { activeThemeId, currentTheme } = useSeasonalTheme();
@@ -435,7 +437,11 @@ export const TeacherDashboard: React.FC = () => {
                 {pendingSubmissions.slice(0, 3).map((sub) => (
                   <div
                     key={sub.id}
-                    onClick={() => setActiveTab('assignments')}
+                    onClick={() => {
+                      setSelectedSubmissionId(sub.id);
+                      setSelectedAssignmentId(sub.assignmentId);
+                      setActiveTab('assignments');
+                    }}
                     className="py-3 flex items-center justify-between hover:bg-black/5 px-2 rounded-lg cursor-pointer transition-colors"
                   >
                     <div className="text-left">
