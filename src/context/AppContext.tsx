@@ -217,6 +217,21 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+const isUUID = (str?: string) =>
+  Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+
+const toValidUUID = (str?: string): string => {
+  if (isUUID(str)) return str!;
+  let hash = 0;
+  const s = str || 'default-id';
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash |= 0;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, '0');
+  return `${hex.slice(0, 8)}-0000-4000-8000-${hex.padEnd(12, '0').slice(0, 12)}`;
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const currentUserRef = useRef<User | null>(null);
@@ -245,6 +260,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [regularTestAttempts, setRegularTestAttempts] = useState<RegularTestAttempt[]>([]);
   const [regularTestReportLinks, setRegularTestReportLinks] = useState<RegularTestReportLink[]>([]);
   const [activeExamAttempt, setActiveExamAttempt] = useState<RegularTestAttempt | null>(null);
+  const activeExamAttemptRef = useRef<RegularTestAttempt | null>(null);
+  activeExamAttemptRef.current = activeExamAttempt;
 
   // Read URL search params on initialization if in browser
   const getInitialParam = (param: string): string | null => {
@@ -1452,18 +1469,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } catch {}
           }
 
-          // 3. Explicit direct student assignment filter
+          // 3. Explicit direct student assignment filter (checks both raw and canonical UUID)
           try {
-            const { data: directTests } = await supabase
-              .from('regular_tests')
-              .select('*')
-              .contains('eligible_student_ids', [currentUser.id])
-              .in('status', ['live', 'scheduled', 'completed', 'closed'])
-              .order('created_at', { ascending: false });
+            const studentIdsToCheck = Array.from(
+              new Set([currentUser.id, toValidUUID(currentUser.id)].filter(Boolean))
+            );
+            for (const sid of studentIdsToCheck) {
+              const { data: directTests } = await supabase
+                .from('regular_tests')
+                .select('*')
+                .contains('eligible_student_ids', [sid])
+                .in('status', ['live', 'scheduled', 'completed', 'closed'])
+                .order('created_at', { ascending: false });
 
-            if (directTests && Array.isArray(directTests)) {
-              for (const dt of directTests) {
-                testMap.set(dt.id, dt);
+              if (directTests && Array.isArray(directTests)) {
+                for (const dt of directTests) {
+                  testMap.set(dt.id, dt);
+                }
               }
             }
           } catch {}
@@ -1909,6 +1931,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         refreshData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_test_attempts' }, () => {
+        // Suppress full background refetch during active exam taking to prevent exam UI disruption/reload
+        if (activeExamAttemptRef.current) {
+          return;
+        }
         refreshData();
       })
       .subscribe();
@@ -4026,8 +4052,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const test = regularTests.find((t) => t.id === testId);
     if (!test) throw new Error('Test not found');
 
-    if (test.status !== 'live') {
+    const isLiveOrScheduledStarted =
+      test.status === 'live' ||
+      (test.status === 'scheduled' && (!test.availabilityStart || new Date(test.availabilityStart) <= new Date()));
+
+    if (!isLiveOrScheduledStarted) {
       throw new Error('Test is not currently live for exam taking');
+    }
+
+    if (test.availabilityEnd && new Date(test.availabilityEnd) < new Date()) {
+      throw new Error('Test availability period has expired');
+    }
+
+    // Auto-promote scheduled test to live if start time has arrived
+    if (test.status === 'scheduled') {
+      void supabase.from('regular_tests').update({ status: 'live' }).eq('id', test.id);
     }
 
     // Access code validation

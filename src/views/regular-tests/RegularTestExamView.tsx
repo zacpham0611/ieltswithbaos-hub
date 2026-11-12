@@ -32,6 +32,7 @@ import { ExamListeningAudioPlayer } from '../../components/listening/ExamListeni
 import { renderCleanMarkdown } from '../../utils/textFormatter';
 import { ListeningQuestionRenderer } from '../../components/listening/ListeningQuestionRenderer';
 import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../../components/writing/WritingTask1VisualRenderer';
+import { extractAllNormalizedQuestions } from '../../lib/questionNormalizer';
 
 interface RegularTestExamViewProps {
   test: RegularTest;
@@ -589,8 +590,22 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
     triggerAutosave(nextAnswers, flaggedQuestions);
   };
 
-  // Question counts for summary
-  const allReadingQuestions = currentSection?.skill === 'reading' ? currentSection.readingQuestions || [] : [];
+  // Normalized Reading payload (extracts questions from readingQuestions, passages, and questionGroups)
+  const normalizedReadingData = React.useMemo(() => {
+    if (currentSection?.skill !== 'reading') {
+      return { questions: [] as ReadingQuestion[], passageMap: {} as Record<string, number> };
+    }
+    const extracted = extractAllNormalizedQuestions(currentSection);
+    if (extracted.questions && extracted.questions.length > 0) {
+      return extracted;
+    }
+    const directQuestions: ReadingQuestion[] = currentSection.readingQuestions || [];
+    const directMap: Record<string, number> = {};
+    directQuestions.forEach((q) => { directMap[q.id] = 0; });
+    return { questions: directQuestions, passageMap: directMap };
+  }, [currentSection]);
+
+  const allReadingQuestions = normalizedReadingData.questions;
   const answeredReadingCount = allReadingQuestions.filter((q) => answers.reading?.[q.id]?.trim()).length;
   const flaggedCount = Object.values(flaggedQuestions).filter(Boolean).length;
 
@@ -599,9 +614,9 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
       ? currentSection.passages
       : null;
 
-  // Map each question to its passage index (0-based)
+  // Map each question to its passage index (0-based) using authentic extracted passageMap
   const questionPassageIndexMap = React.useMemo(() => {
-    const map: Record<string, number> = {};
+    const map: Record<string, number> = { ...(normalizedReadingData.passageMap || {}) };
     if (!readingPassagesList || readingPassagesList.length <= 1) {
       allReadingQuestions.forEach((q) => {
         map[q.id] = 0;
@@ -610,7 +625,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
     }
     readingPassagesList.forEach((p, pIdx) => {
       (p.questions || []).forEach((q: any) => {
-        if (q?.id) map[q.id] = pIdx;
+        if (q?.id && map[q.id] === undefined) map[q.id] = pIdx;
       });
     });
     const unmapped = allReadingQuestions.filter((q) => map[q.id] === undefined);
@@ -624,7 +639,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
       });
     }
     return map;
-  }, [readingPassagesList, allReadingQuestions]);
+  }, [readingPassagesList, allReadingQuestions, normalizedReadingData]);
 
   // BLOCK NON-DESKTOP DEVICES (< 1280px)
   if (windowWidth < 1280) {
@@ -1619,6 +1634,37 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                           </select>
                         </div>
                       )}
+
+                      {/* Fallback Answer Input (guarantees every question has an interactive input) */}
+                      {!/(\[\d+\]|\[blank\]|(?:\b\d{1,2}\s*)?[\.\_\…\–\-]{3,}|_{2,})/.test(q.prompt || (q as any).question || (q as any).questionText || '') &&
+                        effectiveQType !== 'matching_information' &&
+                        effectiveQType !== 'matching_features' &&
+                        effectiveQType !== 'matching_sentence_endings' &&
+                        !(effectiveQType === 'multiple_choice' && q.options?.length) &&
+                        !(effectiveQType === 'multiple_select' && q.options?.length) &&
+                        effectiveQType !== 'true_false_not_given' &&
+                        effectiveQType !== 'yes_no_not_given' &&
+                        !(effectiveQType === 'matching_headings' && q.options?.length) &&
+                        !(
+                          (effectiveQType === 'sentence_completion' ||
+                            effectiveQType === 'summary_completion' ||
+                            effectiveQType === 'note_completion' ||
+                            effectiveQType === 'table_completion' ||
+                            effectiveQType === 'flowchart_completion' ||
+                            effectiveQType === 'fill_in_the_blank' ||
+                            effectiveQType === 'short_answer')
+                        ) && (
+                          <div className="mt-3 pl-2 sm:pl-8 flex flex-wrap items-center gap-3">
+                            <span className="text-xs md:text-sm font-bold text-slate-700">Answer:</span>
+                            <input
+                              type="text"
+                              value={studentAns}
+                              onChange={(e) => handleReadingAnswerChange(q.id, e.target.value)}
+                              placeholder="Type answer here..."
+                              className="px-3.5 py-2 text-xs md:text-sm rounded-xl border border-slate-300 w-full sm:w-72 focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-medium bg-white text-slate-900 shadow-2xs"
+                            />
+                          </div>
+                        )}
                     </div>
                   );
                 })}

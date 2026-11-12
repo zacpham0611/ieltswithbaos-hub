@@ -25,6 +25,7 @@ export const AppContent: React.FC = () => {
   const {
     currentUser,
     loadingAuth,
+    loadingData,
     activeTab,
     setActiveTab,
     activeExamAttempt,
@@ -63,6 +64,31 @@ export const AppContent: React.FC = () => {
         />
       );
     }
+    if (loadingData) {
+      return (
+        <div className="fixed inset-0 z-50 bg-slate-900 text-white flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
+          <h2 className="text-lg font-bold">Resuming Exam Session...</h2>
+          <p className="text-xs text-slate-400 mt-2">Connecting to secure exam server, please wait...</p>
+        </div>
+      );
+    }
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-900 text-white flex flex-col items-center justify-center p-8 text-center">
+        <div className="p-6 max-w-md bg-slate-800 rounded-2xl border border-slate-700 space-y-4">
+          <h2 className="text-lg font-bold text-red-400">Exam Session Unavailable</h2>
+          <p className="text-xs text-slate-300">
+            The exam data could not be retrieved from the server. The test may have ended, been unpublished, or is no longer assigned to your account.
+          </p>
+          <button
+            onClick={() => setActiveExamAttempt(null)}
+            className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-500 font-bold text-xs rounded-xl"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const isTeacher = currentUser.role === 'teacher';

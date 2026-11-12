@@ -54,6 +54,8 @@ import {
 import {
   generateCorrectedEssay,
   normalizeAnnotations,
+  toCanonicalEssayText,
+  findClosestOccurrence,
 } from '../lib/writingCorrection';
 import { parseListeningDocument } from '../lib/listeningExtractor';
 import { findAssociatedPart3GroupsForCards, getSpeakingResourceDetails } from '../utils/speakingLinkage';
@@ -198,8 +200,38 @@ export const PASTEL_MARKER_COLORS: Array<{
 ];
 
 /**
- * Computes exact character offsets for a window.getSelection() within a specific root element
- * by traversing text nodes in document tree order.
+ * Resolves a DOM (container, offset) boundary point to its exact Text node and character offset,
+ * correctly handling Element node boundaries, edge boundaries, and nested text nodes.
+ */
+function resolvePointToTextNode(container: Node, offset: number, isStart: boolean): { node: Node; offset: number } {
+  if (container.nodeType === Node.TEXT_NODE) {
+    return { node: container, offset };
+  }
+  if (container.nodeType === Node.ELEMENT_NODE) {
+    const el = container as Element;
+    const children = el.childNodes;
+    if (children.length === 0) {
+      return { node: container, offset: 0 };
+    }
+    if (offset >= children.length) {
+      const lastChild = children[children.length - 1];
+      if (lastChild.nodeType === Node.TEXT_NODE) {
+        return { node: lastChild, offset: (lastChild as Text).length };
+      }
+      return resolvePointToTextNode(lastChild, lastChild.childNodes.length, false);
+    }
+    const targetChild = children[offset];
+    if (targetChild.nodeType === Node.TEXT_NODE) {
+      return { node: targetChild, offset: 0 };
+    }
+    return resolvePointToTextNode(targetChild, 0, true);
+  }
+  return { node: container, offset };
+}
+
+/**
+ * Computes exact character offsets for window.getSelection() within a specific root element
+ * by traversing text nodes in document tree order, strictly ignoring non-content badges.
  */
 function getSelectionCharacterOffsetsWithin(element: HTMLElement): { startIndex: number; endIndex: number } | null {
   const selection = window.getSelection();
@@ -211,7 +243,19 @@ function getSelectionCharacterOffsetsWithin(element: HTMLElement): { startIndex:
     return null;
   }
 
-  const treeWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  // Filter out auxiliary badges or count indicators
+  const treeWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if ((node.parentElement as HTMLElement)?.closest('[data-annotation-ignore="true"]')) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const startPoint = resolvePointToTextNode(range.startContainer, range.startOffset, true);
+  const endPoint = resolvePointToTextNode(range.endContainer, range.endOffset, false);
+
   let charIndex = 0;
   let startIndex = -1;
   let endIndex = -1;
@@ -220,11 +264,11 @@ function getSelectionCharacterOffsetsWithin(element: HTMLElement): { startIndex:
   while (currentNode) {
     const textLen = (currentNode as Text).length;
 
-    if (currentNode === range.startContainer) {
-      startIndex = charIndex + range.startOffset;
+    if (startIndex === -1 && currentNode === startPoint.node) {
+      startIndex = charIndex + startPoint.offset;
     }
-    if (currentNode === range.endContainer) {
-      endIndex = charIndex + range.endOffset;
+    if (endIndex === -1 && currentNode === endPoint.node) {
+      endIndex = charIndex + endPoint.offset;
       break;
     }
 
@@ -1344,14 +1388,33 @@ export const AssignmentsView: React.FC = () => {
     const offsets = getSelectionCharacterOffsetsWithin(container);
     if (!offsets) return;
 
-    const fullText = currentSubmission?.writingText || '';
-    const selectedText = fullText.substring(offsets.startIndex, offsets.endIndex);
-    if (!selectedText || selectedText.length === 0) return;
+    // CANONICAL ESSAY TEXT (Single Source of Truth, LF & NFC normalized)
+    const canonicalText = toCanonicalEssayText(currentSubmission?.writingText || '');
+    if (!canonicalText) return;
+
+    // Selected text directly from browser selection
+    const rawSelectedText = toCanonicalEssayText(selection.toString());
+    if (!rawSelectedText || rawSelectedText.length === 0) return;
+
+    let start = offsets.startIndex;
+    let end = offsets.endIndex;
+
+    // Verify exact alignment with canonical text; heal any boundary/whitespace discrepancies
+    if (canonicalText.substring(start, end) !== rawSelectedText) {
+      const match = findClosestOccurrence(canonicalText, rawSelectedText, start);
+      if (match) {
+        start = match.start;
+        end = match.end;
+      }
+    }
+
+    const verifiedSelectedText = canonicalText.substring(start, end);
+    if (!verifiedSelectedText || verifiedSelectedText.length === 0) return;
 
     setActiveSelection({
-      text: selectedText,
-      startIndex: offsets.startIndex,
-      endIndex: offsets.endIndex,
+      text: verifiedSelectedText,
+      startIndex: start,
+      endIndex: end,
     });
   };
 
@@ -1422,14 +1485,15 @@ export const AssignmentsView: React.FC = () => {
     annots: InlineAnnotation[] = [],
     interactive = false
   ) => {
-    if (!text) return null;
+    const canonical = toCanonicalEssayText(text);
+    if (!canonical) return null;
     if (!annots || annots.length === 0) {
-      return <span>{text}</span>;
+      return <span>{canonical}</span>;
     }
 
-    const normalized = normalizeAnnotations(text, annots);
+    const normalized = normalizeAnnotations(canonical, annots);
     if (normalized.length === 0) {
-      return <span>{text}</span>;
+      return <span>{canonical}</span>;
     }
 
     const typeHighlightMap: Record<InlineAnnotation['type'], string> = {
@@ -1442,10 +1506,10 @@ export const AssignmentsView: React.FC = () => {
     };
 
     // Collect all boundary points to partition text into atomic disjoint intervals
-    const boundarySet = new Set<number>([0, text.length]);
+    const boundarySet = new Set<number>([0, canonical.length]);
     normalized.forEach((a) => {
-      if (a.resolvedStart >= 0 && a.resolvedStart <= text.length) boundarySet.add(a.resolvedStart);
-      if (a.resolvedEnd >= 0 && a.resolvedEnd <= text.length) boundarySet.add(a.resolvedEnd);
+      if (a.resolvedStart >= 0 && a.resolvedStart <= canonical.length) boundarySet.add(a.resolvedStart);
+      if (a.resolvedEnd >= 0 && a.resolvedEnd <= canonical.length) boundarySet.add(a.resolvedEnd);
     });
 
     const sortedBoundaries = Array.from(boundarySet).sort((a, b) => a - b);
@@ -1454,7 +1518,7 @@ export const AssignmentsView: React.FC = () => {
     for (let i = 0; i < sortedBoundaries.length - 1; i++) {
       const segStart = sortedBoundaries[i];
       const segEnd = sortedBoundaries[i + 1];
-      const segText = text.substring(segStart, segEnd);
+      const segText = canonical.substring(segStart, segEnd);
       if (!segText) continue;
 
       const covering = normalized.filter(
@@ -1522,7 +1586,10 @@ export const AssignmentsView: React.FC = () => {
             title={`Trùng lặp (${covering.length} nhận xét): ${covering.map((c) => c.comment).join(' | ')}`}
           >
             {segText}
-            <span className="inline-flex items-center justify-center text-[10px] font-bold bg-indigo-600 text-white rounded-full px-1.5 py-0.2 mx-0.5 align-middle shadow-2xs select-none not-italic no-underline">
+            <span
+              data-annotation-ignore="true"
+              className="inline-flex items-center justify-center text-[10px] font-bold bg-indigo-600 text-white rounded-full px-1.5 py-0.2 mx-0.5 align-middle shadow-2xs select-none not-italic no-underline"
+            >
               {covering.length}
             </span>
           </mark>
@@ -3301,7 +3368,7 @@ export const AssignmentsView: React.FC = () => {
       (!hasMultiPassages && activeAssignment.questionGroups) ||
       [];
 
-    const questionRenderGroups: QuestionRenderGroup[] = (currentPassageGroups && currentPassageGroups.length > 0)
+    const initialRenderGroups: QuestionRenderGroup[] = (currentPassageGroups && currentPassageGroups.length > 0)
       ? currentPassageGroups.map((g, gIdx) => {
           const groupType = g.questionTypeOverride || g.questionType;
           const isCompletion = COMPLETION_TYPES.has(groupType);
@@ -3358,6 +3425,23 @@ export const AssignmentsView: React.FC = () => {
           };
         })
       : buildQuestionRenderGroups(activePassageQuestions);
+
+    // GUARANTEE 100% PARITY BETWEEN NAVIGATOR & ANSWERING INTERFACE:
+    // Any activePassageQuestions not included in currentPassageGroups are appended as fallback groups
+    const renderedQuestionIds = new Set<string>();
+    initialRenderGroups.forEach((rg) => {
+      rg.questions.forEach(({ q }) => {
+        if (q.id) renderedQuestionIds.add(q.id);
+      });
+    });
+
+    const unrenderedQuestions = activePassageQuestions.filter(
+      (item) => !renderedQuestionIds.has(item.q.id)
+    );
+
+    const questionRenderGroups: QuestionRenderGroup[] = unrenderedQuestions.length > 0
+      ? [...initialRenderGroups, ...buildQuestionRenderGroups(unrenderedQuestions)]
+      : initialRenderGroups;
 
     return (
       <ErrorBoundary onReset={() => setSelectedAssignmentId(null)}>
@@ -3792,6 +3876,7 @@ export const AssignmentsView: React.FC = () => {
                           const typeLabel = (group.groupType || 'Completion')
                             .replace(/_/g, ' ')
                             .replace(/\b\w/g, (c) => c.toUpperCase());
+                          const renderedInTextQIds = new Set<string>();
 
                           return (
                             <div key={group.id} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-4">
@@ -3846,6 +3931,7 @@ export const AssignmentsView: React.FC = () => {
                                           const currentVal = qId ? readingAnswers[qId] || (mySub?.readingAnswers && mySub.readingAnswers[qId]) || '' : '';
 
                                           if (targetItem && qId) {
+                                            renderedInTextQIds.add(qId);
                                             if (effectiveWordList && effectiveWordList.length > 0) {
                                               return (
                                                 <span key={`${keyPrefix}-${i}`} className="inline-flex items-center gap-1 mx-1 align-middle">
@@ -3856,7 +3942,7 @@ export const AssignmentsView: React.FC = () => {
                                                     disabled={isReadOnlyGroup}
                                                     value={currentVal}
                                                     onChange={(e) => handleAnswerChange(qId, e.target.value)}
-                                                    className="text-xs font-semibold px-2 py-0.5 rounded border border-blue-300 bg-white text-blue-900 focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                                                    className="text-xs font-semibold px-2 py-0.5 rounded border border-blue-300 bg-white text-blue-900 focus:ring-1 focus:ring-blue-500 shadow-2xs" id={`q_${qId}`} data-question-anchor={qId}
                                                   >
                                                     <option value="">--</option>
                                                     {effectiveWordList.map((opt) => {
@@ -3882,7 +3968,7 @@ export const AssignmentsView: React.FC = () => {
                                                   value={currentVal}
                                                   onChange={(e) => handleAnswerChange(qId, e.target.value)}
                                                   placeholder="..."
-                                                  className="w-24 sm:w-36 text-xs font-semibold px-2.5 py-1 rounded-lg border border-blue-300 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                                  className="w-24 sm:w-36 text-xs font-semibold px-2.5 py-1 rounded-lg border border-blue-300 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 shadow-2xs" id={`q_${qId}`} data-question-anchor={qId}
                                                 />
                                               </span>
                                             );
@@ -4020,20 +4106,8 @@ export const AssignmentsView: React.FC = () => {
 
                               {/* 3. Compact Answer Fields (showing ONLY Question Number + Input, strictly one per row) */}
                               {(() => {
-                                const embeddedMatches = Array.from(cleanReadingText(group.groupText || '').matchAll(/\[(\d+)\]/g)).map((m) => m[1]);
-                                const unembeddedQuestions = group.groupText && embeddedMatches.length > 0
-                                  ? group.questions.filter(({ q, idx }, qIdx) => {
-                                      const qNumStr = String(idx + 1);
-                                      const qNumberProp = String((q as any).questionNumber || (q as any).number || '');
-                                      const isEmbeddedByIndex = qIdx < embeddedMatches.length && (embeddedMatches[qIdx] === qNumStr || embeddedMatches[qIdx] === qNumberProp);
-                                      return (
-                                        !embeddedMatches.includes(qNumStr) &&
-                                        !embeddedMatches.includes(qNumberProp) &&
-                                        !embeddedMatches.some((num) => q.id.endsWith(`_${num}`) || q.id === `q_${num}` || q.id.endsWith(num)) &&
-                                        !isEmbeddedByIndex
-                                      );
-                                    })
-                                  : group.questions;
+                                // Guarantee all questions that did not receive an interactive blank in the text are present here
+                                const unembeddedQuestions = group.questions.filter(({ q }) => !renderedInTextQIds.has(q.id));
 
                                 if (unembeddedQuestions.length === 0) return null;
 

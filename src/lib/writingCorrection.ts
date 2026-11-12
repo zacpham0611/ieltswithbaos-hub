@@ -16,8 +16,113 @@ export interface CorrectedEssayResult {
 }
 
 /**
- * Normalizes annotation index positions within original text.
- * Falls back to finding selectedText if indices are offset.
+ * Canonicalizes essay text to LF newlines and Unicode NFC normalization.
+ */
+export function toCanonicalEssayText(raw?: string): string {
+  if (!raw) return '';
+  return raw
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .normalize('NFC');
+}
+
+/**
+ * Finds the occurrence of `needle` in `haystack` that is closest to `preferredIndex`.
+ * Operates in canonical LF normalized coordinate space.
+ */
+export function findClosestOccurrence(
+  haystack: string,
+  needle: string,
+  preferredIndex: number
+): { start: number; end: number } | null {
+  if (!needle || !haystack) return null;
+
+  const h = toCanonicalEssayText(haystack);
+  const n = toCanonicalEssayText(needle);
+  const needleLen = n.length;
+
+  if (needleLen === 0) return null;
+
+  // 1. Direct match at preferredIndex
+  if (
+    preferredIndex >= 0 &&
+    preferredIndex + needleLen <= h.length &&
+    h.substring(preferredIndex, preferredIndex + needleLen) === n
+  ) {
+    return { start: preferredIndex, end: preferredIndex + needleLen };
+  }
+
+  // 2. Check localized search window around preferredIndex (within radius of 120 chars or 2x needleLen)
+  const windowRadius = Math.max(120, needleLen * 2);
+  const winStart = Math.max(0, preferredIndex - windowRadius);
+  const winEnd = Math.min(h.length, preferredIndex + needleLen + windowRadius);
+  const windowSub = h.substring(winStart, winEnd);
+
+  let bestOffset = -1;
+  let minDiff = Infinity;
+
+  let localIdx = windowSub.indexOf(n);
+  while (localIdx !== -1) {
+    const globalIdx = winStart + localIdx;
+    const diff = Math.abs(globalIdx - preferredIndex);
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestOffset = globalIdx;
+    }
+    localIdx = windowSub.indexOf(n, localIdx + 1);
+  }
+
+  if (bestOffset !== -1) {
+    return { start: bestOffset, end: bestOffset + needleLen };
+  }
+
+  // 3. Fallback: Search globally across entire haystack for the closest occurrence
+  let globalIdx = h.indexOf(n);
+  while (globalIdx !== -1) {
+    const diff = Math.abs(globalIdx - preferredIndex);
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestOffset = globalIdx;
+    }
+    globalIdx = h.indexOf(n, globalIdx + 1);
+  }
+
+  if (bestOffset !== -1) {
+    return { start: bestOffset, end: bestOffset + needleLen };
+  }
+
+  // 4. Try trimmed needle if untrimmed failed
+  const trimmed = n.trim();
+  if (trimmed.length > 0 && trimmed.length !== n.length) {
+    const trimmedMatch = findClosestOccurrence(h, trimmed, preferredIndex);
+    if (trimmedMatch) return trimmedMatch;
+  }
+
+  // 5. Case-insensitive fallback in localized window
+  const hLower = h.toLowerCase();
+  const nLower = n.toLowerCase();
+  const winSubLower = hLower.substring(winStart, winEnd);
+  let localLowerIdx = winSubLower.indexOf(nLower);
+  while (localLowerIdx !== -1) {
+    const globalIdx = winStart + localLowerIdx;
+    const diff = Math.abs(globalIdx - preferredIndex);
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestOffset = globalIdx;
+    }
+    localLowerIdx = winSubLower.indexOf(nLower, localLowerIdx + 1);
+  }
+
+  if (bestOffset !== -1) {
+    return { start: bestOffset, end: bestOffset + needleLen };
+  }
+
+  return null;
+}
+
+/**
+ * Normalizes annotation index positions within canonical essay text.
+ * Resolves offsets consistently using the closest occurrence to prevent offset drift.
  */
 export function normalizeAnnotations(
   text: string,
@@ -25,47 +130,46 @@ export function normalizeAnnotations(
 ): (InlineAnnotation & { resolvedStart: number; resolvedEnd: number })[] {
   if (!text || !annotations || annotations.length === 0) return [];
 
+  const canonicalText = toCanonicalEssayText(text);
   const resolved: (InlineAnnotation & { resolvedStart: number; resolvedEnd: number })[] = [];
 
   for (const ann of annotations) {
     let start = Number(ann.startIndex);
     let end = Number(ann.endIndex);
+    const target = toCanonicalEssayText(ann.selectedText || '');
 
-    const isExactMatch =
+    // Case 1: Exact match at [start, end)
+    if (
       !isNaN(start) &&
       !isNaN(end) &&
       start >= 0 &&
-      end <= text.length &&
+      end <= canonicalText.length &&
       start < end &&
-      text.substring(start, end) === ann.selectedText;
+      canonicalText.substring(start, end) === target
+    ) {
+      resolved.push({
+        ...ann,
+        resolvedStart: start,
+        resolvedEnd: end,
+      });
+      continue;
+    }
 
-    const isTrimmedMatch =
-      !isExactMatch &&
-      !isNaN(start) &&
-      !isNaN(end) &&
-      start >= 0 &&
-      end <= text.length &&
-      start < end &&
-      text.substring(start, end).trim().toLowerCase() === (ann.selectedText || '').trim().toLowerCase();
-
-    const isDirectMatch = isExactMatch || isTrimmedMatch;
-
-    if (!isDirectMatch && ann.selectedText && ann.selectedText.length > 0) {
-      const target = ann.selectedText;
-      const foundIdx = text.indexOf(target);
-      if (foundIdx !== -1) {
-        start = foundIdx;
-        end = foundIdx + target.length;
-      } else {
-        const foundTrimmed = text.toLowerCase().indexOf(target.trim().toLowerCase());
-        if (foundTrimmed !== -1) {
-          start = foundTrimmed;
-          end = foundTrimmed + target.trim().length;
-        }
+    // Case 2: Match closest occurrence to start
+    if (target.length > 0) {
+      const match = findClosestOccurrence(canonicalText, target, !isNaN(start) ? start : 0);
+      if (match) {
+        resolved.push({
+          ...ann,
+          resolvedStart: match.start,
+          resolvedEnd: match.end,
+        });
+        continue;
       }
     }
 
-    if (!isNaN(start) && !isNaN(end) && start >= 0 && end <= text.length && start < end) {
+    // Case 3: Valid numeric bounds fallback
+    if (!isNaN(start) && !isNaN(end) && start >= 0 && end <= canonicalText.length && start < end) {
       resolved.push({
         ...ann,
         resolvedStart: start,
@@ -90,7 +194,8 @@ export function generateCorrectedEssay(
     return { correctedText: '', diffSegments: [], totalCorrections: 0 };
   }
 
-  const validAnnots = normalizeAnnotations(originalText, annotations);
+  const canonicalText = toCanonicalEssayText(originalText);
+  const validAnnots = normalizeAnnotations(canonicalText, annotations);
   const withSuggestions = validAnnots.filter(
     (a) =>
       a.type === 'deletion' ||
@@ -99,8 +204,8 @@ export function generateCorrectedEssay(
 
   if (withSuggestions.length === 0) {
     return {
-      correctedText: originalText,
-      diffSegments: [{ type: 'plain', text: originalText }],
+      correctedText: canonicalText,
+      diffSegments: [{ type: 'plain', text: canonicalText }],
       totalCorrections: 0,
     };
   }
@@ -121,13 +226,13 @@ export function generateCorrectedEssay(
 
   for (const a of nonOverlapping) {
     if (a.resolvedStart > cursor) {
-      const plainChunk = originalText.substring(cursor, a.resolvedStart);
+      const plainChunk = canonicalText.substring(cursor, a.resolvedStart);
       diffSegments.push({ type: 'plain', text: plainChunk });
       fullCorrected += plainChunk;
     }
 
     const correctedChunk = a.type === 'deletion' ? '' : (a.suggestion ? a.suggestion.trim() : '');
-    const originalChunk = originalText.substring(a.resolvedStart, a.resolvedEnd);
+    const originalChunk = canonicalText.substring(a.resolvedStart, a.resolvedEnd);
 
     diffSegments.push({
       type: 'replacement',
@@ -142,8 +247,8 @@ export function generateCorrectedEssay(
     cursor = a.resolvedEnd;
   }
 
-  if (cursor < originalText.length) {
-    const trailingChunk = originalText.substring(cursor);
+  if (cursor < canonicalText.length) {
+    const trailingChunk = canonicalText.substring(cursor);
     diffSegments.push({ type: 'plain', text: trailingChunk });
     fullCorrected += trailingChunk;
   }
