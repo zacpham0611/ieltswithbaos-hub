@@ -236,45 +236,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  // Regular Tests & Strict Exam Mode state
-  const [regularTests, setRegularTests] = useState<RegularTest[]>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const storedUser = localStorage.getItem('ielts_user');
-        const userObj = storedUser ? JSON.parse(storedUser) : null;
-        const targetUserId = userObj?.id;
-        if (targetUserId) {
-          const raw = localStorage.getItem(`ielts_regular_tests_${targetUserId}`);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return [];
-  });
-  const [regularTestAttempts, setRegularTestAttempts] = useState<RegularTestAttempt[]>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const storedUser = localStorage.getItem('ielts_user');
-        const userObj = storedUser ? JSON.parse(storedUser) : null;
-        const targetUserId = userObj?.id;
-        if (targetUserId) {
-          const raw = localStorage.getItem(`ielts_regular_test_attempts_${targetUserId}`);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return [];
-  });
+  // Regular Tests & Strict Exam Mode state (authoritative source of truth: Supabase database)
+  const [regularTests, setRegularTests] = useState<RegularTest[]>([]);
+  const [regularTestAttempts, setRegularTestAttempts] = useState<RegularTestAttempt[]>([]);
   const [regularTestReportLinks, setRegularTestReportLinks] = useState<RegularTestReportLink[]>([]);
   const [activeExamAttempt, setActiveExamAttempt] = useState<RegularTestAttempt | null>(null);
 
@@ -284,49 +248,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedStatementId, setSelectedStatementId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
 
-  // Hydrate & Cache Regular Tests in localStorage for instant hydration on page reload
+  // Restore in-progress session marker on page load if active
   useEffect(() => {
-    if (currentUser?.id) {
-      try {
-        const cached = localStorage.getItem(`ielts_regular_tests_${currentUser.id}`);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setRegularTests(parsed);
-          }
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      const activeSessionToken = sessionStorage.getItem('ielts_active_session_token');
+      if (activeSessionToken && !activeExamAttempt && regularTestAttempts.length > 0) {
+        const matchingAttempt = regularTestAttempts.find(
+          (a) => a.sessionToken === activeSessionToken && a.status === 'in_progress'
+        );
+        if (matchingAttempt) {
+          setActiveExamAttempt(matchingAttempt);
         }
-        const cachedAttempts = localStorage.getItem(`ielts_regular_test_attempts_${currentUser.id}`);
-        if (cachedAttempts) {
-          const parsedAttempts = JSON.parse(cachedAttempts);
-          if (Array.isArray(parsedAttempts) && parsedAttempts.length > 0) {
-            setRegularTestAttempts(parsedAttempts);
-          }
-        }
-      } catch {
-        // ignore
       }
     }
-  }, [currentUser?.id]);
-
-  useEffect(() => {
-    if (currentUser?.id) {
-      try {
-        localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(regularTests));
-      } catch (e) {
-        console.warn('Failed to cache regular tests:', e);
-      }
-    }
-  }, [currentUser?.id, regularTests]);
-
-  useEffect(() => {
-    if (currentUser?.id) {
-      try {
-        localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(regularTestAttempts));
-      } catch (e) {
-        console.warn('Failed to cache regular test attempts:', e);
-      }
-    }
-  }, [currentUser?.id, regularTestAttempts]);
+  }, [regularTestAttempts, activeExamAttempt]);
 
   // Generate 7-character course code helper
   const generateCode = () => {
@@ -946,9 +881,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 updatedAt: t.updated_at?.split('T')[0] || '',
               }));
               setRegularTests(mappedTeacherTests);
-              try {
-                localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTeacherTests));
-              } catch {}
             }
           }
         } catch (rtErr) {
@@ -1008,9 +940,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               updatedAt: a.updated_at,
             }));
             setRegularTestAttempts(mappedTeacherAttempts);
-            try {
-              localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(mappedTeacherAttempts));
-            } catch {}
           }
         } catch (attErr) {
           console.warn('Teacher regular_test_attempts fetch notice:', attErr);
@@ -1404,7 +1333,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
         }
 
-        // Student Regular Tests: fetch tests for approved courses and directly eligible students
+        // Student Regular Test Attempts (Fetch first so attempt testIds are guaranteed to be hydrated)
+        let studentAttemptsData: any[] | null = null;
+        try {
+          const { data: attData } = await supabase
+            .from('regular_test_attempts')
+            .select('*')
+            .eq('student_id', currentUser.id)
+            .order('created_at', { ascending: false });
+          studentAttemptsData = attData;
+        } catch (attErr) {
+          console.warn('Student regular_test_attempts fetch notice:', attErr);
+        }
+
+        const attemptTestIds: string[] = studentAttemptsData && Array.isArray(studentAttemptsData)
+          ? Array.from(new Set(studentAttemptsData.map((a: any) => a.test_id).filter(Boolean)))
+          : [];
+
+        // Student Regular Tests: fetch tests for approved courses, direct student eligibility, and any active/submitted attempts
         try {
           const testMap = new Map<string, any>();
 
@@ -1458,6 +1404,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             }
           } catch {}
+
+          // 4. Critical Exam Recovery Query: ensure any test student has an attempt for is retrieved authoritatively
+          if (attemptTestIds.length > 0) {
+            try {
+              const { data: attemptTests } = await supabase
+                .from('regular_tests')
+                .select('*')
+                .in('id', attemptTestIds);
+
+              if (attemptTests && Array.isArray(attemptTests)) {
+                for (const at of attemptTests) {
+                  testMap.set(at.id, at);
+                }
+              }
+            } catch (attTestErr) {
+              console.warn('Attempt-linked tests fetch notice:', attTestErr);
+            }
+          }
 
           const rtData = Array.from(testMap.values());
 
@@ -1522,69 +1486,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
 
             setRegularTests(mappedTests);
-            try {
-              localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(mappedTests));
-            } catch {}
           }
         } catch (rtErr) {
           console.warn('DB regular_tests fetch notice for student:', rtErr);
         }
 
-        // Student Regular Test Attempts (In-progress & Completed Attempts)
-        try {
-          const { data: studentAttemptsData } = await supabase
-            .from('regular_test_attempts')
-            .select('*')
-            .eq('student_id', currentUser.id)
-            .order('created_at', { ascending: false });
+        // Map and set Student Regular Test Attempts (In-progress & Completed Attempts)
+        if (studentAttemptsData && Array.isArray(studentAttemptsData) && fetchSeq === fetchSequenceRef.current) {
+          const mappedStudentAttempts: RegularTestAttempt[] = studentAttemptsData.map((a: any) => ({
+            id: a.id,
+            testId: a.test_id,
+            testTitle: a.test_title || 'Regular Test',
+            versionId: a.version_id,
+            studentId: a.student_id,
+            studentName: currentUser.name,
+            studentEmail: currentUser.email,
+            courseId: a.course_id,
+            courseName: loadedCourses.find((c: any) => c.id === a.course_id)?.name || 'Course',
+            attemptNumber: a.attempt_number || 1,
+            serverStartTime: a.server_start_time,
+            serverDeadline: a.server_deadline,
+            extraTimeMinutes: a.extra_time_minutes || 0,
+            currentSectionIndex: a.current_section_index || 0,
+            status: a.status,
+            submittedAt: a.submitted_at,
+            autoSubmitted: Boolean(a.auto_submitted),
+            sessionToken: a.session_token,
+            deviceInfo: a.device_info,
+            answers: a.answers || { reading: {}, writing: { text: '', wordCount: 0 } },
+            flaggedQuestions: a.flagged_questions || {},
+            writingRevisions: a.writing_revisions || [],
+            saveRevisionSequence: a.save_revision_sequence || 0,
+            scores: a.scores,
+            overallBand: a.overall_band,
+            gradingStatus: a.grading_status || 'pending',
+            isReleased: Boolean(a.is_released),
+            releasedAt: a.released_at,
+            createdAt: a.created_at,
+            updatedAt: a.updated_at,
+          }));
 
-          if (studentAttemptsData && Array.isArray(studentAttemptsData) && fetchSeq === fetchSequenceRef.current) {
-            const mappedStudentAttempts: RegularTestAttempt[] = studentAttemptsData.map((a: any) => ({
-              id: a.id,
-              testId: a.test_id,
-              testTitle: a.test_title || 'Regular Test',
-              versionId: a.version_id,
-              studentId: a.student_id,
-              studentName: currentUser.name,
-              studentEmail: currentUser.email,
-              courseId: a.course_id,
-              courseName: loadedCourses.find((c: any) => c.id === a.course_id)?.name || 'Course',
-              attemptNumber: a.attempt_number || 1,
-              serverStartTime: a.server_start_time,
-              serverDeadline: a.server_deadline,
-              extraTimeMinutes: a.extra_time_minutes || 0,
-              currentSectionIndex: a.current_section_index || 0,
-              status: a.status,
-              submittedAt: a.submitted_at,
-              autoSubmitted: Boolean(a.auto_submitted),
-              sessionToken: a.session_token,
-              deviceInfo: a.device_info,
-              answers: a.answers || { reading: {}, writing: { text: '', wordCount: 0 } },
-              flaggedQuestions: a.flagged_questions || {},
-              writingRevisions: a.writing_revisions || [],
-              saveRevisionSequence: a.save_revision_sequence || 0,
-              scores: a.scores,
-              overallBand: a.overall_band,
-              gradingStatus: a.grading_status || 'pending',
-              isReleased: Boolean(a.is_released),
-              releasedAt: a.released_at,
-              createdAt: a.created_at,
-              updatedAt: a.updated_at,
-            }));
+          setRegularTestAttempts(mappedStudentAttempts);
 
-            setRegularTestAttempts(mappedStudentAttempts);
-            try {
-              localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(mappedStudentAttempts));
-            } catch {}
-
-            // Restore active exam attempt if student is in progress
-            const inProgressAttempt = mappedStudentAttempts.find((a) => a.status === 'in_progress');
-            if (inProgressAttempt) {
-              setActiveExamAttempt(inProgressAttempt);
+          // Restore active exam attempt if student is in progress
+          const inProgressAttempt = mappedStudentAttempts.find((a) => a.status === 'in_progress');
+          if (inProgressAttempt) {
+            setActiveExamAttempt(inProgressAttempt);
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+              sessionStorage.setItem('ielts_active_session_token', inProgressAttempt.sessionToken);
+            }
+          } else {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+              sessionStorage.removeItem('ielts_active_session_token');
             }
           }
-        } catch (attErr) {
-          console.warn('Student regular_test_attempts fetch notice:', attErr);
         }
       }
 
@@ -3975,24 +3930,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteRegularTest = async (id: string): Promise<{ success: boolean; message?: string }> => {
     // Unrestricted deletion regardless of status: cascade delete associated attempts and records cleanly
-    setRegularTests((prev) => {
-      const updated = prev.filter((t) => t.id !== id);
-      if (currentUser?.id) {
-        try {
-          localStorage.setItem(`ielts_regular_tests_${currentUser.id}`, JSON.stringify(updated));
-        } catch {}
-      }
-      return updated;
-    });
-    setRegularTestAttempts((prev) => {
-      const updated = prev.filter((a) => a.testId !== id);
-      if (currentUser?.id) {
-        try {
-          localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(updated));
-        } catch {}
-      }
-      return updated;
-    });
+    setRegularTests((prev) => prev.filter((t) => t.id !== id));
+    setRegularTestAttempts((prev) => prev.filter((a) => a.testId !== id));
 
     try {
       await supabase.from('regular_test_events').delete().eq('test_id', id);
@@ -4190,15 +4129,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRegularTestAttempts((prev) => [finalAttempt, ...prev]);
     setActiveExamAttempt(finalAttempt);
 
-    if (currentUser?.id) {
-      try {
-        localStorage.setItem(
-          `ielts_regular_test_attempts_${currentUser.id}`,
-          JSON.stringify([finalAttempt, ...regularTestAttempts])
-        );
-      } catch {}
-    }
-
     const examData = sanitizeExamDataForStudent(test);
     return { attempt: finalAttempt, examData };
   };
@@ -4290,13 +4220,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRegularTestAttempts((prev) => prev.map((a) => (a.id === attemptId ? updatedAttempt : a)));
     if (activeExamAttempt?.id === attemptId) {
       setActiveExamAttempt(null);
-    }
-
-    if (currentUser?.id) {
-      try {
-        const attemptsToCache = regularTestAttempts.map((a) => (a.id === attemptId ? updatedAttempt : a));
-        localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(attemptsToCache));
-      } catch {}
     }
 
     try {

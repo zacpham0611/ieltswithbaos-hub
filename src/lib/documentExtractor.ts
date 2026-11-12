@@ -2462,7 +2462,7 @@ function parseSinglePassage(
       const inlineMatches = Array.from(line.matchAll(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|\(\s*(\d{1,2})\s*\)(?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g));
       if (!qNum && inlineMatches.length > 0) {
         const normalizedLine = line.replace(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|\(\s*(\d{1,2})\s*\)(?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g, ' [$1$2$3] ');
-        inlineCompletionPassages.push(normalizedLine.trim());
+        inlineCompletionPassages.push(normalizedLine.trimEnd());
         if (currentQ && currentQ.prompt) {
           finalizeQuestion(
             currentQ,
@@ -2614,6 +2614,15 @@ function parseSinglePassage(
           answerKeyConfidence: assignedKey ? 'high' : 'needs_teacher_review',
         };
         currentQMultiNums = multiQNums;
+
+        const isCompletionGroupType =
+          /complete\s+the\s+(?:notes|summary|table|flow-chart|form)|note\s+completion|summary\s+completion/i.test(
+            `${gRange.title} ${groupInstructions.join(' ')}`
+          );
+        if (isCompletionGroupType) {
+          const normPromptLine = line.replace(/(?:\[\s*(\d{1,2})\s*\](?:\s*[_…\.\–\-]{2,})?|\(\s*(\d{1,2})\s*\)(?:\s*[_…\.\–\-]{2,})?|(?:^|\s)(\d{1,2})\s*[_…\.\–\-]{2,})/g, ' [$1$2$3] ');
+          inlineCompletionPassages.push(normPromptLine.trimEnd());
+        }
         continue;
       }
 
@@ -2655,7 +2664,7 @@ function parseSinglePassage(
           );
 
         if (isCompletionGroup && !isInstruction && !line.trim().startsWith('|')) {
-          inlineCompletionPassages.push(line.trim());
+          inlineCompletionPassages.push(line.trimEnd());
         } else {
           groupInstructions.push(line);
         }
@@ -2877,7 +2886,7 @@ function parseSinglePassage(
       questionType: primaryType,
       wordLimit: wordLimitInfo.limitStr,
       maxWords: wordLimitInfo.maxWords,
-      groupText: inlineCompletionPassages.length > 0 ? inlineCompletionPassages.join('\n\n').trim() : undefined,
+      groupText: inlineCompletionPassages.length > 0 ? inlineCompletionPassages.join('\n').trim() : undefined,
       headingsList: headingsList.length > 0 ? headingsList : undefined,
       featuresList: featuresList.length > 0 ? featuresList : undefined,
       optionsBox:

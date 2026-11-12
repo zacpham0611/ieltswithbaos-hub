@@ -995,32 +995,35 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     // Join isolated bullet lines with the next line (e.g. "•\nActively spoken languages: 81" -> "• Actively spoken languages: 81")
     formattedText = formattedText.replace(/^[•\-\*\+]\s*\n(?=[A-Za-z0-9\[])/gm, '• ');
     // Remove standalone empty bullet lines
-    formattedText = formattedText.replace(/^[•\-\*\+]\s*$/gm, '');
-    // Reconnect broken line splits across headings and subheadings
-    formattedText = formattedText.replace(/\b(Languages in|History of|Description of|Local languages:|Foreign languages:)\s*\n\s*/gi, '$1 ');
-    // Normalize subheadings separated by whitespace or space
-    formattedText = formattedText.replace(
-      /(?<=[^\n])\s+(?=(?:[A-Z][a-zA-Z0-9\s–\-]{1,35}:|(?:History of\s+[A-Z]|Description of\s+[A-Z]|Languages in\s+[A-Z]|Local languages:|Foreign languages:|General\b|Vocabulary\b|Grammar\b|Background\b|Summary\b|Topic\b|Location\b|Aim\b|Methods?\b|Results?\b|Conclusion\b)))/gm,
-      '\n'
-    );
+    formattedText = formattedText.replace(/^[•\-\*\+◦▪▫]\s*$/gm, '');
     // Normalize excessive line breaks
     formattedText = formattedText.replace(/\n{3,}/g, '\n\n').trim();
 
-    // Merge wrapped lines that belong to the previous bullet item
-    const rawLines = formattedText.split('\n').map((l) => l.trim()).filter(Boolean);
+    // Preserve authentic line breaks; only merge lines that are clear mid-sentence wraps (e.g. starting with lowercase after a trailing connector)
+    const rawLines = formattedText.split('\n').filter((l) => l.trim().length > 0);
     const lines: string[] = [];
     for (let i = 0; i < rawLines.length; i++) {
       const cur = rawLines[i];
+      const trimmedCur = cur.trim();
+      const prevLine = lines[lines.length - 1];
+      const prevTrimmed = prevLine ? prevLine.trim() : '';
+
+      const isPrevEndingConnector = prevTrimmed && /(?:,|and|or|of|in|to|for|with|from|by|-|–)$/i.test(prevTrimmed);
+      const isCurStartingLower = trimmedCur && /^[a-z]/.test(trimmedCur);
+      const isCurBullet = /^[•\-\*\+◦▪▫]/.test(trimmedCur);
+      const isPrevBullet = prevTrimmed && /^[•\-\*\+◦▪▫]/.test(prevTrimmed);
+
       if (
         lines.length > 0 &&
-        !/^[•\-\*\+]/.test(cur) &&
-        !cur.endsWith(':') &&
-        !/^[A-Z][a-zA-Z\s]{1,35}$/.test(cur) &&
-        /^[•\-\*\+]/.test(lines[lines.length - 1]) &&
-        !lines[lines.length - 1].endsWith('.')
+        !isCurBullet &&
+        !trimmedCur.endsWith(':') &&
+        isCurStartingLower &&
+        isPrevEndingConnector &&
+        isPrevBullet &&
+        !prevTrimmed.includes('[')
       ) {
-        // Line continuation of previous bullet
-        lines[lines.length - 1] += ' ' + cur;
+        // True mid-sentence line wrap continuation
+        lines[lines.length - 1] += ' ' + trimmedCur;
       } else {
         lines.push(cur);
       }
@@ -1029,14 +1032,16 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
     return (
       <div className="space-y-3 my-3">
         {lines.map((line, lIdx) => {
-          const isBullet = /^[•\-\*\+]\s+/.test(line);
+          const trimmedLine = line.trim();
+          const isBullet = /^[•\-\*\+◦▪▫]\s*/.test(trimmedLine);
+          const isSubBullet = /^(?:[ \t]{2,}[•\-\*\+◦▪▫]|--|–|\t)/.test(line) || (/^[•\-\*\+◦▪▫]/.test(trimmedLine) && line.startsWith('  '));
           const isHeading =
             !isBullet &&
-            !line.includes('[') &&
-            (line.endsWith(':') ||
-              line === line.toUpperCase() ||
-              /^(?:Aim|Background|Methods?|Results?|Conclusion|Location|Activities|Session|Topic|General|Vocabulary|Grammar|History of\s+[A-Z]|Description of\s+[A-Z]|Languages in\s+[A-Z]|Local languages|Foreign languages)\b/i.test(line) ||
-              (line.length <= 45 && !/[,\.]$/.test(line) && /^[A-Z]/.test(line)));
+            !trimmedLine.includes('[') &&
+            (trimmedLine.endsWith(':') ||
+              trimmedLine === trimmedLine.toUpperCase() ||
+              /^(?:Aim|Background|Methods?|Results?|Conclusion|Location|Activities|Session|Topic|General|Vocabulary|Grammar)\b/i.test(trimmedLine) ||
+              (trimmedLine.length <= 45 && !/[,\.]$/.test(trimmedLine) && /^[A-Z]/.test(trimmedLine)));
 
           if (isHeading) {
             return (
@@ -1045,17 +1050,19 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
                 className="pt-4 pb-1.5 text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2 border-b border-slate-200"
               >
                 <span className="w-2 h-2 rounded-full bg-blue-600 inline-block shrink-0" />
-                <span>{renderFormattedText(line, `hd-${lIdx}`)}</span>
+                <span>{renderFormattedText(trimmedLine, `hd-${lIdx}`)}</span>
               </div>
             );
           }
 
           if (isBullet) {
-            const cleanBulletText = line.replace(/^[•\-\*\+\s]+/, '').trim();
+            const cleanBulletText = trimmedLine.replace(/^[•\-\*\+\s◦▪▫]+/, '').trim();
             if (!cleanBulletText) return null; // Never render empty bullet point
             return (
-              <div key={lIdx} className="flex items-start gap-3 py-1.5 pl-4">
-                <span className="text-blue-500 font-bold shrink-0 mt-0.5 text-base sm:text-lg">•</span>
+              <div key={lIdx} className={`flex items-start gap-3 py-1.5 ${isSubBullet ? 'pl-8' : 'pl-4'}`}>
+                <span className={`text-blue-500 font-bold shrink-0 mt-0.5 ${isSubBullet ? 'text-sm' : 'text-base sm:text-lg'}`}>
+                  {isSubBullet ? '◦' : '•'}
+                </span>
                 <div className="flex-1 text-base text-slate-800 leading-[1.7]">
                   {renderTextWithEmbeddedInputs(cleanBulletText, `note-${lIdx}`)}
                 </div>
@@ -1065,7 +1072,7 @@ export const ListeningQuestionRenderer: React.FC<ListeningQuestionRendererProps>
 
           return (
             <p key={lIdx} className="text-base text-slate-800 leading-[1.7] my-2">
-              {renderTextWithEmbeddedInputs(line, `para-${lIdx}`)}
+              {renderTextWithEmbeddedInputs(trimmedLine, `para-${lIdx}`)}
             </p>
           );
         })}

@@ -130,7 +130,12 @@ export function convertHtmlTablesToMarkdown(html: string): string {
  * Transforms DOCX HTML output into clean text with structured Markdown tables
  */
 export function htmlToListeningText(html: string): string {
-  let text = convertHtmlTablesToMarkdown(html);
+  // Normalize bold question blanks in HTML before stripping tags
+  let preprocessed = html
+    .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>\s*[\u2026\.]{2,}/gi, '[$1]')
+    .replace(/<strong[^>]*>([0-9]{1,2})<\/strong>\s*_{2,}/gi, '[$1]');
+
+  let text = convertHtmlTablesToMarkdown(preprocessed);
   // Protect <br /> tags inside markdown table rows so they do not break table rows
   text = text.replace(/\|([^\n]+)\|/g, (match) => {
     return match.replace(/<br\s*\/?>/gi, '___CELL_BR___');
@@ -156,10 +161,10 @@ export function parseListeningDocument(
   fileName: string = 'IELTS Listening Practice',
   htmlContent?: string
 ): ListeningTestContent {
-  const sourceText = htmlContent && htmlContent.includes('<table') ? htmlToListeningText(htmlContent) : (rawText || '');
+  const sourceText = htmlContent && htmlContent.trim().length > 0 ? htmlToListeningText(htmlContent) : (rawText || '');
   const cleanText = sourceText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-  const allLines = cleanText.split('\n').map((l) => l.trim());
+  const allLines = cleanText.split('\n').map((l) => l.trimEnd());
 
   // Extract detected answer keys if an ANSWER KEY section exists
   const detectedAnswerKey = extractListeningAnswerKey(cleanText);
@@ -876,13 +881,13 @@ function processListeningPart(
     }
 
     // Accumulate text into group context / layout
-    const trimmedLine = line.trim();
+    const cleanLine = line.trimEnd();
     if (
-      trimmedLine.length > 0 &&
-      !trimmedLine.toLowerCase().startsWith('answer key') &&
-      !trimmedLine.toLowerCase().startsWith('listening answers')
+      cleanLine.trim().length > 0 &&
+      !cleanLine.trim().toLowerCase().startsWith('answer key') &&
+      !cleanLine.trim().toLowerCase().startsWith('listening answers')
     ) {
-      currentGroupText += (currentGroupText ? '\n' : '') + trimmedLine;
+      currentGroupText += (currentGroupText ? '\n' : '') + cleanLine;
     }
   }
 

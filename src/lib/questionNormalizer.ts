@@ -504,6 +504,31 @@ export interface ExtractedAssignmentQuestions {
 }
 
 /**
+ * Checks whether a given question type string is an authentic IELTS question type.
+ */
+export function isSpecificQuestionType(type?: string): boolean {
+  if (!type) return false;
+  const t = normalizeQuestionType(type);
+  return (
+    t === 'yes_no_not_given' ||
+    t === 'true_false_not_given' ||
+    t === 'multiple_choice' ||
+    t === 'multiple_select' ||
+    t === 'matching_headings' ||
+    t === 'matching_features' ||
+    t === 'matching_information' ||
+    t === 'matching_sentence_endings' ||
+    t === 'summary_completion' ||
+    t === 'note_completion' ||
+    t === 'table_completion' ||
+    t === 'flowchart_completion' ||
+    t === 'diagram_completion' ||
+    t === 'sentence_completion' ||
+    t === 'short_answer'
+  );
+}
+
+/**
  * Robustly extracts and normalizes all reading questions from an assignment.
  * Checks readingQuestions, questionGroups, and multi-passage structures (passages.questions and passages.questionGroups).
  * Eliminates the "0 / 0 Answered" bug and guarantees that questions never render blank.
@@ -555,12 +580,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     const hasSpecificExplicitType =
       rawType &&
       rawType !== 'short_answer' &&
-      (rawType === 'yes_no_not_given' ||
-        rawType === 'true_false_not_given' ||
-        rawType === 'multiple_choice' ||
-        rawType === 'multiple_select' ||
-        rawType === 'matching_headings' ||
-        rawType === 'matching_features');
+      isSpecificQuestionType(rawType);
 
     if (groupOverride) {
       effectiveRawQ = {
@@ -587,10 +607,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
         // Prioritize group override / teacher override over any previous detected type
         const authoritativeGroupType = parentGroup?.questionTypeOverride || parentGroup?.questionType;
         const existingHasSpecificType =
-          existingQ.type === 'yes_no_not_given' ||
-          existingQ.type === 'true_false_not_given' ||
-          existingQ.type === 'multiple_choice' ||
-          existingQ.type === 'multiple_select';
+          isSpecificQuestionType(existingQ.type) && existingQ.type !== 'short_answer';
 
         if (!existingHasSpecificType && (authoritativeGroupType || norm.questionTypeOverride || parentGroup?.isTeacherEdited)) {
           const authType = norm.questionTypeOverride || authoritativeGroupType || norm.type;
@@ -735,21 +752,10 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     const gQuestions = (g.questions || []).map((gq) => {
       const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
       const specificType =
-        (matched &&
-          (matched.type === 'yes_no_not_given' ||
-            matched.type === 'true_false_not_given' ||
-            matched.type === 'multiple_choice' ||
-            matched.type === 'multiple_select' ||
-            matched.type === 'matching_headings' ||
-            matched.type === 'matching_features')
+        (matched && isSpecificQuestionType(matched.type) && matched.type !== 'short_answer'
           ? matched.type
           : undefined) ||
-        (gq.type === 'yes_no_not_given' ||
-          gq.type === 'true_false_not_given' ||
-          gq.type === 'multiple_choice' ||
-          gq.type === 'multiple_select' ||
-          gq.type === 'matching_headings' ||
-          gq.type === 'matching_features'
+        (gq.type && isSpecificQuestionType(gq.type) && gq.type !== 'short_answer'
           ? gq.type
           : undefined);
 
@@ -786,8 +792,8 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
 
       return {
         ...normalizedQ,
-        type: authType,
-        ...(isEdited ? { questionTypeOverride: authType, isTeacherEdited: true } : {}),
+        type: specificType || authType,
+        ...(isEdited ? { questionTypeOverride: specificType || authType, isTeacherEdited: true } : {}),
       };
     });
     return {
@@ -806,21 +812,10 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
       const gQuestions = (g.questions || []).map((gq) => {
         const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
         const specificType =
-          (matched &&
-            (matched.type === 'yes_no_not_given' ||
-              matched.type === 'true_false_not_given' ||
-              matched.type === 'multiple_choice' ||
-              matched.type === 'multiple_select' ||
-              matched.type === 'matching_headings' ||
-              matched.type === 'matching_features')
+          (matched && isSpecificQuestionType(matched.type) && matched.type !== 'short_answer'
             ? matched.type
             : undefined) ||
-          (gq.type === 'yes_no_not_given' ||
-            gq.type === 'true_false_not_given' ||
-            gq.type === 'multiple_choice' ||
-            gq.type === 'multiple_select' ||
-            gq.type === 'matching_headings' ||
-            gq.type === 'matching_features'
+          (gq.type && isSpecificQuestionType(gq.type) && gq.type !== 'short_answer'
             ? gq.type
             : undefined);
 
@@ -1016,9 +1011,16 @@ export function buildQuestionRenderGroups(
         const firstIdx = currentGroup.questions[0].idx + 1;
         const lastIdx = currentGroup.questions[currentGroup.questions.length - 1].idx + 1;
         currentGroup.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
-        // Build groupText for completion groups (reconstruct full text with blank markers)
+        // Build groupText for completion groups (reconstruct full text with blank markers) only if not already provided
         if (currentGroup.groupType && COMPLETION_TYPES.has(currentGroup.groupType)) {
-          currentGroup.groupText = buildCompletionGroupText(currentGroup.questions);
+          const existingGroupText =
+            currentGroup.groupText ||
+            (currentGroup.questions.find((item) => (item.q as any).groupText)?.q as any)?.groupText;
+          if (!existingGroupText || existingGroupText.trim().length === 0) {
+            currentGroup.groupText = buildCompletionGroupText(currentGroup.questions);
+          } else {
+            currentGroup.groupText = existingGroupText;
+          }
         }
         groups.push(currentGroup);
       }
@@ -1028,6 +1030,7 @@ export function buildQuestionRenderGroups(
         rangeTitle: `Question ${idx + 1}`,
         groupType: effectiveType,
         instructions: instruction || undefined,
+        groupText: (q as any).groupText || undefined,
         headingsList: q.headingsList && q.headingsList.length > 0 ? q.headingsList : undefined,
         featuresList: q.featuresList && q.featuresList.length > 0 ? q.featuresList : undefined,
         wordList: qWordList,
@@ -1045,7 +1048,14 @@ export function buildQuestionRenderGroups(
     const lastIdx = cg.questions[cg.questions.length - 1].idx + 1;
     cg.rangeTitle = firstIdx === lastIdx ? `Question ${firstIdx}` : `Questions ${firstIdx}–${lastIdx}`;
     if (cg.groupType && COMPLETION_TYPES.has(cg.groupType)) {
-      cg.groupText = buildCompletionGroupText(cg.questions);
+      const existingGroupText =
+        cg.groupText ||
+        (cg.questions.find((item) => (item.q as any).groupText)?.q as any)?.groupText;
+      if (!existingGroupText || existingGroupText.trim().length === 0) {
+        cg.groupText = buildCompletionGroupText(cg.questions);
+      } else {
+        cg.groupText = existingGroupText;
+      }
     }
     groups.push(cg);
   }

@@ -37,6 +37,8 @@ import {
   resolveQuestionPrompt,
   extractParagraphLabelsFromPassage,
   buildQuestionRenderGroups,
+  buildCompletionGroupText,
+  isSpecificQuestionType,
   type QuestionRenderGroup,
   COMPLETION_TYPES,
   BUTTON_TYPES,
@@ -1017,21 +1019,10 @@ export const AssignmentsView: React.FC = () => {
             questions: (g.questions || []).map((gq) => {
               const matchedQ = updatedPQuestions.find((uq) => uq.id === gq.id || (uq.prompt && uq.prompt === gq.prompt));
               const specificType =
-                (matchedQ &&
-                  (matchedQ.type === 'yes_no_not_given' ||
-                    matchedQ.type === 'true_false_not_given' ||
-                    matchedQ.type === 'multiple_choice' ||
-                    matchedQ.type === 'multiple_select' ||
-                    matchedQ.type === 'matching_headings' ||
-                    matchedQ.type === 'matching_features')
+                (matchedQ && isSpecificQuestionType(matchedQ.type) && matchedQ.type !== 'short_answer'
                   ? matchedQ.type
                   : undefined) ||
-                (gq.type === 'yes_no_not_given' ||
-                  gq.type === 'true_false_not_given' ||
-                  gq.type === 'multiple_choice' ||
-                  gq.type === 'multiple_select' ||
-                  gq.type === 'matching_headings' ||
-                  gq.type === 'matching_features'
+                (gq.type && isSpecificQuestionType(gq.type) && gq.type !== 'short_answer'
                   ? gq.type
                   : undefined);
 
@@ -3207,7 +3198,76 @@ export const AssignmentsView: React.FC = () => {
     const activePassageAnsweredCount = activePassageQuestions.filter(({ q }) => Boolean(readingAnswers[q.id]?.trim())).length;
     const activePassageTotalCount = activePassageQuestions.length;
 
-    const questionRenderGroups = buildQuestionRenderGroups(activePassageQuestions);
+    // Check if the current passage or assignment has authentic question groups
+    const currentPassageGroups: QuestionGroup[] =
+      (hasMultiPassages && activeAssignment.passages?.[safePassageIndex]?.questionGroups) ||
+      (!hasMultiPassages && activeAssignment.passages?.[0]?.questionGroups) ||
+      (!hasMultiPassages && activeAssignment.questionGroups) ||
+      [];
+
+    const questionRenderGroups: QuestionRenderGroup[] = React.useMemo(() => {
+      if (currentPassageGroups && currentPassageGroups.length > 0) {
+        // Map authentic question groups directly so all headings, instructions, groupText, and boundaries are preserved
+        return currentPassageGroups.map((g, gIdx) => {
+          const groupType = g.questionTypeOverride || g.questionType;
+          const isCompletion = COMPLETION_TYPES.has(groupType);
+
+          // Find mapped questions from activePassageQuestions
+          const groupItems: Array<{ q: ReadingQuestion; idx: number }> = [];
+          (g.questions || []).forEach((gq) => {
+            const matchedItem = activePassageQuestions.find(
+              (item) => item.q.id === gq.id || (item.q.prompt && item.q.prompt === gq.prompt)
+            );
+            if (matchedItem) {
+              groupItems.push({ q: matchedItem.q, idx: matchedItem.absoluteIdx });
+            } else {
+              const absIdx = allQuestionsIndexed.findIndex(
+                (item) => item.q.id === gq.id || (item.q.prompt && item.q.prompt === gq.prompt)
+              );
+              groupItems.push({ q: gq, idx: absIdx >= 0 ? absIdx : gIdx });
+            }
+          });
+
+          // Determine Word List strictly for summary completion
+          const wordList =
+            groupType === 'summary_completion'
+              ? (g.optionsBox || (g as any).options || (g as any).wordList)
+              : undefined;
+
+          let groupText = g.groupText;
+          if (isCompletion && (!groupText || groupText.trim().length === 0) && groupItems.length > 0) {
+            groupText = buildCompletionGroupText(groupItems);
+          }
+
+          const firstNum = groupItems[0]?.idx !== undefined ? groupItems[0].idx + 1 : undefined;
+          const lastNum = groupItems[groupItems.length - 1]?.idx !== undefined ? groupItems[groupItems.length - 1].idx + 1 : undefined;
+          const defaultRangeTitle =
+            firstNum !== undefined && lastNum !== undefined
+              ? firstNum === lastNum
+                ? `Question ${firstNum}`
+                : `Questions ${firstNum}–${lastNum}`
+              : `Question Group ${gIdx + 1}`;
+
+          return {
+            id: g.id || `g_${gIdx}`,
+            rangeTitle: g.groupTitle || (g as any).title || defaultRangeTitle,
+            instructions: g.instructions,
+            groupType,
+            groupText,
+            headingsList: g.headingsList,
+            featuresList: g.featuresList,
+            wordList,
+            wordLimit: g.wordLimit,
+            imageUrl: (g as any).imageUrl || (g as any).diagramUrl,
+            imageCaption: (g as any).imageCaption,
+            questions: groupItems,
+          };
+        });
+      }
+
+      // Fallback for assignments without questionGroups
+      return buildQuestionRenderGroups(activePassageQuestions);
+    }, [currentPassageGroups, activePassageQuestions, allQuestionsIndexed]);
 
     return (
       <div className={`space-y-6 ${isReading ? 'max-w-7xl mx-auto' : 'max-w-5xl mx-auto'}`}>
