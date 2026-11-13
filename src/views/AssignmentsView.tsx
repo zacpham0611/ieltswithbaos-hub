@@ -1095,7 +1095,13 @@ export const AssignmentsView: React.FC = () => {
             questionTypeOverride: g.questionTypeOverride,
             passageIndex: pIdx,
             questions: (g.questions || []).map((gq) => {
-              const matchedQ = updatedPQuestions.find((uq) => uq.id === gq.id || (uq.prompt && uq.prompt === gq.prompt));
+              const gqNum = extractQuestionNumber(gq);
+              const matchedQ = updatedPQuestions.find((uq) => {
+                if (uq.id && gq.id && uq.id === gq.id) return true;
+                const uqNum = extractQuestionNumber(uq);
+                if (gqNum > 0 && uqNum > 0 && gqNum === uqNum) return true;
+                return false;
+              });
               const specificType =
                 (matchedQ && isSpecificQuestionType(matchedQ.type) && matchedQ.type !== 'short_answer'
                   ? matchedQ.type
@@ -3338,6 +3344,8 @@ export const AssignmentsView: React.FC = () => {
 
     // Helper to resolve passage index for any question
     const resolvePassageIndexForQuestion = (q: ReadingQuestion, absoluteIdx: number): number => {
+      const qNum = extractQuestionNumber(q, absoluteIdx + 1);
+
       // 1. PassageMap check
       if (passageMap[q.id] !== undefined) {
         return passageMap[q.id];
@@ -3347,10 +3355,18 @@ export const AssignmentsView: React.FC = () => {
       if (activeAssignment?.passages && activeAssignment.passages.length > 0) {
         for (let pIdx = 0; pIdx < activeAssignment.passages.length; pIdx++) {
           const p = activeAssignment.passages[pIdx];
-          const hasQ = p.questions?.some((pq: any) => pq.id === q.id || (pq.prompt && pq.prompt === q.prompt));
+          const hasQ = p.questions?.some((pq: any) => {
+            if (pq.id && q.id && pq.id === q.id) return true;
+            const pqNum = extractQuestionNumber(pq);
+            return qNum > 0 && pqNum > 0 && qNum === pqNum;
+          });
           if (hasQ) return pIdx;
           const hasInGroup = p.questionGroups?.some((g: any) =>
-            g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
+            g.questions?.some((gq: any) => {
+              if (gq.id && q.id && gq.id === q.id) return true;
+              const gqNum = extractQuestionNumber(gq);
+              return qNum > 0 && gqNum > 0 && qNum === gqNum;
+            })
           );
           if (hasInGroup) return pIdx;
         }
@@ -3377,7 +3393,6 @@ export const AssignmentsView: React.FC = () => {
         }
 
         // 5. Authentic IELTS standard question number matching against passage ranges
-        const qNum = extractQuestionNumber(q, absoluteIdx + 1);
         for (let pIdx = 0; pIdx < activeAssignment.passages.length; pIdx++) {
           const p = activeAssignment.passages[pIdx];
           const allPNums: number[] = [];

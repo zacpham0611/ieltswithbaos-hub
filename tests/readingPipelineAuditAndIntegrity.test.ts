@@ -717,4 +717,93 @@ Answer Key:
     assert.notStrictEqual(lastGroup.groupTitle, 'Questions 33–34', 'No duplicate Questions 33-34 group after Q40');
     assert.ok(/Questions\s+35[\-\–]40/i.test(lastGroup.groupTitle), 'Last group must be Questions 35-40');
   });
+
+  await t.test('15. End-to-End Library Assignment: Multi-Passage Questions with Identical Prompts Never Duplicate', () => {
+    // Simulate Carlson Note Completion in Passage 2 with identical multi-blank sentence prompts
+    const sharedCarlsonPrompt = 'However, this action was not welcome among shareholders at the beginning, all of them 22 …………… Eventually, Carlson’s creation was undeniably a 23 …………… Thanks to the discovery of xerography, Carlson became a very 24 …………… person.';
+    const p2Questions: ReadingQuestion[] = [
+      { id: 'q_20', questionNumber: 20, prompt: 'Carlson 20 ……………', type: 'note_completion', correctAnswer: 'inventor', explanation: '' },
+      { id: 'q_21', questionNumber: 21, prompt: 'In 1937, he invited 21 ……………', type: 'note_completion', correctAnswer: 'corporations', explanation: '' },
+      { id: 'q_22', questionNumber: 22, prompt: sharedCarlsonPrompt, type: 'note_completion', correctAnswer: 'scoffed', explanation: '' },
+      { id: 'q_23', questionNumber: 23, prompt: sharedCarlsonPrompt, type: 'note_completion', correctAnswer: 'success', explanation: '' },
+      { id: 'q_24', questionNumber: 24, prompt: sharedCarlsonPrompt, type: 'note_completion', correctAnswer: 'wealthy', explanation: '' },
+      { id: 'q_25', questionNumber: 25, prompt: 'Live without 25 ……………', type: 'note_completion', correctAnswer: 'luxury', explanation: '' },
+      { id: 'q_26', questionNumber: 26, prompt: 'Live without 25 ……………', type: 'note_completion', correctAnswer: 'charity', explanation: '' },
+    ];
+
+    const p2Group: QuestionGroup = {
+      id: 'g_p2_note',
+      groupTitle: 'Questions 20–26',
+      questionType: 'note_completion',
+      range: '20-26',
+      questions: p2Questions,
+    };
+
+    // Simulate Passage 3 Multiple Select with identical prompt
+    const sharedMcqPrompt = 'Which THREE of the following statements are true of the study of drives?';
+    const p3Questions: ReadingQuestion[] = [
+      { id: 'q_32', questionNumber: 32, prompt: sharedMcqPrompt, type: 'multiple_select', correctAnswer: 'B', explanation: '' },
+      { id: 'q_33', questionNumber: 33, prompt: sharedMcqPrompt, type: 'multiple_select', correctAnswer: 'D', explanation: '' },
+      { id: 'q_34', questionNumber: 34, prompt: sharedMcqPrompt, type: 'multiple_select', correctAnswer: 'F', explanation: '' },
+    ];
+
+    const p3Group: QuestionGroup = {
+      id: 'g_p3_ms',
+      groupTitle: 'Questions 32–34',
+      questionType: 'multiple_select',
+      range: '32-34',
+      questions: p3Questions,
+    };
+
+    // Simulate handleConfirmMultiPassageAssignment re-indexing and group mapping
+    const reindexedP2: ReadingQuestion[] = p2Questions.map((q) => ({ ...q }));
+    const updatedGroupP2: QuestionGroup = {
+      ...p2Group,
+      passageIndex: 1,
+      questions: (p2Group.questions || []).map((gq) => {
+        const gqNum = extractQuestionNumber(gq);
+        const matched = reindexedP2.find((uq) => {
+          if (uq.id && gq.id && uq.id === gq.id) return true;
+          const uqNum = extractQuestionNumber(uq);
+          if (gqNum > 0 && uqNum > 0 && gqNum === uqNum) return true;
+          return false;
+        });
+        return matched || gq;
+      }),
+    };
+
+    // Group questions MUST maintain all 7 unique questions 20 to 26
+    const mappedNumsP2 = updatedGroupP2.questions.map((q) => extractQuestionNumber(q));
+    assert.deepStrictEqual(mappedNumsP2, [20, 21, 22, 23, 24, 25, 26], 'Passage 2 group MUST retain questions 20-26 without collapsing 23, 24 into 22');
+
+    // Simulate handleConfirmMultiPassageAssignment for Passage 3
+    const reindexedP3: ReadingQuestion[] = p3Questions.map((q) => ({ ...q }));
+    const updatedGroupP3: QuestionGroup = {
+      ...p3Group,
+      passageIndex: 2,
+      questions: (p3Group.questions || []).map((gq) => {
+        const gqNum = extractQuestionNumber(gq);
+        const matched = reindexedP3.find((uq) => {
+          if (uq.id && gq.id && uq.id === gq.id) return true;
+          const uqNum = extractQuestionNumber(uq);
+          if (gqNum > 0 && uqNum > 0 && gqNum === uqNum) return true;
+          return false;
+        });
+        return matched || gq;
+      }),
+    };
+
+    // Group questions MUST maintain all 3 unique questions 32, 33, 34
+    const mappedNumsP3 = updatedGroupP3.questions.map((q) => extractQuestionNumber(q));
+    assert.deepStrictEqual(mappedNumsP3, [32, 33, 34], 'Passage 3 group MUST retain questions 32, 33, 34 without collapsing 33, 34 into 32');
+
+    // Student UI rendering simulation: Unrendered questions filter
+    const renderedQuestionIdsP2 = new Set(updatedGroupP2.questions.map((q) => q.id));
+    const unrenderedP2 = reindexedP2.filter((q) => !renderedQuestionIdsP2.has(q.id));
+    assert.strictEqual(unrenderedP2.length, 0, 'Passage 2 must have 0 unrendered questions (NO Questions 23-26 duplicate)');
+
+    const renderedQuestionIdsP3 = new Set(updatedGroupP3.questions.map((q) => q.id));
+    const unrenderedP3 = reindexedP3.filter((q) => !renderedQuestionIdsP3.has(q.id));
+    assert.strictEqual(unrenderedP3.length, 0, 'Passage 3 must have 0 unrendered questions (NO Questions 33-34 duplicate after Q40)');
+  });
 });

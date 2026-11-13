@@ -1012,12 +1012,21 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     } else {
       resultQuestions.forEach((q, qIdx) => {
         if (passageMap[q.id] === undefined) {
+          const qNum = extractQuestionNumber(q, qIdx + 1);
           for (let pIdx = 0; pIdx < passages.length; pIdx++) {
             const p = passages[pIdx];
             const hasMatch =
-              p.questions?.some((pq: any) => pq.id === q.id || (pq.prompt && pq.prompt === q.prompt)) ||
+              p.questions?.some((pq: any) => {
+                if (pq.id && q.id && pq.id === q.id) return true;
+                const pqNum = extractQuestionNumber(pq);
+                return qNum > 0 && pqNum > 0 && qNum === pqNum;
+              }) ||
               p.questionGroups?.some((g: any) =>
-                g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
+                g.questions?.some((gq: any) => {
+                  if (gq.id && q.id && gq.id === q.id) return true;
+                  const gqNum = extractQuestionNumber(gq);
+                  return qNum > 0 && gqNum > 0 && qNum === gqNum;
+                })
               );
             if (hasMatch) {
               passageMap[q.id] = pIdx;

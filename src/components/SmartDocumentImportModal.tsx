@@ -16,6 +16,7 @@ import {
 } from '../lib/docxGenerator';
 import { convertDocumentToAssignment } from '../lib/ai';
 import { formatWordLimitInstruction } from '../lib/assignmentGrader';
+import { extractQuestionNumber } from '../lib/questionNormalizer';
 import {
   extractSpeakingPartsFromDocument,
   type ExtractedSpeakingDocument,
@@ -755,7 +756,12 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
             ? (libraryMaterialName.trim() || ct.title)
             : (libraryMaterialName.trim() ? `${libraryMaterialName.trim()} - ${ct.title}` : ct.title);
           const syncedQuestions = (ct.questions || []).map((q: any) => {
-            const edited = editableQuestions.find((eq) => eq.id === q.id || (eq.prompt && eq.prompt === q.prompt));
+            const qNum = extractQuestionNumber(q);
+            const edited = editableQuestions.find((eq) => {
+              if (eq.id && q.id && eq.id === q.id) return true;
+              const eqNum = extractQuestionNumber(eq);
+              return qNum > 0 && eqNum > 0 && qNum === eqNum;
+            });
             if (edited) {
               const authType = edited.questionTypeOverride || edited.type;
               return {
@@ -770,9 +776,14 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           });
 
           const syncedGroups = (ct.questionGroups || []).map((g: any) => {
-            const groupQs = syncedQuestions.filter((q: any) =>
-              g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
-            );
+            const groupQs = syncedQuestions.filter((q: any) => {
+              const qNum = extractQuestionNumber(q);
+              return g.questions?.some((gq: any) => {
+                if (gq.id && q.id && gq.id === q.id) return true;
+                const gqNum = extractQuestionNumber(gq);
+                return qNum > 0 && gqNum > 0 && qNum === gqNum;
+              });
+            });
             const dominantOverride = groupQs.find((q: any) => q.questionTypeOverride)?.questionTypeOverride;
             const groupType = dominantOverride || g.questionType;
             return {
@@ -849,9 +860,14 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
       // Synchronize questionGroups with questionsToSave overrides
       const rawGroups: QuestionGroup[] = struct?.questionGroups || [];
       const questionGroupsToSave = rawGroups.map((g: QuestionGroup) => {
-        const groupQs = questionsToSave.filter((q: ReadingQuestion) =>
-          g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
-        );
+        const groupQs = questionsToSave.filter((q: ReadingQuestion) => {
+          const qNum = extractQuestionNumber(q);
+          return g.questions?.some((gq: any) => {
+            if (gq.id && q.id && gq.id === q.id) return true;
+            const gqNum = extractQuestionNumber(gq);
+            return qNum > 0 && gqNum > 0 && qNum === gqNum;
+          });
+        });
         const dominantOverride = groupQs.find((q: ReadingQuestion) => q.questionTypeOverride)?.questionTypeOverride;
         const groupType = dominantOverride || g.questionType;
         return {
@@ -1230,9 +1246,14 @@ export const SmartDocumentImportModal: React.FC<SmartDocumentImportModalProps> =
           : reviewedQuestions;
 
       const syncedGroups = (struct?.questionGroups || []).map((g: any) => {
-        const groupQs = finalReadingQuestions.filter((q: any) =>
-          g.questions?.some((gq: any) => gq.id === q.id || (gq.prompt && gq.prompt === q.prompt))
-        );
+        const groupQs = finalReadingQuestions.filter((q: any) => {
+          const qNum = extractQuestionNumber(q);
+          return g.questions?.some((gq: any) => {
+            if (gq.id && q.id && gq.id === q.id) return true;
+            const gqNum = extractQuestionNumber(gq);
+            return qNum > 0 && gqNum > 0 && qNum === gqNum;
+          });
+        });
         const dominantOverride = groupQs.find((q: any) => q.questionTypeOverride)?.questionTypeOverride;
         const groupType = dominantOverride || g.questionType;
         return {
