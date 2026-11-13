@@ -1,5 +1,5 @@
 import type { ReadingQuestion, QuestionType, AssignmentSkill, QuestionGroup, ParsedPassage } from '../types/index.ts';
-import { cleanReadingText } from './questionNormalizer.ts';
+import { cleanReadingText, deduplicateQuestionGroups } from './questionNormalizer.ts';
 
 export interface ParsedTest {
   id: string;
@@ -2685,7 +2685,7 @@ export function parseSinglePassage(
       currentQMultiNums = null;
     }
 
-    const fullInstruction =
+    let fullInstruction =
       groupInstructions.join('\n').trim() || 'Read the text and answer the questions below.';
     const instructionType = detectQuestionType('', fullInstruction);
 
@@ -2729,10 +2729,17 @@ export function parseSinglePassage(
           }
         }
 
-        // If instructions were collected, append to groupInstructions
+        // For multiple_select, groupInstructions must strictly contain the instruction directives,
+        // NEVER the question prompt or option letters A-F.
+        groupInstructions.length = 0;
         if (extractedGroupInstructions.length > 0) {
           groupInstructions.push(...extractedGroupInstructions);
+        } else {
+          groupInstructions.push(
+            `Choose ${reqCount > 1 ? (reqCount === 2 ? 'TWO' : reqCount === 3 ? 'THREE' : reqCount) : 'the correct'} letters.`
+          );
         }
+        fullInstruction = groupInstructions.join('\n').trim();
 
         const qPrompt = cleanReadingText(promptCandidates.join(' ').trim()) ||
           cleanReadingText(gRange.lines.find(l => /^(?:which|what|according|the\s+author|how|why)\b/i.test(l.trim())) || '') ||
@@ -2964,73 +2971,17 @@ export function parseSinglePassage(
           const nb = parseInt(b.id.replace('q_', ''), 10) || 0;
           return na - nb;
         });
+        if (otherGroup.questions.length === 0) {
+          questionGroups.splice(gj, 1);
+          if (gj < gi) gi--;
+          gj--;
+        }
       }
     }
   }
 
   // Deduplicate and consolidate overlapping groups (e.g. Summary Completion 20-26 and 24-26)
-  const consolidatedGroups: QuestionGroup[] = [];
-  for (let gi = 0; gi < questionGroups.length; gi++) {
-    const curG = questionGroups[gi];
-    if (curG.questions.length === 0) continue;
-
-    const curRange = parseQuestionNumbersFromRange(curG.groupTitle || '');
-    const curStart = curRange[0];
-    const curEnd = curRange[curRange.length - 1];
-
-    let mergedIntoExisting = false;
-    for (const prevG of consolidatedGroups) {
-      const prevRange = parseQuestionNumbersFromRange(prevG.groupTitle || '');
-      const prevStart = prevRange[0];
-      const prevEnd = prevRange[prevRange.length - 1];
-
-      // Check if curG is a subset of prevG or has overlapping range with matching completion/exercise type
-      const isSubset =
-        curStart !== undefined &&
-        curEnd !== undefined &&
-        prevStart !== undefined &&
-        prevEnd !== undefined &&
-        curStart >= prevStart &&
-        curEnd <= prevEnd;
-
-      const sameType =
-        curG.questionType === prevG.questionType ||
-        (curG.questionType.includes('completion') && prevG.questionType.includes('completion'));
-
-      if (isSubset || (sameType && curG.questions.some((q) => prevG.questions.some((pq) => pq.id === q.id)))) {
-        // Merge questions into prevG without duplication
-        curG.questions.forEach((cq) => {
-          if (!prevG.questions.some((pq) => pq.id === cq.id)) {
-            prevG.questions.push(cq);
-          }
-        });
-        prevG.questions.sort((a, b) => {
-          const na = parseInt(a.id.replace('q_', ''), 10) || 0;
-          const nb = parseInt(b.id.replace('q_', ''), 10) || 0;
-          return na - nb;
-        });
-
-        // Merge groupText if curG has text not present in prevG
-        if (curG.groupText && !prevG.groupText?.includes(curG.groupText)) {
-          prevG.groupText = prevG.groupText ? `${prevG.groupText}\n\n${curG.groupText}` : curG.groupText;
-        }
-
-        // Merge optionsBox / wordList
-        if (curG.optionsBox && curG.optionsBox.length > 0) {
-          prevG.optionsBox = Array.from(new Set([...(prevG.optionsBox || []), ...curG.optionsBox]));
-        }
-
-        mergedIntoExisting = true;
-        break;
-      }
-    }
-
-    if (!mergedIntoExisting) {
-      consolidatedGroups.push(curG);
-    }
-  }
-
-  // Replace questionGroups with consolidatedGroups
+  const consolidatedGroups = deduplicateQuestionGroups(questionGroups);
   questionGroups.length = 0;
   questionGroups.push(...consolidatedGroups);
 

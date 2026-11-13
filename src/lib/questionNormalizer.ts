@@ -331,6 +331,210 @@ export function cleanQuestionPrompt(
 }
 
 /**
+ * Cleans group instructions to separate true instruction directives from question prompts
+ * and answer options that were inadvertently bundled into the instruction text.
+ * Guarantees that options and question prompts are not rendered twice in the UI.
+ */
+export function cleanDisplayGroupInstructions(
+  instructions?: string,
+  group?: {
+    questions?: Array<{ q: ReadingQuestion; [key: string]: any }>;
+    groupType?: string;
+    optionsBox?: string[];
+  }
+): string {
+  if (!instructions) return '';
+  const lines = instructions.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return '';
+
+  const groupQuestions = (group?.questions || []).map((item) => (item && 'q' in item ? (item as any).q : item));
+  const firstQ = groupQuestions[0];
+  const qOptions = firstQ?.options || group?.optionsBox || [];
+  const qOptionLetters = new Set(
+    qOptions.map((opt: string) => opt.match(/^([A-P])[\.\:\s]/)?.[1]?.toUpperCase()).filter(Boolean)
+  );
+
+  const cleanLines = lines.filter((line) => {
+    // 1. If line is an option (e.g. "A Employees will be motivated..."), and group has structured options:
+    const optMatch = line.match(/^([A-P])(?:[\.\:\)]|\s+)(.*)/i);
+    if (optMatch && (qOptionLetters.has(optMatch[1].toUpperCase()) || qOptions.length > 0)) {
+      return false;
+    }
+
+    // 2. If line matches or contains any question prompt in this group:
+    for (const gq of groupQuestions) {
+      if (!gq) continue;
+      const p = cleanReadingText(gq.prompt || '').trim();
+      const l = cleanReadingText(line).trim();
+      if (p.length > 10 && (l === p || l.includes(p) || (p.includes(l) && l.length > 20))) {
+        return false;
+      }
+    }
+
+    // 3. Skip redundant range title repeated as instruction (e.g. "Questions 32-34")
+    if (/^questions?\s+\d+(?:[\s\-\–to\,and\&]+\d+)?[\:\.\s]*$/i.test(line)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return cleanLines.join('\n').trim();
+}
+
+/**
+ * Extracts question numbers from a title or instruction string like "Questions 1-5" or "Questions 20–26".
+ */
+export function parseQuestionNumbersFromRange(titleOrInstruction: string): number[] {
+  const clean = (titleOrInstruction || '').trim();
+  const rangeMatch = clean.match(/q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+(\d+)\s*(?:and|\&|\-|\–|—|to|\,)\s*(\d+)/i);
+  if (rangeMatch) {
+    const start = parseInt(rangeMatch[1], 10);
+    const end = parseInt(rangeMatch[2], 10);
+    if (!isNaN(start) && !isNaN(end) && end >= start && end - start <= 20) {
+      const numbers: number[] = [];
+      for (let i = start; i <= end; i++) numbers.push(i);
+      return numbers;
+    }
+  }
+
+  const singleMatch = clean.match(/q\s*u\s*e\s*s\s*t\s*i\s*o\s*n\s*s?\s+(\d+)/i);
+  if (singleMatch) {
+    const n = parseInt(singleMatch[1], 10);
+    if (!isNaN(n)) return [n];
+  }
+
+  return [];
+}
+
+/**
+ * Deduplicates and consolidates question groups.
+ * Merges partial overlapping groups (e.g. subset 23-26 into parent 20-26)
+ * while strictly preserving distinct non-overlapping groups.
+ */
+export function deduplicateQuestionGroups(groups: QuestionGroup[]): QuestionGroup[] {
+  if (!groups || groups.length === 0) return [];
+  if (groups.length === 1) return [{ ...groups[0] }];
+
+  const consolidated: QuestionGroup[] = [];
+
+  for (const curG of groups) {
+    if (!curG || !Array.isArray(curG.questions) || curG.questions.length === 0) continue;
+
+    const curNums = curG.questions
+      .map((q) => extractQuestionNumber(q))
+      .filter((n) => n > 0);
+    const curRange = parseQuestionNumbersFromRange(curG.groupTitle || '');
+    const curStart = curRange[0] ?? curNums[0];
+    const curEnd = (curRange.length > 0 ? curRange[curRange.length - 1] : undefined) ?? curNums[curNums.length - 1];
+
+    let merged = false;
+    for (let pi = 0; pi < consolidated.length; pi++) {
+      const prevG = consolidated[pi];
+      const prevNums = prevG.questions
+        .map((q) => extractQuestionNumber(q))
+        .filter((n) => n > 0);
+      const prevRange = parseQuestionNumbersFromRange(prevG.groupTitle || '');
+      const prevStart = prevRange[0] ?? prevNums[0];
+      const prevEnd = (prevRange.length > 0 ? prevRange[prevRange.length - 1] : undefined) ?? prevNums[prevNums.length - 1];
+
+      // Check if curG is a strict subset of prevG
+      const isCurSubset =
+        curStart !== undefined &&
+        curEnd !== undefined &&
+        prevStart !== undefined &&
+        prevEnd !== undefined &&
+        curStart >= prevStart &&
+        curEnd <= prevEnd;
+
+      // Check if prevG is a strict subset of curG
+      const isPrevSubset =
+        curStart !== undefined &&
+        curEnd !== undefined &&
+        prevStart !== undefined &&
+        prevEnd !== undefined &&
+        prevStart >= curStart &&
+        prevEnd <= curEnd;
+
+      const curHasNoDistinctInstructions =
+        !curG.instructions ||
+        curG.instructions.trim().length === 0 ||
+        curG.instructions === 'Read the text and answer the questions below.' ||
+        curG.instructions === prevG.instructions;
+
+      const curType = curG.questionTypeOverride || curG.questionType;
+      const prevType = prevG.questionTypeOverride || prevG.questionType;
+      const sameType =
+        curType === prevType ||
+        (Boolean(curType?.includes('completion')) && Boolean(prevType?.includes('completion'))) ||
+        (isCurSubset && curHasNoDistinctInstructions && (curType === 'short_answer' || Boolean(prevType?.includes('completion'))));
+
+      if (!sameType) continue;
+
+      // Check if they share any question IDs or question numbers
+      const sharesQuestions = curG.questions.some((cq) => {
+        const cqNum = extractQuestionNumber(cq);
+        return prevG.questions.some((pq) => {
+          if (pq.id && cq.id && pq.id === cq.id) return true;
+          const pqNum = extractQuestionNumber(pq);
+          return pqNum > 0 && cqNum > 0 && pqNum === cqNum;
+        });
+      });
+
+      if (isCurSubset || isPrevSubset || sharesQuestions) {
+        // Merge into the wider/more complete group
+        const target = isPrevSubset ? curG : prevG;
+        const source = isPrevSubset ? prevG : curG;
+
+        source.questions.forEach((sq) => {
+          const sqNum = extractQuestionNumber(sq);
+          const alreadyExists = target.questions.some((tq) => {
+            if (tq.id && sq.id && tq.id === sq.id) return true;
+            const tqNum = extractQuestionNumber(tq);
+            return tqNum > 0 && sqNum > 0 && tqNum === sqNum;
+          });
+          if (!alreadyExists) {
+            target.questions.push(sq);
+          }
+        });
+
+        target.questions.sort((a, b) => extractQuestionNumber(a) - extractQuestionNumber(b));
+
+        // Merge groupText
+        if (source.groupText && !target.groupText?.includes(source.groupText)) {
+          target.groupText = target.groupText ? `${target.groupText}\n\n${source.groupText}` : source.groupText;
+        }
+
+        // Merge optionsBox
+        if (source.optionsBox && source.optionsBox.length > 0) {
+          target.optionsBox = Array.from(new Set([...(target.optionsBox || []), ...source.optionsBox]));
+        }
+
+        // Update range title
+        const mergedNums = target.questions.map((q) => extractQuestionNumber(q)).filter((n) => n > 0);
+        if (mergedNums.length > 0) {
+          const f = mergedNums[0];
+          const l = mergedNums[mergedNums.length - 1];
+          target.groupTitle = f === l ? `Question ${f}` : `Questions ${f}–${l}`;
+        }
+
+        if (isPrevSubset) {
+          consolidated[pi] = target;
+        }
+        merged = true;
+        break;
+      }
+    }
+
+    if (!merged) {
+      consolidated.push(curG);
+    }
+  }
+
+  return consolidated;
+}
+
+/**
  * Resolves the primary prompt string for a reading question from various possible field names.
  * Cleans internal artifacts, unescapes entities, and removes redundant duplicate question number headers.
  */
@@ -847,14 +1051,22 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
   });
 
   // Compile and synchronize all groups so that questionType and child questions reflect authoritative overrides
-  const allGroups = questionGroups.length > 0
-    ? questionGroups
-    : passages.flatMap((p) => p.questionGroups || []);
+  const allGroups = deduplicateQuestionGroups(
+    questionGroups.length > 0
+      ? questionGroups
+      : passages.flatMap((p) => p.questionGroups || [])
+  );
 
   const normalizedQuestionGroups: QuestionGroup[] = allGroups.map((g) => {
     const groupType = g.questionTypeOverride || g.questionType;
     const gQuestions = (g.questions || []).map((gq) => {
-      const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
+      const gqNum = extractQuestionNumber(gq);
+      const matched = resultQuestions.find((rq) => {
+        if (rq.id && gq.id && rq.id === gq.id) return true;
+        const rqNum = extractQuestionNumber(rq);
+        if (rqNum > 0 && gqNum > 0 && rqNum === gqNum) return true;
+        return false;
+      });
       const specificType =
         (matched && isSpecificQuestionType(matched.type) && matched.type !== 'short_answer'
           ? matched.type
@@ -917,18 +1129,26 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     const pQs = resultQuestions.filter((q) => passageMap[q.id] === pIdx);
 
     // If passage does not have authentic groups directly, retrieve groups from allGroups matching this passage
-    const sourceGroups = (Array.isArray(p.questionGroups) && p.questionGroups.length > 0)
-      ? p.questionGroups
-      : allGroups.filter((g) => {
-          const gPIdx = (g as any).passageIndex ?? (g as any).passage_index;
-          if (typeof gPIdx === 'number' && gPIdx === pIdx) return true;
-          return (g.questions || []).some((gq) => passageMap[gq.id] === pIdx);
-        });
+    const sourceGroups = deduplicateQuestionGroups(
+      (Array.isArray(p.questionGroups) && p.questionGroups.length > 0)
+        ? p.questionGroups
+        : allGroups.filter((g) => {
+            const gPIdx = (g as any).passageIndex ?? (g as any).passage_index;
+            if (typeof gPIdx === 'number' && gPIdx === pIdx) return true;
+            return (g.questions || []).some((gq) => passageMap[gq.id] === pIdx);
+          })
+    );
 
     const pGroups = sourceGroups.map((g) => {
       const groupType = g.questionTypeOverride || g.questionType;
       const gQuestions = (g.questions || []).map((gq) => {
-        const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
+        const gqNum = extractQuestionNumber(gq);
+        const matched = resultQuestions.find((rq) => {
+          if (rq.id && gq.id && rq.id === gq.id) return true;
+          const rqNum = extractQuestionNumber(rq);
+          if (rqNum > 0 && gqNum > 0 && rqNum === gqNum) return true;
+          return false;
+        });
         const specificType =
           (matched && isSpecificQuestionType(matched.type) && matched.type !== 'short_answer'
             ? matched.type

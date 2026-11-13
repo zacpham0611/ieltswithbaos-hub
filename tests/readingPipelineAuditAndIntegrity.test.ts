@@ -11,6 +11,8 @@ import {
   extractAllNormalizedQuestions,
   extractQuestionNumber,
   cleanQuestionPrompt,
+  cleanDisplayGroupInstructions,
+  deduplicateQuestionGroups,
   normalizeReadingQuestion,
   buildQuestionRenderGroups,
 } from '../src/lib/questionNormalizer.ts';
@@ -507,5 +509,212 @@ Answer Key:
     const cleaned = cleanQuestionPrompt(promptWithInstruction, 1, rawInstruction);
 
     assert.strictEqual(cleaned, 'The city was founded in 1850.', 'Must strip duplicate group instructions and redundant "1."');
+  });
+
+  await t.test('11. Deduplicate Question Groups: Merges Subsets and Preserves Distinct Groups', () => {
+    const group20_26: QuestionGroup = {
+      id: 'g_1',
+      groupTitle: 'Questions 20–26',
+      questionType: 'note_completion',
+      questions: [20, 21, 22, 23, 24, 25, 26].map((n) => ({
+        id: `q_${n}`,
+        questionNumber: n,
+        prompt: `Note blank [${n}]`,
+        type: 'note_completion',
+        correctAnswer: 'ans',
+        explanation: '',
+      })),
+    };
+
+    const duplicateSubset23_26: QuestionGroup = {
+      id: 'g_1_sub',
+      groupTitle: 'Questions 23–26',
+      questionType: 'note_completion',
+      questions: [23, 24, 25, 26].map((n) => ({
+        id: `q_${n}`,
+        questionNumber: n,
+        prompt: `Note blank [${n}]`,
+        type: 'note_completion',
+        correctAnswer: 'ans',
+        explanation: '',
+      })),
+    };
+
+    const distinctGroup: QuestionGroup = {
+      id: 'g_2',
+      groupTitle: 'Questions 27–31',
+      questionType: 'multiple_choice',
+      questions: [27, 28, 29, 30, 31].map((n) => ({
+        id: `q_${n}`,
+        questionNumber: n,
+        prompt: `Question ${n}`,
+        type: 'multiple_choice',
+        correctAnswer: 'A',
+        explanation: '',
+      })),
+    };
+
+    const deduplicated = deduplicateQuestionGroups([group20_26, duplicateSubset23_26, distinctGroup]);
+    assert.strictEqual(deduplicated.length, 2, 'Must merge subset 23-26 into parent 20-26, leaving exactly 2 groups');
+    assert.strictEqual(deduplicated[0].groupTitle, 'Questions 20–26', 'First group must remain Questions 20–26');
+    assert.strictEqual(deduplicated[0].questions.length, 7, 'Must retain all 7 questions 20-26');
+    assert.strictEqual(deduplicated[1].groupTitle, 'Questions 27–31', 'Distinct group 27-31 must be preserved intact');
+  });
+
+  await t.test('12. Clean Display Group Instructions: Strips Leaked Options and Question Statements', () => {
+    const rawLeakedInstruction = `Choose THREE letters, A–F.
+Which THREE of the following statements are true of the study of drives?
+Write your answers in boxes 32–34 on your answer sheet, in any order.
+A Employees will be motivated if they feel belonged to the company.
+B If employees get an opportunity of training and development program, their motivation will be enhanced.
+C If employees’ working goals are complied with organisational objectives, their motivation will be reinforced.
+D If employees’ motivation is very low, companies should find a way to increase their salary as their first priority.
+E If employees find their work lacking challenging, they will leave the company.
+F Employees will worry if their company is sold.`;
+
+    const sampleGroup = {
+      groupType: 'multiple_select',
+      questions: [
+        {
+          q: {
+            id: 'q_32',
+            questionNumber: 32,
+            prompt: 'Which THREE of the following statements are true of the study of drives?',
+            type: 'multiple_select' as const,
+            options: [
+              'A Employees will be motivated if they feel belonged to the company.',
+              'B If employees get an opportunity of training and development program, their motivation will be enhanced.',
+              'C If employees’ working goals are complied with organisational objectives, their motivation will be reinforced.',
+              'D If employees’ motivation is very low, companies should find a way to increase their salary as their first priority.',
+              'E If employees find their work lacking challenging, they will leave the company.',
+              'F Employees will worry if their company is sold.',
+            ],
+            correctAnswer: 'B',
+            explanation: '',
+          },
+        },
+      ],
+    };
+
+    const cleaned = cleanDisplayGroupInstructions(rawLeakedInstruction, sampleGroup);
+    assert.ok(!cleaned.includes('A Employees will be motivated'), 'Must strip leaked option A');
+    assert.ok(!cleaned.includes('F Employees will worry'), 'Must strip leaked option F');
+    assert.ok(!cleaned.includes('Which THREE of the following statements are true'), 'Must strip question prompt');
+    assert.ok(cleaned.includes('Choose THREE letters, A–F.'), 'Must preserve instruction directive');
+    assert.ok(cleaned.includes('Write your answers in boxes 32–34'), 'Must preserve answer sheet directive');
+  });
+
+  await t.test('13. Extractor Multiple Selection: Isolates Instructions from Options and Prompts', () => {
+    const rawChunk = `READING PASSAGE 3
+The Psychology of Human Motivation
+Human behavior is governed by a complex hierarchy of psychological drives.
+
+Questions 32-34
+Choose THREE letters, A-F.
+Which THREE of the following statements are true of the study of drives?
+Write your answers in boxes 32-34 on your answer sheet, in any order.
+A Primary drives are strictly biological in nature.
+B Social incentives can supersede fundamental physiological needs.
+C Drive reduction theory fully explains all creative behavior.
+D Intrinsic motivation increases task persistence over time.
+E External rewards always enhance long-term interest.
+F Modern neuroscience has identified specific reward circuitry.
+
+Answer Key:
+32. B
+33. D
+34. F
+`;
+
+    const parsed = parseSinglePassage(rawChunk, 3, {}, {});
+    assert.strictEqual(parsed.questionGroups.length, 1, 'Must create exactly 1 QuestionGroup');
+    const group = parsed.questionGroups[0];
+
+    // Instructions must NOT contain options or prompt
+    assert.ok(!group.instructions?.includes('A Primary drives'), 'Instructions must NOT leak option A');
+    assert.ok(!group.instructions?.includes('Which THREE of the following statements are true'), 'Instructions must NOT leak question statement');
+    assert.ok(group.instructions?.includes('Choose THREE letters'), 'Instructions must preserve instruction directive');
+
+    // Questions must accurately hold prompt and options
+    assert.strictEqual(group.questions.length, 3, 'Group must contain exactly 3 questions (32, 33, 34)');
+    assert.ok(group.questions[0].prompt.includes('Which THREE of the following statements are true'), 'Question prompt must hold actual question');
+    assert.strictEqual(group.questions[0].options?.length, 6, 'Question must hold 6 options');
+  });
+
+  await t.test('14. Complete Test Passage 3: No Phantom Duplicate Group After Question 40', () => {
+    const rawChunk = `READING PASSAGE 3
+The Psychology of Human Motivation
+Human behavior is governed by a complex hierarchy of psychological drives.
+
+Questions 32-34
+Choose THREE letters, A-F.
+Which THREE of the following statements are true of the study of drives?
+Write your answers in boxes 32-34 on your answer sheet, in any order.
+A Primary drives are strictly biological in nature.
+B Social incentives can supersede fundamental physiological needs.
+C Drive reduction theory fully explains all creative behavior.
+D Intrinsic motivation increases task persistence over time.
+E External rewards always enhance long-term interest.
+F Modern neuroscience has identified specific reward circuitry.
+
+Questions 35-40
+Do the following statements agree with the claims of the writer in Reading Passage 3?
+In boxes 35-40 on your answer sheet, write
+YES if the statement agrees with the claims of the writer
+NO if the statement contradicts the claims of the writer
+NOT GIVEN if it is impossible to say what the writer thinks about this
+
+35. The hierarchy of drives is universally applicable across cultures.
+36. Intrinsic rewards are always stronger than external compensation.
+37. Modern companies have completely eliminated hierarchical structures.
+38. Biological drives cannot be modified through conditioning.
+39. Employee productivity is independent of management recognition.
+40. Rewarding system cause the company to lose profit.
+
+Answer Key:
+32. B
+33. D
+34. F
+35. YES
+36. NO
+37. NOT GIVEN
+38. NO
+39. NO
+40. NOT GIVEN
+`;
+
+    const parsed = parseSinglePassage(rawChunk, 3, {}, {});
+    assert.strictEqual(parsed.questions.length, 9, 'Must extract exactly 9 questions (32 to 40)');
+    assert.strictEqual(parsed.questionGroups.length, 2, 'Must extract exactly 2 question groups (32-34 and 35-40)');
+
+    const normalized = extractAllNormalizedQuestions({
+      passages: [
+        {
+          id: 'p_3',
+          title: 'Passage 3',
+          content: 'Human behavior is governed by a complex hierarchy...',
+          questions: parsed.questions,
+          questionGroups: parsed.questionGroups,
+        },
+      ],
+      readingQuestions: parsed.questions,
+    });
+
+    assert.strictEqual(normalized.passages[0].questionGroups.length, 2, 'Must have exactly 2 question groups in passage');
+    assert.ok(/Questions\s+32[\-\–]34/i.test(normalized.passages[0].questionGroups[0].groupTitle), 'First group must be Questions 32-34');
+    assert.ok(/Questions\s+35[\-\–]40/i.test(normalized.passages[0].questionGroups[1].groupTitle), 'Second group must be Questions 35-40');
+
+    // Verify all 3 questions 32, 33, 34 exist inside the first group
+    const qNumsG1 = normalized.passages[0].questionGroups[0].questions.map((q) => extractQuestionNumber(q));
+    assert.deepStrictEqual(qNumsG1, [32, 33, 34], 'Group 1 must contain questions 32, 33, and 34');
+
+    // Verify questions 35 to 40 exist inside the second group
+    const qNumsG2 = normalized.passages[0].questionGroups[1].questions.map((q) => extractQuestionNumber(q));
+    assert.deepStrictEqual(qNumsG2, [35, 36, 37, 38, 39, 40], 'Group 2 must contain questions 35 to 40');
+
+    // Verify NO phantom duplicate group (like Questions 33-34) exists at the end
+    const lastGroup = normalized.passages[0].questionGroups[normalized.passages[0].questionGroups.length - 1];
+    assert.notStrictEqual(lastGroup.groupTitle, 'Questions 33–34', 'No duplicate Questions 33-34 group after Q40');
+    assert.ok(/Questions\s+35[\-\–]40/i.test(lastGroup.groupTitle), 'Last group must be Questions 35-40');
   });
 });

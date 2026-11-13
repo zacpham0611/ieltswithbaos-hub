@@ -37,6 +37,8 @@ import {
   extractAllNormalizedQuestions,
   extractQuestionNumber,
   cleanQuestionPrompt,
+  cleanDisplayGroupInstructions,
+  deduplicateQuestionGroups,
   resolveQuestionPrompt,
   extractParagraphLabelsFromPassage,
   buildQuestionRenderGroups,
@@ -3424,35 +3426,56 @@ export const AssignmentsView: React.FC = () => {
     const activePassageTotalCount = activePassageQuestions.length;
 
     // Check if the current passage or assignment has authentic question groups
-    const currentPassageGroups: QuestionGroup[] =
-      (hasMultiPassages && activeAssignment.passages?.[safePassageIndex]?.questionGroups && activeAssignment.passages[safePassageIndex].questionGroups.length > 0)
+    const rawPassageGroups: QuestionGroup[] =
+      (hasMultiPassages && extractedData.passages?.[safePassageIndex]?.questionGroups && extractedData.passages[safePassageIndex].questionGroups.length > 0)
+        ? extractedData.passages[safePassageIndex].questionGroups
+        : (hasMultiPassages && activeAssignment.passages?.[safePassageIndex]?.questionGroups && activeAssignment.passages[safePassageIndex].questionGroups.length > 0)
         ? activeAssignment.passages[safePassageIndex].questionGroups
+        : (hasMultiPassages && extractedData.questionGroups && extractedData.questionGroups.length > 0)
+        ? extractedData.questionGroups.filter((g) => {
+            const gPIdx = (g as any).passageIndex ?? (g as any).passage_index;
+            if (typeof gPIdx === 'number' && gPIdx === safePassageIndex) return true;
+            return (g.questions || []).some((gq) => passageMap[gq.id] === safePassageIndex);
+          })
         : (hasMultiPassages && activeAssignment.questionGroups && activeAssignment.questionGroups.length > 0)
         ? activeAssignment.questionGroups.filter((g) => {
             const gPIdx = (g as any).passageIndex ?? (g as any).passage_index;
             if (typeof gPIdx === 'number' && gPIdx === safePassageIndex) return true;
             return (g.questions || []).some((gq) => passageMap[gq.id] === safePassageIndex);
           })
+        : (!hasMultiPassages && extractedData.passages?.[0]?.questionGroups && extractedData.passages[0].questionGroups.length > 0)
+        ? extractedData.passages[0].questionGroups
         : (!hasMultiPassages && activeAssignment.passages?.[0]?.questionGroups && activeAssignment.passages[0].questionGroups.length > 0)
         ? activeAssignment.passages[0].questionGroups
+        : (!hasMultiPassages && extractedData.questionGroups && extractedData.questionGroups.length > 0)
+        ? extractedData.questionGroups
         : (!hasMultiPassages && activeAssignment.questionGroups)
         ? activeAssignment.questionGroups
         : [];
+
+    const currentPassageGroups: QuestionGroup[] = deduplicateQuestionGroups(rawPassageGroups);
 
     const initialRenderGroups: QuestionRenderGroup[] = (currentPassageGroups && currentPassageGroups.length > 0)
       ? currentPassageGroups.map((g, gIdx) => {
           const groupType = g.questionTypeOverride || g.questionType;
           const isCompletion = COMPLETION_TYPES.has(groupType);
 
-          // Find mapped questions from activePassageQuestions
+          // Find mapped questions from activePassageQuestions using exact ID and authentic question number
           const groupItems: Array<{ q: ReadingQuestion; idx: number }> = [];
           (g.questions || []).forEach((gq) => {
-            const matchedItem = activePassageQuestions.find(
-              (item) => item.q.id === gq.id || (item.q.prompt && item.q.prompt === gq.prompt)
-            );
-            const absIdx = allQuestionsIndexed.findIndex(
-              (item) => item.q.id === gq.id || (item.q.prompt && item.q.prompt === gq.prompt)
-            );
+            const gqNum = extractQuestionNumber(gq);
+            const matchedItem = activePassageQuestions.find((item) => {
+              if (item.q.id && gq.id && item.q.id === gq.id) return true;
+              const itemNum = extractQuestionNumber(item.q, item.absoluteIdx + 1);
+              if (gqNum > 0 && itemNum > 0 && gqNum === itemNum) return true;
+              return false;
+            });
+            const absIdx = allQuestionsIndexed.findIndex((item) => {
+              if (item.q.id && gq.id && item.q.id === gq.id) return true;
+              const itemNum = extractQuestionNumber(item.q, item.absoluteIdx + 1);
+              if (gqNum > 0 && itemNum > 0 && gqNum === itemNum) return true;
+              return false;
+            });
             const qNum = extractQuestionNumber(matchedItem ? matchedItem.q : gq, absIdx >= 0 ? absIdx + 1 : gIdx + 1);
             groupItems.push({ q: matchedItem ? matchedItem.q : gq, idx: qNum - 1 });
           });
@@ -3497,15 +3520,21 @@ export const AssignmentsView: React.FC = () => {
     // GUARANTEE 100% PARITY BETWEEN NAVIGATOR & ANSWERING INTERFACE:
     // Any activePassageQuestions not included in currentPassageGroups are appended as fallback groups
     const renderedQuestionIds = new Set<string>();
+    const renderedQuestionNums = new Set<number>();
     initialRenderGroups.forEach((rg) => {
-      rg.questions.forEach(({ q }) => {
+      rg.questions.forEach(({ q, idx }) => {
         if (q.id) renderedQuestionIds.add(q.id);
+        const num = extractQuestionNumber(q, idx + 1);
+        if (num > 0) renderedQuestionNums.add(num);
       });
     });
 
-    const unrenderedQuestions = activePassageQuestions.filter(
-      (item) => !renderedQuestionIds.has(item.q.id)
-    );
+    const unrenderedQuestions = activePassageQuestions.filter((item) => {
+      if (renderedQuestionIds.has(item.q.id)) return false;
+      const num = extractQuestionNumber(item.q, item.absoluteIdx + 1);
+      if (num > 0 && renderedQuestionNums.has(num)) return false;
+      return true;
+    });
 
     const questionRenderGroups: QuestionRenderGroup[] = unrenderedQuestions.length > 0
       ? [...initialRenderGroups, ...buildQuestionRenderGroups(unrenderedQuestions)]
@@ -4135,7 +4164,7 @@ export const AssignmentsView: React.FC = () => {
 
                               {group.instructions && (
                                 <p className="text-xs text-slate-700 font-medium italic leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200 whitespace-pre-line">
-                                  {renderCleanMarkdown(group.instructions)}
+                                  {renderCleanMarkdown(cleanDisplayGroupInstructions(group.instructions, group))}
                                 </p>
                               )}
 
@@ -4649,7 +4678,7 @@ export const AssignmentsView: React.FC = () => {
 
                             {group.instructions && !group.questions.every((item) => item.q.type === 'matching_information') && (
                               <p className="text-xs text-slate-700 italic leading-relaxed whitespace-pre-line">
-                                {group.instructions}
+                                {renderCleanMarkdown(cleanDisplayGroupInstructions(group.instructions, group))}
                               </p>
                             )}
 
