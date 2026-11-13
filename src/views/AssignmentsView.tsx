@@ -23,7 +23,7 @@ import {
   ListeningQuestion,
   ListeningQuestionGroup,
 } from '../types';
-import { parseDocumentStructure } from '../lib/documentExtractor';
+import { parseDocumentStructure, parseQuestionNumbersFromRange } from '../lib/documentExtractor';
 import {
   gradeAssignmentSubmission,
   gradeListeningSubmission,
@@ -35,6 +35,8 @@ import { ListeningQuestionRenderer } from '../components/listening/ListeningQues
 import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../components/writing/WritingTask1VisualRenderer';
 import {
   extractAllNormalizedQuestions,
+  extractQuestionNumber,
+  cleanQuestionPrompt,
   resolveQuestionPrompt,
   extractParagraphLabelsFromPassage,
   buildQuestionRenderGroups,
@@ -2475,7 +2477,7 @@ export const AssignmentsView: React.FC = () => {
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="font-bold text-slate-900 text-sm">
-                            Question {idx + 1}
+                            Question {extractQuestionNumber(q, idx + 1)}
                             {q.type && (
                               <span className="ml-2 text-[10px] font-mono px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-normal">
                                 {q.type.replace(/_/g, ' ')}
@@ -3334,16 +3336,12 @@ export const AssignmentsView: React.FC = () => {
 
     // Helper to resolve passage index for any question
     const resolvePassageIndexForQuestion = (q: ReadingQuestion, absoluteIdx: number): number => {
+      // 1. PassageMap check
       if (passageMap[q.id] !== undefined) {
         return passageMap[q.id];
       }
-      const rawPIdx = (q as any).passageIndex ?? (q as any).passage_index;
-      if (typeof rawPIdx === 'number' && !isNaN(rawPIdx)) {
-        if (rawPIdx >= 1 && activeAssignment?.passages && rawPIdx <= activeAssignment.passages.length) {
-          return rawPIdx - 1;
-        }
-        if (rawPIdx >= 0) return rawPIdx;
-      }
+
+      // 2. Direct membership in passage questions or question groups
       if (activeAssignment?.passages && activeAssignment.passages.length > 0) {
         for (let pIdx = 0; pIdx < activeAssignment.passages.length; pIdx++) {
           const p = activeAssignment.passages[pIdx];
@@ -3355,6 +3353,18 @@ export const AssignmentsView: React.FC = () => {
           if (hasInGroup) return pIdx;
         }
 
+        // 3. Normalized passageIndex on question object (0-based: 0, 1, 2)
+        const rawPIdx = (q as any).passageIndex ?? (q as any).passage_index;
+        if (typeof rawPIdx === 'number' && !isNaN(rawPIdx)) {
+          if (rawPIdx >= 0 && rawPIdx < activeAssignment.passages.length) {
+            return rawPIdx;
+          }
+          if (rawPIdx === activeAssignment.passages.length) {
+            return rawPIdx - 1;
+          }
+        }
+
+        // 4. Passage question count ranges if passages have questions
         let offset = 0;
         for (let pIdx = 0; pIdx < activeAssignment.passages.length; pIdx++) {
           const pCount = activeAssignment.passages[pIdx].questions?.length || 0;
@@ -3364,12 +3374,29 @@ export const AssignmentsView: React.FC = () => {
           offset += pCount;
         }
 
-        // Smart IELTS standard heuristic: partition based on standard question numbers
-        const matchNum = q.id?.match(/(?:q_p\d+_|q_)(\d+)$/)?.[1] || q.prompt?.match(/^(\d+)[\.\s]/)?.[1];
-        const num = matchNum ? parseInt(matchNum, 10) : absoluteIdx + 1;
+        // 5. Authentic IELTS standard question number matching against passage ranges
+        const qNum = extractQuestionNumber(q, absoluteIdx + 1);
+        for (let pIdx = 0; pIdx < activeAssignment.passages.length; pIdx++) {
+          const p = activeAssignment.passages[pIdx];
+          const allPNums: number[] = [];
+          (p.questionGroups || []).forEach((g: any) => {
+            allPNums.push(...parseQuestionNumbersFromRange(g.groupTitle || ''));
+            (g.questions || []).forEach((gq: any) => allPNums.push(extractQuestionNumber(gq)));
+          });
+          (p.questions || []).forEach((pq: any) => allPNums.push(extractQuestionNumber(pq)));
+          if (allPNums.length > 0) {
+            const minNum = Math.min(...allPNums);
+            const maxNum = Math.max(...allPNums);
+            if (qNum >= minNum && qNum <= maxNum) {
+              return pIdx;
+            }
+          }
+        }
+
+        // 6. Standard 3-passage IELTS partition by authentic question number
         if (activeAssignment.passages.length === 3) {
-          if (num <= 13) return 0;
-          if (num <= 26) return 1;
+          if (qNum <= 13) return 0;
+          if (qNum <= 26) return 1;
           return 2;
         }
 
@@ -3398,10 +3425,19 @@ export const AssignmentsView: React.FC = () => {
 
     // Check if the current passage or assignment has authentic question groups
     const currentPassageGroups: QuestionGroup[] =
-      (hasMultiPassages && activeAssignment.passages?.[safePassageIndex]?.questionGroups) ||
-      (!hasMultiPassages && activeAssignment.passages?.[0]?.questionGroups) ||
-      (!hasMultiPassages && activeAssignment.questionGroups) ||
-      [];
+      (hasMultiPassages && activeAssignment.passages?.[safePassageIndex]?.questionGroups && activeAssignment.passages[safePassageIndex].questionGroups.length > 0)
+        ? activeAssignment.passages[safePassageIndex].questionGroups
+        : (hasMultiPassages && activeAssignment.questionGroups && activeAssignment.questionGroups.length > 0)
+        ? activeAssignment.questionGroups.filter((g) => {
+            const gPIdx = (g as any).passageIndex ?? (g as any).passage_index;
+            if (typeof gPIdx === 'number' && gPIdx === safePassageIndex) return true;
+            return (g.questions || []).some((gq) => passageMap[gq.id] === safePassageIndex);
+          })
+        : (!hasMultiPassages && activeAssignment.passages?.[0]?.questionGroups && activeAssignment.passages[0].questionGroups.length > 0)
+        ? activeAssignment.passages[0].questionGroups
+        : (!hasMultiPassages && activeAssignment.questionGroups)
+        ? activeAssignment.questionGroups
+        : [];
 
     const initialRenderGroups: QuestionRenderGroup[] = (currentPassageGroups && currentPassageGroups.length > 0)
       ? currentPassageGroups.map((g, gIdx) => {
@@ -3414,14 +3450,11 @@ export const AssignmentsView: React.FC = () => {
             const matchedItem = activePassageQuestions.find(
               (item) => item.q.id === gq.id || (item.q.prompt && item.q.prompt === gq.prompt)
             );
-            if (matchedItem) {
-              groupItems.push({ q: matchedItem.q, idx: matchedItem.absoluteIdx });
-            } else {
-              const absIdx = allQuestionsIndexed.findIndex(
-                (item) => item.q.id === gq.id || (item.q.prompt && item.q.prompt === gq.prompt)
-              );
-              groupItems.push({ q: gq, idx: absIdx >= 0 ? absIdx : gIdx });
-            }
+            const absIdx = allQuestionsIndexed.findIndex(
+              (item) => item.q.id === gq.id || (item.q.prompt && item.q.prompt === gq.prompt)
+            );
+            const qNum = extractQuestionNumber(matchedItem ? matchedItem.q : gq, absIdx >= 0 ? absIdx + 1 : gIdx + 1);
+            groupItems.push({ q: matchedItem ? matchedItem.q : gq, idx: qNum - 1 });
           });
 
           // Determine Word List strictly for summary completion
@@ -3435,8 +3468,8 @@ export const AssignmentsView: React.FC = () => {
             groupText = buildCompletionGroupText(groupItems);
           }
 
-          const firstNum = groupItems[0]?.idx !== undefined ? groupItems[0].idx + 1 : undefined;
-          const lastNum = groupItems[groupItems.length - 1]?.idx !== undefined ? groupItems[groupItems.length - 1].idx + 1 : undefined;
+          const firstNum = groupItems[0]?.q ? extractQuestionNumber(groupItems[0].q) : undefined;
+          const lastNum = groupItems[groupItems.length - 1]?.q ? extractQuestionNumber(groupItems[groupItems.length - 1].q) : undefined;
           const defaultRangeTitle =
             firstNum !== undefined && lastNum !== undefined
               ? firstNum === lastNum
@@ -4018,6 +4051,7 @@ export const AssignmentsView: React.FC = () => {
                   {/* Single Continuous Horizontal Row of Active Passage Questions */}
                   <div className="flex flex-row items-center gap-1.5 overflow-x-auto py-1 scrollbar-thin scrollbar-thumb-slate-300">
                     {activePassageQuestions.map(({ q, absoluteIdx }) => {
+                      const qNum = extractQuestionNumber(q, absoluteIdx + 1);
                       const isAns = Boolean(readingAnswers[q.id]?.trim());
                       const isFlag = Boolean(flaggedQuestions[q.id]);
                       return (
@@ -4035,9 +4069,9 @@ export const AssignmentsView: React.FC = () => {
                               ? 'bg-blue-600 text-white shadow-xs'
                               : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                           }`}
-                          title={`Question ${absoluteIdx + 1}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
+                          title={`Question ${qNum}${isFlag ? ' (Flagged)' : isAns ? ' (Answered)' : ' (Unanswered)'}`}
                         >
-                          {absoluteIdx + 1}
+                          {qNum}
                         </button>
                       );
                     })}
@@ -4122,6 +4156,7 @@ export const AssignmentsView: React.FC = () => {
                                           const blankIndexInGroup = embeddedMatches.indexOf(qNumStr);
                                           const targetItem = group.questions.find(
                                             (item, qIdx) =>
+                                              String(extractQuestionNumber(item.q, item.idx + 1)) === qNumStr ||
                                               String(item.idx + 1) === qNumStr ||
                                               String((item.q as any).questionNumber || (item.q as any).number || '') === qNumStr ||
                                               item.q.id.endsWith(`_${qNumStr}`) ||
@@ -4191,12 +4226,129 @@ export const AssignmentsView: React.FC = () => {
                                       });
                                     };
 
+                                    const renderReadingStructuredTable = (tableMarkdown: string) => {
+                                      const tLines = tableMarkdown
+                                        .split('\n')
+                                        .map((l) => {
+                                          let trimmed = l.trim();
+                                          if (trimmed.includes('|')) {
+                                            if (!trimmed.startsWith('|')) trimmed = '| ' + trimmed;
+                                            if (!trimmed.endsWith('|')) trimmed = trimmed + ' |';
+                                          }
+                                          return trimmed;
+                                        })
+                                        .filter((l) => l.startsWith('|') && l.endsWith('|'));
+
+                                      if (tLines.length < 2) return null;
+                                      const isSep = (l: string) => /^\|(?:\s*:?-+:?\s*\|)+$/.test(l);
+                                      const dataLines = tLines.filter((l) => !isSep(l));
+                                      if (dataLines.length === 0) return null;
+
+                                      const headerCells = dataLines[0]
+                                        .slice(1, -1)
+                                        .split('|')
+                                        .map((c) => cleanReadingText(c.trim()));
+                                      const bodyRows = dataLines.slice(1).map((l) =>
+                                        l
+                                          .slice(1, -1)
+                                          .split('|')
+                                          .map((c) => c.trim())
+                                      );
+
+                                      return (
+                                        <div className="overflow-x-auto my-3 rounded-xl border border-slate-200 shadow-2xs bg-white">
+                                          <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                                            <thead>
+                                              <tr className="bg-slate-100 border-b border-slate-200">
+                                                {headerCells.map((h, hIdx) => (
+                                                  <th
+                                                    key={hIdx}
+                                                    className="px-4 py-2.5 font-bold text-slate-800 border-r last:border-r-0 border-slate-200 tracking-wide"
+                                                  >
+                                                    {h}
+                                                  </th>
+                                                ))}
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                              {bodyRows.map((row, rIdx) => (
+                                                <tr
+                                                  key={rIdx}
+                                                  className={`hover:bg-slate-50/80 transition-colors ${
+                                                    rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                                                  }`}
+                                                >
+                                                  {row.map((cell, cIdx) => (
+                                                    <td
+                                                      key={cIdx}
+                                                      className="px-4 py-2.5 text-slate-700 border-r last:border-r-0 border-slate-200 align-top"
+                                                    >
+                                                      {renderChunkWithBlanks(cell, `table-r${rIdx}-c${cIdx}`)}
+                                                    </td>
+                                                  ))}
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      );
+                                    };
+
                                     const isNoteCompletion = group.groupType === 'note_completion';
                                     const cleanNotes = cleanReadingText(group.groupText)
                                       .replace(/\r\n/g, '\n')
                                       .replace(/\r/g, '\n')
                                       .trim();
                                     const noteLines = cleanNotes.split('\n').filter((l) => l.trim().length > 0);
+                                    const hasMarkdownTable = noteLines.some((l) => l.trim().startsWith('|') && l.trim().endsWith('|'));
+
+                                    if (hasMarkdownTable) {
+                                      const segments: Array<{ type: 'text' | 'table'; content: string }> = [];
+                                      let currentTableLines: string[] = [];
+                                      let currentTextLines: string[] = [];
+
+                                      noteLines.forEach((l) => {
+                                        const trimmed = l.trim();
+                                        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+                                          if (currentTextLines.length > 0) {
+                                            segments.push({ type: 'text', content: currentTextLines.join('\n') });
+                                            currentTextLines = [];
+                                          }
+                                          currentTableLines.push(trimmed);
+                                        } else {
+                                          if (currentTableLines.length > 0) {
+                                            segments.push({ type: 'table', content: currentTableLines.join('\n') });
+                                            currentTableLines = [];
+                                          }
+                                          currentTextLines.push(trimmed);
+                                        }
+                                      });
+                                      if (currentTableLines.length > 0) {
+                                        segments.push({ type: 'table', content: currentTableLines.join('\n') });
+                                      }
+                                      if (currentTextLines.length > 0) {
+                                        segments.push({ type: 'text', content: currentTextLines.join('\n') });
+                                      }
+
+                                      return (
+                                        <div className="space-y-3 py-1">
+                                          {segments.map((seg, sIdx) => {
+                                            if (seg.type === 'table') {
+                                              return <div key={`seg-${sIdx}`}>{renderReadingStructuredTable(seg.content)}</div>;
+                                            }
+                                            return (
+                                              <div key={`seg-${sIdx}`} className="space-y-1.5">
+                                                {seg.content.split('\n').map((line, lIdx) => (
+                                                  <p key={`p-${lIdx}`} className="text-sm text-slate-800 leading-relaxed pl-1">
+                                                    {renderChunkWithBlanks(line, `seg-${sIdx}-l${lIdx}`)}
+                                                  </p>
+                                                ))}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    }
 
                                     if ((isNoteCompletion || noteLines.some((l) => /^[•\-\*\+\d+\.]/.test(l.trim()) || l.trim().endsWith(':'))) && noteLines.length > 1) {
                                       return (
@@ -4361,7 +4513,7 @@ export const AssignmentsView: React.FC = () => {
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                           <div className="flex items-center space-x-3 flex-1 min-w-0">
                                             <span className="font-mono text-xs font-extrabold text-blue-900 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg shrink-0">
-                                              Question {idx + 1}
+                                              Question {extractQuestionNumber(q, idx + 1)}
                                             </span>
                                             {qFormat === 'word_list' && effectiveWordList && effectiveWordList.length > 0 ? (
                                               <select
@@ -4633,7 +4785,7 @@ export const AssignmentsView: React.FC = () => {
                                 >
                                   <div className="flex items-center justify-between">
                                     <span className="font-bold text-slate-900 text-sm">
-                                      Question {idx + 1}
+                                      Question {extractQuestionNumber(q, idx + 1)}
                                     </span>
 
                                     <div className="flex items-center space-x-2">
@@ -4666,7 +4818,7 @@ export const AssignmentsView: React.FC = () => {
                                     </div>
                                   </div>
 
-                                  <p className="font-semibold text-slate-800 text-sm leading-relaxed whitespace-pre-line">{renderCleanMarkdown(displayPrompt, idx + 1)}</p>
+                                  <p className="font-semibold text-slate-800 text-sm leading-relaxed whitespace-pre-line">{renderCleanMarkdown(cleanQuestionPrompt(displayPrompt, extractQuestionNumber(q, idx + 1), group.instructions), extractQuestionNumber(q, idx + 1))}</p>
 
                                   {/* Word limit note if applicable */}
                                   {(instructionText || (maxWords && !group.wordLimit)) && (

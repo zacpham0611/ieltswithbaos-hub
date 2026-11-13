@@ -32,7 +32,7 @@ import { ExamListeningAudioPlayer } from '../../components/listening/ExamListeni
 import { renderCleanMarkdown } from '../../utils/textFormatter';
 import { ListeningQuestionRenderer } from '../../components/listening/ListeningQuestionRenderer';
 import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../../components/writing/WritingTask1VisualRenderer';
-import { extractAllNormalizedQuestions } from '../../lib/questionNormalizer';
+import { extractAllNormalizedQuestions, extractQuestionNumber } from '../../lib/questionNormalizer';
 
 interface RegularTestExamViewProps {
   test: RegularTest;
@@ -1337,7 +1337,7 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                   : allReadingQuestions
                 ).map((q) => {
                   const globalIdx = allReadingQuestions.findIndex((item) => item.id === q.id);
-                  const qNum = globalIdx >= 0 ? globalIdx + 1 : 1;
+                  const qNum = extractQuestionNumber(q, globalIdx >= 0 ? globalIdx + 1 : 1);
                   const isFlagged = Boolean(flaggedQuestions[q.id]);
                   const studentAns = answers.reading?.[q.id] || '';
                   const effectiveQType = q.questionTypeOverride || (q as any).typeOverride || q.type;

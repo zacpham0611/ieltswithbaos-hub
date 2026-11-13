@@ -240,6 +240,97 @@ export function cleanReadingText(text?: string): string {
 }
 
 /**
+ * Safely extracts authentic question number from question object, ID, or prompt.
+ * Preserves the original document question numbering without artificial re-indexing.
+ */
+export function extractQuestionNumber(q: any, fallbackIndex?: number): number {
+  if (!q) return fallbackIndex !== undefined ? fallbackIndex : 1;
+
+  if (typeof q.questionNumber === 'number' && q.questionNumber > 0) {
+    return q.questionNumber;
+  }
+  if (typeof q.number === 'number' && q.number > 0) {
+    return q.number;
+  }
+  if (typeof q.order === 'number' && q.order > 0) {
+    return q.order;
+  }
+
+  // Check ID: q_14, q_p2_14, 14
+  if (typeof q.id === 'string') {
+    const idMatch = q.id.match(/(?:q_p\d+_|q_|^)(\d+)$/);
+    if (idMatch) {
+      const n = parseInt(idMatch[1], 10);
+      if (!isNaN(n) && n > 0 && n <= 100) return n;
+    }
+  }
+
+  // Check prompt: "14. Statement...", "(14) ...", "Question 14:"
+  const promptCandidate = q.prompt || q.questionText || q.text || '';
+  if (typeof promptCandidate === 'string') {
+    const promptMatch = promptCandidate.match(/^(?:Question\s+|Câu\s+)?(?:\(?(\d{1,3})\)?[\.\:\s\)\–\-])/i);
+    if (promptMatch) {
+      const n = parseInt(promptMatch[1], 10);
+      if (!isNaN(n) && n > 0 && n <= 100) return n;
+    }
+    // Also check embedded blank in note/summary prompt: [14], (14)
+    const blankMatch = promptCandidate.match(/(?:\[(\d{1,2})\]|\((\d{1,2})\))/);
+    if (blankMatch) {
+      const n = parseInt(blankMatch[1] || blankMatch[2], 10);
+      if (!isNaN(n) && n > 0 && n <= 100) return n;
+    }
+  }
+
+  return fallbackIndex !== undefined ? fallbackIndex : 1;
+}
+
+/**
+ * Cleans group instruction leakage and redundant numbering from question prompts
+ */
+export function cleanQuestionPrompt(
+  prompt: string,
+  questionNum?: number,
+  groupInstruction?: string
+): string {
+  if (!prompt) return '';
+  let cleaned = cleanReadingText(prompt);
+
+  // If groupInstruction is provided and the prompt begins with it, strip it
+  if (groupInstruction && groupInstruction.trim().length > 15) {
+    const cleanGroupInst = cleanReadingText(groupInstruction).trim();
+    if (cleaned.toLowerCase().startsWith(cleanGroupInst.toLowerCase())) {
+      cleaned = cleaned.slice(cleanGroupInst.length).trim();
+    }
+  }
+
+  // Strip common IELTS instructions that accidentally got bundled into individual question prompts
+  const commonInstructionRegexes = [
+    /^(?:do\s+the\s+following\s+statements\s+agree\s+with\s+(?:the\s+)?(?:information|views|claims)[^\.\n]*[\.\n]\s*(?:in\s+boxes\s+\d+[^\.\n]*[\.\n]\s*)?(?:choose|write)\s+[^\.\n]*[\.\n]\s*)/i,
+    /^(?:choose\s+(?:the\s+)?correct\s+letter[^\.\n]*[\.\n]\s*(?:write\s+your\s+answers?\s+in\s+boxes[^\.\n]*[\.\n]\s*)?)/i,
+    /^(?:complete\s+the\s+(?:notes|summary|table|flow-chart|sentences?)[^\.\n]*[\.\n]\s*(?:write\s+no\s+more\s+than[^\.\n]*[\.\n]\s*)?)/i,
+  ];
+
+  for (const reg of commonInstructionRegexes) {
+    cleaned = cleaned.replace(reg, '').trim();
+  }
+
+  // Strip redundant leading "**Question 32**", "Question 32:", or "32." if questionNum is 32
+  if (questionNum !== undefined) {
+    const redundantNumRegex = new RegExp(
+      `^(?:\\*\\*(?:Question|Câu)\\s*${questionNum}[:\\.]?\\*\\*|(?:Question|Câu)\\s*${questionNum}[:\\.]?|${questionNum}[\\.\\:\\)]\\s*)\\s*`,
+      'i'
+    );
+    cleaned = cleaned.replace(redundantNumRegex, '').trim();
+  }
+  cleaned = cleaned.replace(/^\*\*(?:Question|Câu)\s*\d+[:\.]?\*\*\s*/i, '').trim();
+
+  // Format numbered blanks like "33 ........" to "(33) ........"
+  cleaned = cleaned.replace(/(?:^|\s)(?!\()(\d+)\s*([\.]{3,}|_{3,})/g, ' ($1) $2');
+
+  return cleaned.trim() || `Question ${questionNum ?? 1}`;
+}
+
+/**
  * Resolves the primary prompt string for a reading question from various possible field names.
  * Cleans internal artifacts, unescapes entities, and removes redundant duplicate question number headers.
  */
@@ -290,19 +381,24 @@ export function normalizeReadingQuestion(
   index?: number,
   passageIndex?: number
 ): ReadingQuestion {
+  const qNum = extractQuestionNumber(raw, index);
+
   if (!raw || typeof raw !== 'object') {
-    const id = `q_gen_${index ?? 1}_${Math.random().toString(36).slice(2, 7)}`;
+    const id = `q_${qNum}`;
     return {
       id,
       type: 'short_answer',
-      prompt: `Question ${index ?? 1}`,
+      prompt: `Question ${qNum}`,
       correctAnswer: '',
       explanation: '',
       points: 1,
+      questionNumber: qNum,
+      ...(passageIndex !== undefined ? { passageIndex } : {}),
     };
   }
 
-  const prompt = resolveQuestionPrompt(raw, index);
+  const rawPrompt = resolveQuestionPrompt(raw, qNum);
+  const prompt = cleanQuestionPrompt(rawPrompt, qNum);
   const rawOverride = raw.questionTypeOverride || raw.typeOverride;
   const isTeacherEdited = Boolean(raw.isTeacherEdited || rawOverride);
   let type = normalizeQuestionType(rawOverride || raw.type || raw.questionType || raw.question_type);
@@ -316,7 +412,7 @@ export function normalizeReadingQuestion(
   const id = String(
     raw.id ||
       raw._id ||
-      (raw.questionNumber ? `q_${raw.questionNumber}` : `q_${index ?? 1}`)
+      (raw.questionNumber ? `q_${raw.questionNumber}` : `q_${qNum}`)
   );
 
   const correctAnswer = String(
@@ -422,13 +518,14 @@ export function normalizeReadingQuestion(
     ? raw.pairs
     : undefined;
 
-  const normalized: ReadingQuestion & { passageIndex?: number } = {
+  const normalized: ReadingQuestion & { passageIndex?: number; questionNumber?: number } = {
     id,
     type,
     prompt,
     correctAnswer,
     explanation,
     points: Number(raw.points) > 0 ? Number(raw.points) : 1,
+    questionNumber: qNum,
   };
 
   if (options) normalized.options = options;
@@ -742,6 +839,13 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     }
   }
 
+  // Stable sort by authentic question number so questions appear in natural 1, 2, 3... sequence
+  resultQuestions.sort((a, b) => {
+    const numA = extractQuestionNumber(a);
+    const numB = extractQuestionNumber(b);
+    return numA - numB;
+  });
+
   // Compile and synchronize all groups so that questionType and child questions reflect authoritative overrides
   const allGroups = questionGroups.length > 0
     ? questionGroups
@@ -796,6 +900,10 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
         ...(isEdited ? { questionTypeOverride: specificType || authType, isTeacherEdited: true } : {}),
       };
     });
+
+    // Sort questions inside group in ascending question order
+    gQuestions.sort((a, b) => extractQuestionNumber(a) - extractQuestionNumber(b));
+
     return {
       ...g,
       questionType: groupType,
@@ -807,7 +915,17 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
 
   const normalizedPassages: ParsedPassage[] = passages.map((p, pIdx) => {
     const pQs = resultQuestions.filter((q) => passageMap[q.id] === pIdx);
-    const pGroups = (p.questionGroups || []).map((g) => {
+
+    // If passage does not have authentic groups directly, retrieve groups from allGroups matching this passage
+    const sourceGroups = (Array.isArray(p.questionGroups) && p.questionGroups.length > 0)
+      ? p.questionGroups
+      : allGroups.filter((g) => {
+          const gPIdx = (g as any).passageIndex ?? (g as any).passage_index;
+          if (typeof gPIdx === 'number' && gPIdx === pIdx) return true;
+          return (g.questions || []).some((gq) => passageMap[gq.id] === pIdx);
+        });
+
+    const pGroups = sourceGroups.map((g) => {
       const groupType = g.questionTypeOverride || g.questionType;
       const gQuestions = (g.questions || []).map((gq) => {
         const matched = resultQuestions.find((rq) => rq.id === gq.id || (rq.prompt && rq.prompt === gq.prompt));
@@ -855,16 +973,30 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
           ...(isEdited ? { questionTypeOverride: specificType || authType, isTeacherEdited: true } : {}),
         };
       });
+
+      // Sort questions inside group by authentic question number
+      gQuestions.sort((a, b) => extractQuestionNumber(a) - extractQuestionNumber(b));
+
       return {
         ...g,
+        passageIndex: pIdx,
         questionType: groupType,
         questionTypeOverride: g.questionTypeOverride,
         isTeacherEdited: g.isTeacherEdited,
         questions: gQuestions,
       };
     });
+
+    // Sort groups in passage by starting question number
+    pGroups.sort((a, b) => {
+      const startA = a.questions.length > 0 ? extractQuestionNumber(a.questions[0]) : 0;
+      const startB = b.questions.length > 0 ? extractQuestionNumber(b.questions[0]) : 0;
+      return startA - startB;
+    });
+
     return {
       ...p,
+      passageIndex: pIdx,
       questions: pQs.length > 0 ? pQs : (p.questions || []),
       questionGroups: pGroups,
     };

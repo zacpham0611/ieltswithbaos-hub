@@ -154,6 +154,9 @@ export interface ReadingQuestion {
   id: string;
   type: QuestionType;
   prompt: string;
+  questionNumber?: number;
+  passageIndex?: number;
+  order?: number;
   options?: string[];
   matchingPairs?: { left: string; right: string }[];
   headingsList?: string[];

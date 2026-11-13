@@ -9,6 +9,8 @@ import {
 } from '../src/lib/documentExtractor.ts';
 import {
   extractAllNormalizedQuestions,
+  extractQuestionNumber,
+  cleanQuestionPrompt,
   normalizeReadingQuestion,
   buildQuestionRenderGroups,
 } from '../src/lib/questionNormalizer.ts';
@@ -417,5 +419,93 @@ Answer Key:
       'Navigator count must exactly match the number of rendered question items'
     );
     assert.strictEqual(totalRenderedQuestions, 6, 'Total questions must be 6');
+  });
+
+  await t.test('7. Authentic Question Numbering & Extraction Integrity', () => {
+    const q1 = { id: 'q_14', prompt: 'Which of the following is true?', questionNumber: 14 };
+    const q2 = { id: 'q_custom_id', prompt: '27. The author suggests that...', type: 'multiple_choice' };
+    const q3 = { id: 'q_gen_blank', prompt: '• Research began in (32) Scotland.' };
+    const q4 = { id: 'uuid-123-456', prompt: 'Question without any number' };
+
+    assert.strictEqual(extractQuestionNumber(q1), 14, 'Must extract from questionNumber or q_14');
+    assert.strictEqual(extractQuestionNumber(q2), 27, 'Must extract leading 27. from prompt');
+    assert.strictEqual(extractQuestionNumber(q3), 32, 'Must extract blank (32) from prompt');
+    assert.strictEqual(extractQuestionNumber(q4, 5), 5, 'Must fallback to fallbackIndex when provided');
+  });
+
+  await t.test('8. Non-standard 14-question Passage 1 Partition Parity', () => {
+    // IELTS Reading test with 14 questions in Passage 1, 13 in Passage 2, 13 in Passage 3
+    const p1Questions = Array.from({ length: 14 }, (_, i) => ({
+      id: `q_${i + 1}`,
+      questionNumber: i + 1,
+      prompt: `Passage 1 Question ${i + 1}`,
+      type: 'true_false_not_given' as const,
+      correctAnswer: 'TRUE',
+      explanation: '',
+    }));
+
+    const p2Questions = Array.from({ length: 13 }, (_, i) => ({
+      id: `q_${i + 15}`,
+      questionNumber: i + 15,
+      prompt: `Passage 2 Question ${i + 15}`,
+      type: 'multiple_choice' as const,
+      correctAnswer: 'A',
+      explanation: '',
+    }));
+
+    const p3Questions = Array.from({ length: 13 }, (_, i) => ({
+      id: `q_${i + 28}`,
+      questionNumber: i + 28,
+      prompt: `Passage 3 Question ${i + 28}`,
+      type: 'summary_completion' as const,
+      correctAnswer: 'word',
+      explanation: '',
+    }));
+
+    const assignment = {
+      passages: [
+        { id: 'p_1', title: 'Passage 1', content: 'Text 1', questions: p1Questions, questionGroups: [{ id: 'g_1', groupTitle: 'Questions 1–14', questions: p1Questions, questionType: 'true_false_not_given' as const, instructions: '' }] },
+        { id: 'p_2', title: 'Passage 2', content: 'Text 2', questions: p2Questions, questionGroups: [{ id: 'g_2', groupTitle: 'Questions 15–27', questions: p2Questions, questionType: 'multiple_choice' as const, instructions: '' }] },
+        { id: 'p_3', title: 'Passage 3', content: 'Text 3', questions: p3Questions, questionGroups: [{ id: 'g_3', groupTitle: 'Questions 28–40', questions: p3Questions, questionType: 'summary_completion' as const, instructions: '' }] },
+      ],
+      readingQuestions: [...p1Questions, ...p2Questions, ...p3Questions],
+    };
+
+    const extracted = extractAllNormalizedQuestions(assignment);
+    assert.strictEqual(extracted.questions.length, 40, 'Total questions must be exactly 40');
+
+    // Verify Question 14 is assigned strictly to Passage 0 (Passage 1)
+    assert.strictEqual(extracted.passageMap['q_14'], 0, 'Question 14 must belong to Passage 1');
+    assert.strictEqual(extracted.passageMap['q_15'], 1, 'Question 15 must belong to Passage 2');
+    assert.strictEqual(extracted.passageMap['q_27'], 1, 'Question 27 must belong to Passage 2');
+    assert.strictEqual(extracted.passageMap['q_28'], 2, 'Question 28 must belong to Passage 3');
+    assert.strictEqual(extracted.passageMap['q_40'], 2, 'Question 40 must belong to Passage 3');
+
+    // Verify passages have exact question counts without stealing
+    assert.strictEqual(extracted.passages[0].questions?.length, 14, 'Passage 1 must have 14 questions');
+    assert.strictEqual(extracted.passages[1].questions?.length, 13, 'Passage 2 must have 13 questions');
+    assert.strictEqual(extracted.passages[2].questions?.length, 13, 'Passage 3 must have 13 questions');
+  });
+
+  await t.test('9. Out-of-order Questions Input Normalizes to Exact Ascending Sequence', () => {
+    // Unordered input questions
+    const scramble = [
+      { id: 'q_20', questionNumber: 20, prompt: '20. Twentieth' },
+      { id: 'q_5', questionNumber: 5, prompt: '5. Fifth' },
+      { id: 'q_1', questionNumber: 1, prompt: '1. First' },
+      { id: 'q_12', questionNumber: 12, prompt: '12. Twelfth' },
+    ];
+
+    const extracted = extractAllNormalizedQuestions({ readingQuestions: scramble });
+    const numbers = extracted.questions.map((q) => extractQuestionNumber(q));
+    assert.deepStrictEqual(numbers, [1, 5, 12, 20], 'Questions must sort into ascending authentic question order');
+  });
+
+  await t.test('10. Clean Question Prompt Removes Group Instructions and Redundant Prefixes', () => {
+    const rawInstruction = 'Do the following statements agree with the views of the writer? Write YES / NO / NOT GIVEN in boxes 1-5.';
+    const promptWithInstruction = 'Do the following statements agree with the views of the writer? Write YES / NO / NOT GIVEN in boxes 1-5. 1. The city was founded in 1850.';
+    const cleaned = cleanQuestionPrompt(promptWithInstruction, 1, rawInstruction);
+
+    assert.strictEqual(cleaned, 'The city was founded in 1850.', 'Must strip duplicate group instructions and redundant "1."');
   });
 });

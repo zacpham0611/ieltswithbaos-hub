@@ -3052,6 +3052,13 @@ export function parseSinglePassage(
     }
   });
 
+  // Sort questionGroups in natural ascending document order by starting question number
+  questionGroups.sort((a, b) => {
+    const startA = a.questions.length > 0 ? (a.questions[0].questionNumber || parseInt(a.questions[0].id.replace('q_', ''), 10) || 0) : 0;
+    const startB = b.questions.length > 0 ? (b.questions[0].questionNumber || parseInt(b.questions[0].id.replace('q_', ''), 10) || 0) : 0;
+    return startA - startB;
+  });
+
   // Refresh allQuestions from questionGroups
   allQuestions.length = 0;
   questionGroups.forEach((g) => {
@@ -3128,12 +3135,14 @@ function finalizeQuestion(
         needsReview: !key,
         multipleSelectCount: multiNums.length,
         isTeacherEdited: false,
+        questionNumber: n,
       });
     }
     return;
   }
 
   const qNum = q.id?.replace('q_', '') || `${questions.length + 1}`;
+  const qNumInt = parseInt(qNum, 10);
   q.prompt = cleanReadingText(q.prompt);
   const qType = q.type || detectQuestionType(q.prompt || '', instructionContext, options);
 
@@ -3192,6 +3201,7 @@ function finalizeQuestion(
     answerKeyConfidence: confidence,
     needsReview: requiresReview,
     isTeacherEdited: q.isTeacherEdited || false,
+    ...(!isNaN(qNumInt) && qNumInt > 0 ? { questionNumber: qNumInt } : {}),
   });
 }
 
