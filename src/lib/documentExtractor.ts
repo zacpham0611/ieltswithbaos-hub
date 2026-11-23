@@ -1,5 +1,5 @@
 import type { ReadingQuestion, QuestionType, AssignmentSkill, QuestionGroup, ParsedPassage } from '../types/index.ts';
-import { cleanReadingText, deduplicateQuestionGroups } from './questionNormalizer.ts';
+import { cleanReadingText, deduplicateQuestionGroups, COMPLETION_TYPES } from './questionNormalizer.ts';
 
 export interface ParsedTest {
   id: string;
@@ -524,22 +524,60 @@ export function detectQuestionType(
 ): QuestionType {
   const combined = `${instructionContext} ${prompt}`.toLowerCase();
 
+  // Summary Completion indicators
+  if (
+    /summary\s+completion/i.test(combined) ||
+    /complete\s+(?:the\s+)?(?:following\s+)?summary/i.test(combined) ||
+    /hoàn\s+thành\s+đoạn\s+tóm\s+tắt/i.test(combined)
+  ) {
+    return 'summary_completion';
+  }
+
+  // Note Completion indicators
+  if (
+    /note\s+completion/i.test(combined) ||
+    /complete\s+(?:the\s+)?(?:following\s+)?notes?/i.test(combined) ||
+    /hoàn\s+thành\s+ghi\s+chú/i.test(combined)
+  ) {
+    return 'note_completion';
+  }
+
+  // Sentence Completion indicators
+  if (
+    /sentence\s+completion/i.test(combined) ||
+    /complete\s+(?:the\s+)?(?:following\s+)?sentences?/i.test(combined) ||
+    /hoàn\s+thành\s+câu/i.test(combined)
+  ) {
+    return 'sentence_completion';
+  }
+
+  // Table Completion indicators
+  if (
+    /table\s+completion/i.test(combined) ||
+    /complete\s+(?:the\s+)?(?:following\s+)?table/i.test(combined) ||
+    /hoàn\s+thành\s+bảng/i.test(combined)
+  ) {
+    return 'table_completion';
+  }
+
   // Yes / No / Not Given vs True / False / Not Given
   if (
-    (combined.includes('yes') && combined.includes('no')) ||
-    combined.includes('claims of the writer') ||
-    combined.includes('views of the writer') ||
-    combined.includes('yes / no / not given') ||
-    combined.includes('yes/no/not given')
+    /yes\s*[\/\-]\s*no\s*[\/\-]\s*not\s*given/i.test(combined) ||
+    /claims\s+of\s+the\s+writer/i.test(combined) ||
+    /views\s+of\s+the\s+writer/i.test(combined) ||
+    /agree\s+with\s+the\s+claims/i.test(combined) ||
+    /agree\s+with\s+the\s+views/i.test(combined) ||
+    (/\byes\b/i.test(instructionContext) && /\bno\b/i.test(instructionContext) && /\bnot\s+given\b/i.test(instructionContext)) ||
+    (/\byes\b/i.test(combined) && /\bno\b/i.test(combined) && /\bnot\s+given\b/i.test(combined))
   ) {
     return 'yes_no_not_given';
   }
   if (
-    (combined.includes('true') && combined.includes('false')) ||
-    combined.includes('agree with the information') ||
-    combined.includes('agree with the statement') ||
-    combined.includes('true / false / not given') ||
-    combined.includes('true/false/not given')
+    /true\s*[\/\-]\s*false\s*[\/\-]\s*not\s*given/i.test(combined) ||
+    /agree\s+with\s+the\s+(?:information|statement)/i.test(combined) ||
+    /xác\s+định\s+thông\s+tin\s+đúng\s*[\/\-]\s*sai/i.test(combined) ||
+    (/\btrue\b/i.test(instructionContext) && /\bfalse\b/i.test(instructionContext) && /\bnot\s+given\b/i.test(instructionContext)) ||
+    (/\btrue\b/i.test(combined) && /\bfalse\b/i.test(combined) && /\bnot\s+given\b/i.test(combined))
   ) {
     return 'true_false_not_given';
   }
@@ -2497,45 +2535,46 @@ export function parseSinglePassage(
               detailItem || effectiveAnswerKeys[blankQNum] ? 'answer_key_extracted' : 'extracted_from_doc';
 
             let inlineType: QuestionType = 'sentence_completion';
-            const combinedContext = `${groupInstructions.join(' ')} ${gRange.title}`.toLowerCase();
-            if (optionsBox.length > 0 || combinedContext.includes('complete the summary') || combinedContext.includes('summary completion')) {
+            const combinedContext = `${detectedGroupMetaType || ''} ${groupInstructions.join(' ')} ${gRange.title}`.toLowerCase();
+            if (
+              detectedGroupMetaType === 'summary_completion' ||
+              optionsBox.length > 0 ||
+              /complete\s+(?:the\s+)?(?:following\s+)?summary|summary\s+completion|hoàn\s+thành\s+đoạn\s+tóm\s+tắt/i.test(combinedContext)
+            ) {
               inlineType = 'summary_completion';
             } else if (
-              combinedContext.includes('complete the notes') ||
-              combinedContext.includes('note completion') ||
-              combinedContext.includes('notes below') ||
-              combinedContext.includes('complete the note')
+              detectedGroupMetaType === 'note_completion' ||
+              /complete\s+(?:the\s+)?(?:following\s+)?notes?|note\s+completion|notes?\s+below|hoàn\s+thành\s+ghi\s+chú/i.test(combinedContext)
             ) {
               inlineType = 'note_completion';
             } else if (
-              combinedContext.includes('complete the table') ||
-              combinedContext.includes('table completion') ||
-              combinedContext.includes('table below')
+              detectedGroupMetaType === 'table_completion' ||
+              /complete\s+(?:the\s+)?(?:following\s+)?table|table\s+completion|table\s+below|hoàn\s+thành\s+bảng/i.test(combinedContext)
             ) {
               inlineType = 'table_completion';
             } else if (
-              combinedContext.includes('complete the form') ||
-              combinedContext.includes('form completion') ||
-              combinedContext.includes('form below') ||
-              combinedContext.includes('registration form') ||
-              combinedContext.includes('application form')
+              detectedGroupMetaType === 'form_completion' ||
+              /complete\s+(?:the\s+)?(?:following\s+)?form|form\s+completion|form\s+below|registration\s+form|application\s+form/i.test(combinedContext)
             ) {
               inlineType = 'form_completion';
             } else if (
-              /fl\s*ow\s*[-–]?\s*chart/i.test(combinedContext) ||
-              combinedContext.includes('flow-chart') ||
-              combinedContext.includes('flowchart')
+              detectedGroupMetaType === 'flowchart_completion' ||
+              /flow\s*[-–]?\s*chart/i.test(combinedContext) ||
+              combinedContext.includes('sơ đồ dòng')
             ) {
               inlineType = 'flowchart_completion';
             } else if (
+              detectedGroupMetaType === 'diagram_completion' ||
               combinedContext.includes('diagram')
             ) {
               inlineType = 'diagram_completion';
             } else if (
-              combinedContext.includes('complete the sentence') ||
-              combinedContext.includes('sentences below')
+              detectedGroupMetaType === 'sentence_completion' ||
+              /complete\s+(?:the\s+)?(?:following\s+)?sentences?|sentences?\s+below|hoàn\s+thành\s+câu/i.test(combinedContext)
             ) {
               inlineType = 'sentence_completion';
+            } else if (detectedGroupMetaType) {
+              inlineType = detectedGroupMetaType;
             } else {
               inlineType = detectQuestionType(matchingSentence, groupInstructions.join(' '));
             }
@@ -2754,6 +2793,7 @@ export function parseSinglePassage(
 
           const msQ: ReadingQuestion = {
             id: `q_${n}`,
+            questionNumber: n,
             type: 'multiple_select',
             prompt: qPrompt,
             options: detectedOptions.length > 0 ? detectedOptions : undefined,
@@ -2808,11 +2848,22 @@ export function parseSinglePassage(
       primaryType = 'summary_completion';
     }
 
-    // Propagate primaryType to questions in the group that defaulted to short_answer
-    if (primaryType !== 'short_answer') {
+    // Propagate primaryType to questions in the group
+    if (primaryType && primaryType !== 'short_answer') {
       groupQuestions.forEach((q) => {
-        if (q.type === 'short_answer') {
-          q.type = primaryType;
+        if (!q.isTeacherEdited && !q.questionTypeOverride) {
+          const isButtonQ = q.type === 'yes_no_not_given' || q.type === 'true_false_not_given';
+          const isButtonPrimary = primaryType === 'yes_no_not_given' || primaryType === 'true_false_not_given';
+          if (
+            q.type === 'short_answer' ||
+            q.type === 'sentence_completion' ||
+            q.type === 'fill_in_the_blank' ||
+            (COMPLETION_TYPES.has(primaryType) && COMPLETION_TYPES.has(q.type) && !isButtonQ) ||
+            (isButtonPrimary && isButtonQ) ||
+            (!isButtonQ && !isButtonPrimary && !COMPLETION_TYPES.has(q.type) && primaryType === q.type)
+          ) {
+            q.type = primaryType;
+          }
         }
       });
     }

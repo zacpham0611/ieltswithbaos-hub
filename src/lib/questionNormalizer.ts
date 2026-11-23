@@ -1,5 +1,25 @@
 import type { QuestionType, ReadingQuestion, QuestionGroup, ParsedPassage } from '../types/index.ts';
-import { parseMaxWordsFromLimit } from './assignmentGrader.ts';
+import { parseMaxWordsFromLimit, extractChoiceLetter } from './assignmentGrader.ts';
+
+/**
+ * Normalizes multiple select options to canonical keys (e.g. "A. Option" -> "A")
+ */
+export const getOptionKey = (opt: string): string => {
+  const letter = extractChoiceLetter(opt);
+  if (letter) return letter.toUpperCase();
+  return opt.trim().toUpperCase();
+};
+
+/**
+ * Checks whether an option is selected by comparing canonical keys and normalized text
+ */
+export const isOptionSelected = (opt: string, selectedList: string[]): boolean => {
+  const optKey = getOptionKey(opt);
+  return selectedList.some((item) => {
+    const itemKey = getOptionKey(item);
+    return itemKey === optKey || item.trim().toUpperCase() === opt.trim().toUpperCase();
+  });
+};
 
 /**
  * Normalizes question type aliases from various document parsers, AI generators,
@@ -354,10 +374,15 @@ export function cleanDisplayGroupInstructions(
     qOptions.map((opt: string) => opt.match(/^([A-P])[\.\:\s]/)?.[1]?.toUpperCase()).filter(Boolean)
   );
 
+  const isMultiSelectOrChoice =
+    group?.groupType === 'multiple_select' ||
+    group?.groupType === 'multiple_choice' ||
+    groupQuestions.some((q) => q?.type === 'multiple_select' || q?.type === 'multiple_choice');
+
   const cleanLines = lines.filter((line) => {
-    // 1. If line is an option (e.g. "A Employees will be motivated..."), and group has structured options:
-    const optMatch = line.match(/^([A-P])(?:[\.\:\)]|\s+)(.*)/i);
-    if (optMatch && (qOptionLetters.has(optMatch[1].toUpperCase()) || qOptions.length > 0)) {
+    // 1. If line is an option (e.g. "A Employees will be motivated..." or "A\tEmployees..." or "**A.** ..."):
+    const optMatch = line.match(/^(?:\*\*)?([A-P])(?:\*\*)?(?:[\.\:\)]|\t|\s+)(.*)/i);
+    if (optMatch && (qOptionLetters.has(optMatch[1].toUpperCase()) || qOptions.length > 0 || isMultiSelectOrChoice)) {
       return false;
     }
 
@@ -371,8 +396,18 @@ export function cleanDisplayGroupInstructions(
       }
     }
 
+    // 2b. In multiple_select / multiple_choice, question statements must not be rendered as instructions
+    if (isMultiSelectOrChoice && /^(?:which|what|according|in\s+order\s+to|how|why)\b/i.test(line)) {
+      return false;
+    }
+
     // 3. Skip redundant range title repeated as instruction (e.g. "Questions 32-34")
     if (/^questions?\s+\d+(?:[\s\-\–to\,and\&]+\d+)?[\:\.\s]*$/i.test(line)) {
+      return false;
+    }
+
+    // 4. Skip "Dạng câu hỏi: ..." banners in student UI
+    if (/^(?:\*\*)?(?:dạng\s+câu\s+hỏi|question\s+type)[\:\s]/i.test(line)) {
       return false;
     }
 
@@ -464,10 +499,17 @@ export function deduplicateQuestionGroups(groups: QuestionGroup[]): QuestionGrou
 
       const curType = curG.questionTypeOverride || curG.questionType;
       const prevType = prevG.questionTypeOverride || prevG.questionType;
+      const isCurCompletion = Boolean(curType && (COMPLETION_TYPES.has(curType) || curType.includes('completion')));
+      const isPrevCompletion = Boolean(prevType && (COMPLETION_TYPES.has(prevType) || prevType.includes('completion')));
+      const bothCompletion = isCurCompletion && isPrevCompletion;
+
       const sameType =
         curType === prevType ||
-        (Boolean(curType?.includes('completion')) && Boolean(prevType?.includes('completion'))) ||
-        (isCurSubset && curHasNoDistinctInstructions && (curType === 'short_answer' || Boolean(prevType?.includes('completion'))));
+        bothCompletion ||
+        !curType ||
+        !prevType ||
+        curType === 'short_answer' ||
+        prevType === 'short_answer';
 
       if (!sameType) continue;
 
@@ -485,6 +527,23 @@ export function deduplicateQuestionGroups(groups: QuestionGroup[]): QuestionGrou
         // Merge into the wider/more complete group
         const target = isPrevSubset ? curG : prevG;
         const source = isPrevSubset ? prevG : curG;
+
+        // Preserve authoritative specific type
+        const authoritativeType =
+          (target.questionType && target.questionType !== 'short_answer' ? target.questionType : undefined) ||
+          (source.questionType && source.questionType !== 'short_answer' ? source.questionType : undefined) ||
+          target.questionType ||
+          source.questionType;
+        target.questionType = authoritativeType;
+
+        // Preserve substantive instructions
+        if (
+          (!target.instructions || target.instructions === 'Read the text and answer the questions below.') &&
+          source.instructions &&
+          source.instructions !== 'Read the text and answer the questions below.'
+        ) {
+          target.instructions = source.instructions;
+        }
 
         source.questions.forEach((sq) => {
           const sqNum = extractQuestionNumber(sq);
@@ -649,34 +708,35 @@ export function normalizeReadingQuestion(
       rawPromptStr.includes('true/false/not given') ||
       rawPromptStr.includes('true / false / not given');
 
+    // Priority 1: Already a button type — just clear options
     if (type === 'yes_no_not_given' || type === 'true_false_not_given') {
       options = undefined;
-    } else if (
-      upperKey === 'YES' ||
-      upperKey === 'NO' ||
-      upperKey === 'Y' ||
-      upperKey === 'N' ||
-      ((upperKey === 'NOT GIVEN' || upperKey === 'NG') && isYnngContext) ||
-      isYnngContext
-    ) {
+    }
+    // Priority 2: Full-word answer keys are unambiguous — always override regardless of current type
+    else if (upperKey === 'YES' || upperKey === 'NO') {
       type = 'yes_no_not_given';
       options = undefined;
-    } else if (
-      upperKey === 'TRUE' ||
-      upperKey === 'FALSE' ||
-      upperKey === 'T' ||
-      upperKey === 'F' ||
-      ((upperKey === 'NOT GIVEN' || upperKey === 'NG') && isTfngContext) ||
-      isTfngContext
-    ) {
+    } else if (upperKey === 'TRUE' || upperKey === 'FALSE') {
       type = 'true_false_not_given';
       options = undefined;
     } else if (upperKey === 'NOT GIVEN' || upperKey === 'NG') {
-      type = 'yes_no_not_given';
+      type = isTfngContext ? 'true_false_not_given' : 'yes_no_not_given';
       options = undefined;
-    } else if (type === 'multiple_choice' || type === 'short_answer') {
-      // Distinguish summary completion with numbered blanks (e.g. "in the 33 ...............")
-      // from standard MCQ sentence stems ending in blanks (e.g. "29 According to paragraph 3, _______ are needed.")
+    }
+    // Priority 3: Single-letter abbreviations and instruction-context heuristics — only for non-specific or short_answer types
+    // (prevents 'F' answer on matching_information from being coerced to true_false_not_given)
+    else if (!isSpecificQuestionType(type) || type === 'short_answer') {
+      if (isYnngContext || ((upperKey === 'Y' || upperKey === 'N') && isYnngContext)) {
+        type = 'yes_no_not_given';
+        options = undefined;
+      } else if (isTfngContext || ((upperKey === 'T' || upperKey === 'F') && isTfngContext)) {
+        type = 'true_false_not_given';
+        options = undefined;
+      }
+    }
+
+    // Priority 4: Blank detection for MCQ / short_answer (runs independently after button-type checks)
+    if (type === 'multiple_choice' || type === 'short_answer') {
       const hasNumberedBlank = /(?:(?:\(\d{1,2}\)|\[\d{1,2}\]|\b\d{1,2}\b)\s*[\.]{2,}|(?:\(\d{1,2}\)|\[\d{1,2}\]|\b\d{1,2}\b)\s*_{2,}|(?:\(\d{1,2}\)|\[\d{1,2}\]|\b\d{1,2}\b)\s*…{2,}|\[\d{1,2}\]|[\.]{2,}\s*\d{1,2}\b)/.test(prompt);
       const hasGenericBlank = /(?:[\.]{3,}|_{3,}|…{2,})/.test(prompt);
 
@@ -876,6 +936,7 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
     let effectiveRawQ = rawQ;
     const groupOverride = parentGroup?.questionTypeOverride;
     const groupIsEdited = parentGroup?.isTeacherEdited;
+    const parentType = parentGroup?.questionTypeOverride || parentGroup?.questionType || (parentGroup as any)?.type;
 
     const rawType = normalizeQuestionType(rawQ.type || rawQ.questionType || rawQ.question_type);
     const hasSpecificExplicitType =
@@ -889,6 +950,11 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
         questionTypeOverride: rawQ.questionTypeOverride || groupOverride,
         isTeacherEdited: rawQ.isTeacherEdited || Boolean(groupOverride),
         type: rawQ.questionTypeOverride ? rawQ.type : groupOverride,
+      };
+    } else if (parentType && parentType !== 'short_answer' && !hasSpecificExplicitType) {
+      effectiveRawQ = {
+        ...rawQ,
+        type: parentType,
       };
     } else if (groupIsEdited && !hasSpecificExplicitType) {
       effectiveRawQ = {
@@ -1084,13 +1150,17 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
           ? gq.type
           : undefined);
 
+      const isTeacherEditedQ = Boolean(
+        gq.questionTypeOverride ||
+        gq.isTeacherEdited ||
+        matched?.questionTypeOverride ||
+        matched?.isTeacherEdited
+      );
+
       const authType =
         gq.questionTypeOverride ||
         g.questionTypeOverride ||
-        specificType ||
-        matched?.questionTypeOverride ||
-        gq.type ||
-        groupType;
+        (isTeacherEditedQ ? (gq.type || matched?.type) : (specificType || groupType || gq.type));
 
       const isEdited = Boolean(
         gq.questionTypeOverride ||
@@ -1166,13 +1236,17 @@ export function extractAllNormalizedQuestions(assignment: any): ExtractedAssignm
             ? gq.type
             : undefined);
 
+        const isTeacherEditedQ = Boolean(
+          gq.questionTypeOverride ||
+          gq.isTeacherEdited ||
+          matched?.questionTypeOverride ||
+          matched?.isTeacherEdited
+        );
+
         const authType =
           gq.questionTypeOverride ||
           g.questionTypeOverride ||
-          specificType ||
-          matched?.questionTypeOverride ||
-          gq.type ||
-          groupType;
+          (isTeacherEditedQ ? (gq.type || matched?.type) : (specificType || groupType || gq.type));
         const isEdited = Boolean(
           gq.questionTypeOverride ||
             g.questionTypeOverride ||

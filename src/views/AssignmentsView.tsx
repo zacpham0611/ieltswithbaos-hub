@@ -29,6 +29,7 @@ import {
   gradeListeningSubmission,
   parseMaxWordsFromLimit,
   formatWordLimitInstruction,
+  extractChoiceLetter,
 } from '../lib/assignmentGrader';
 import { PracticeListeningAudioPlayer } from '../components/listening/PracticeListeningAudioPlayer';
 import { ListeningQuestionRenderer } from '../components/listening/ListeningQuestionRenderer';
@@ -36,6 +37,8 @@ import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../com
 import {
   extractAllNormalizedQuestions,
   extractQuestionNumber,
+  getOptionKey,
+  isOptionSelected,
   cleanQuestionPrompt,
   cleanDisplayGroupInstructions,
   deduplicateQuestionGroups,
@@ -232,6 +235,7 @@ function resolvePointToTextNode(container: Node, offset: number, isStart: boolea
   }
   return { node: container, offset };
 }
+
 
 /**
  * Computes exact character offsets for window.getSelection() within a specific root element
@@ -637,16 +641,32 @@ export const AssignmentsView: React.FC = () => {
     }
   }, [activeAssignment?.id, currentUser?.id, isTeacher]);
 
-  // Persist reading answers to localStorage on change
+  // Persist reading answers to localStorage on change with functional state updates (prevents race conditions)
   const handleAnswerChange = (qId: string, val: string) => {
-    const updated = { ...readingAnswers, [qId]: val };
-    setReadingAnswers(updated);
-    if (activeAssignment) {
-      localStorage.setItem(
-        `ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`,
-        JSON.stringify(updated)
-      );
-    }
+    setReadingAnswers((prev) => {
+      const updated = { ...prev, [qId]: val };
+      if (activeAssignment && currentUser) {
+        localStorage.setItem(
+          `ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`,
+          JSON.stringify(updated)
+        );
+      }
+      return updated;
+    });
+  };
+
+  // Atomically persist batch reading answer updates (for multiple select groups with multiple question slots)
+  const handleBatchAnswersChange = (updates: Record<string, string>) => {
+    setReadingAnswers((prev) => {
+      const updated = { ...prev, ...updates };
+      if (activeAssignment && currentUser) {
+        localStorage.setItem(
+          `ielts_reading_draft_${activeAssignment.id}_${currentUser.id}`,
+          JSON.stringify(updated)
+        );
+      }
+      return updated;
+    });
   };
 
   // Persist writing draft to localStorage on change
@@ -3492,8 +3512,42 @@ export const AssignmentsView: React.FC = () => {
               return false;
             });
             const qNum = extractQuestionNumber(matchedItem ? matchedItem.q : gq, absIdx >= 0 ? absIdx + 1 : gIdx + 1);
-            groupItems.push({ q: matchedItem ? matchedItem.q : gq, idx: qNum - 1 });
+            const targetQ = matchedItem ? matchedItem.q : gq;
+            const isIndividuallyEdited = Boolean(targetQ.isTeacherEdited || targetQ.questionTypeOverride);
+            const specificQType = (targetQ.type && isSpecificQuestionType(targetQ.type) && targetQ.type !== 'short_answer')
+              ? targetQ.type
+              : undefined;
+            const resolvedType = isIndividuallyEdited
+              ? (targetQ.questionTypeOverride || targetQ.type)
+              : (g.questionTypeOverride || specificQType || groupType || targetQ.type);
+            groupItems.push({ q: { ...targetQ, type: resolvedType }, idx: qNum - 1 });
           });
+
+          // Auto-recover any passage questions that match this group's declared range but were omitted
+          const groupNums = new Set(groupItems.map((item) => extractQuestionNumber(item.q)));
+          const declaredRangeNums = parseQuestionNumbersFromRange(g.groupTitle || (g as any).title || (g as any).questionRange || '');
+          if (declaredRangeNums.length > groupItems.length) {
+            declaredRangeNums.forEach((dNum) => {
+              if (!groupNums.has(dNum)) {
+                const missingItem = activePassageQuestions.find((item) => {
+                  const itemNum = extractQuestionNumber(item.q, item.absoluteIdx + 1);
+                  return itemNum === dNum;
+                });
+                if (missingItem) {
+                  const isIndividuallyEdited = Boolean(missingItem.q.isTeacherEdited || missingItem.q.questionTypeOverride);
+                  const specificQType = (missingItem.q.type && isSpecificQuestionType(missingItem.q.type) && missingItem.q.type !== 'short_answer')
+                    ? missingItem.q.type
+                    : undefined;
+                  const resolvedType = isIndividuallyEdited
+                    ? (missingItem.q.questionTypeOverride || missingItem.q.type)
+                    : (g.questionTypeOverride || specificQType || groupType || missingItem.q.type);
+                  groupItems.push({ q: { ...missingItem.q, type: resolvedType }, idx: dNum - 1 });
+                  groupNums.add(dNum);
+                }
+              }
+            });
+            groupItems.sort((a, b) => extractQuestionNumber(a.q) - extractQuestionNumber(b.q));
+          }
 
           // Determine Word List strictly for summary completion
           const wordList =
@@ -3542,6 +3596,9 @@ export const AssignmentsView: React.FC = () => {
         const num = extractQuestionNumber(q, idx + 1);
         if (num > 0) renderedQuestionNums.add(num);
       });
+      // Also register declared range numbers to prevent duplicate partial groups
+      const rNums = parseQuestionNumbersFromRange(rg.rangeTitle || '');
+      rNums.forEach((n) => renderedQuestionNums.add(n));
     });
 
     const unrenderedQuestions = activePassageQuestions.filter((item) => {
@@ -3565,30 +3622,56 @@ export const AssignmentsView: React.FC = () => {
       const currentSelectedList: string[] = [];
       group.questions.forEach(({ q }) => {
         const val = readingAnswers[q.id] || (mySub?.readingAnswers && mySub.readingAnswers[q.id]) || '';
-        if (val.trim() && !currentSelectedList.includes(val.trim())) {
-          currentSelectedList.push(val.trim());
+        if (val.trim()) {
+          val.split(/,\s*/).forEach((part) => {
+            const p = part.trim();
+            if (p) {
+              const optKey = getOptionKey(p);
+              if (!currentSelectedList.some((item) => getOptionKey(item) === optKey)) {
+                const matchedOpt = options.find((o) => getOptionKey(o) === optKey);
+                currentSelectedList.push(matchedOpt || p);
+              }
+            }
+          });
         }
       });
       const atLimit = currentSelectedList.length >= requiredCount;
 
-      const handleToggleOption = (opt: string) => {
+      const handleToggleOption = (opt: string, shouldCheck: boolean) => {
         if (isReadOnly) return;
+        const optKey = getOptionKey(opt);
         let updated = [...currentSelectedList];
-        if (updated.includes(opt)) {
-          updated = updated.filter((item) => item !== opt);
-        } else {
+        const existingIdx = updated.findIndex((item) => getOptionKey(item) === optKey);
+
+        if (existingIdx >= 0 && !shouldCheck) {
+          updated.splice(existingIdx, 1);
+        } else if (existingIdx < 0 && shouldCheck) {
           if (updated.length < requiredCount) {
             updated.push(opt);
           } else {
             return; // at limit
           }
+        } else if (existingIdx >= 0 && shouldCheck) {
+          return;
+        } else if (existingIdx < 0 && !shouldCheck) {
+          return;
         }
 
-        // Map selected items sequentially to the question IDs in the group
-        group.questions.forEach(({ q }, qIdx) => {
-          const assignedVal = updated[qIdx] || '';
-          handleAnswerChange(q.id, assignedVal);
-        });
+        updated.sort((a, b) => getOptionKey(a).localeCompare(getOptionKey(b)));
+
+        if (group.questions.length > 1) {
+          const updates: Record<string, string> = {};
+          group.questions.forEach(({ q }, qIdx) => {
+            const selectedItem = updated[qIdx];
+            const letter = selectedItem ? (extractChoiceLetter(selectedItem) || selectedItem.trim()) : '';
+            updates[q.id] = letter;
+          });
+          handleBatchAnswersChange(updates);
+        } else if (group.questions.length === 1) {
+          const targetQ = group.questions[0].q;
+          const letterList = updated.map((item) => extractChoiceLetter(item) || item.trim());
+          handleAnswerChange(targetQ.id, letterList.join(', '));
+        }
       };
 
       return (
@@ -3610,19 +3693,15 @@ export const AssignmentsView: React.FC = () => {
 
           {/* Answer Options */}
           <div className="space-y-2 pt-1">
-            {options.map((opt) => {
-              const isChecked = currentSelectedList.includes(opt);
+            {options.map((opt, oIdx) => {
+              const isChecked = isOptionSelected(opt, currentSelectedList);
               const isDisabledByLimit = !isChecked && atLimit;
+              const inputId = `ms_${group.id}_${oIdx}`;
               return (
                 <label
                   key={opt}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (!isReadOnly && (!isDisabledByLimit || isChecked)) {
-                      handleToggleOption(opt);
-                    }
-                  }}
-                  className={`flex items-center space-x-3 p-3 rounded-xl border transition-all ${
+                  htmlFor={inputId}
+                  className={`flex items-start space-x-3 p-3 rounded-xl border transition-all ${
                     isReadOnly || isDisabledByLimit
                       ? 'opacity-60 cursor-not-allowed bg-slate-50 border-slate-200'
                       : 'cursor-pointer hover:border-blue-400 hover:bg-blue-50/30'
@@ -3633,13 +3712,18 @@ export const AssignmentsView: React.FC = () => {
                   }`}
                 >
                   <input
+                    id={inputId}
                     type="checkbox"
-                    readOnly
                     disabled={isReadOnly || isDisabledByLimit}
-                    checked={isChecked}
-                    className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                    checked={Boolean(isChecked)}
+                    onChange={(e) => {
+                      if (!isReadOnly && (!isDisabledByLimit || !e.target.checked)) {
+                        handleToggleOption(opt, e.target.checked);
+                      }
+                    }}
+                    className="w-4 h-4 mt-0.5 text-blue-600 rounded cursor-pointer shrink-0"
                   />
-                  <span className="text-sm leading-relaxed">{opt}</span>
+                  <span className="text-sm leading-relaxed select-none">{opt}</span>
                 </label>
               );
             })}
@@ -3652,7 +3736,9 @@ export const AssignmentsView: React.FC = () => {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
               {group.questions.map(({ q, idx }, slotIdx) => {
-                const assignedAns = currentSelectedList[slotIdx] || readingAnswers[q.id] || '';
+                const assignedAns = group.questions.length > 1
+                  ? (readingAnswers[q.id] || (currentSelectedList[slotIdx] ? (extractChoiceLetter(currentSelectedList[slotIdx]) || currentSelectedList[slotIdx]) : ''))
+                  : (readingAnswers[q.id] || currentSelectedList.map((item) => extractChoiceLetter(item) || item).join(', '));
                 const result = mySub?.readingErrorAnalysis?.find((e) => e.questionId === q.id);
                 const isFlag = Boolean(flaggedQuestions[q.id]);
 
@@ -4810,10 +4896,11 @@ export const AssignmentsView: React.FC = () => {
                               const currentWordsCount = answer.trim() ? answer.trim().split(/\s+/).length : 0;
                               const isOverWordLimit = Boolean(maxWords && currentWordsCount > maxWords);
                               const displayPrompt = resolveQuestionPrompt(q, idx + 1);
-                              const effectiveQType = q.questionTypeOverride || (q as any).typeOverride || q.type;
+                              const isIndividuallyOverridden = Boolean(q.questionTypeOverride || q.isTeacherEdited);
+                              const effectiveQType = isIndividuallyOverridden ? (q.questionTypeOverride || q.type) : (group.groupType || q.type);
 
-                              const isYnng = effectiveQType === 'yes_no_not_given' || group.groupType === 'yes_no_not_given';
-                              const isTfng = effectiveQType === 'true_false_not_given' || group.groupType === 'true_false_not_given';
+                              const isYnng = !isIndividuallyOverridden && group.groupType ? group.groupType === 'yes_no_not_given' : effectiveQType === 'yes_no_not_given';
+                              const isTfng = !isIndividuallyOverridden && group.groupType ? group.groupType === 'true_false_not_given' : effectiveQType === 'true_false_not_given';
 
                               return (
                                 <div
@@ -5035,12 +5122,14 @@ export const AssignmentsView: React.FC = () => {
                                                 ({selectedList.length}/{requiredCount} selected)
                                               </span>
                                             </p>
-                                            {q.options.map((opt) => {
-                                              const isChecked = selectedList.includes(opt);
+                                            {q.options.map((opt, oIdx) => {
+                                              const isChecked = isOptionSelected(opt, selectedList);
                                               const isDisabledByLimit = !isChecked && atLimit;
+                                              const inputId = `q_ms_${q.id}_${oIdx}`;
                                               return (
                                                 <label
                                                   key={opt}
+                                                  htmlFor={inputId}
                                                   className={`flex items-center space-x-2.5 p-2 rounded-lg transition-colors ${
                                                     isReadOnly || isDisabledByLimit ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
                                                   } ${
@@ -5050,23 +5139,31 @@ export const AssignmentsView: React.FC = () => {
                                                   }`}
                                                 >
                                                   <input
+                                                    id={inputId}
                                                     type="checkbox"
                                                     disabled={isReadOnly || isDisabledByLimit}
-                                                    checked={isChecked}
+                                                    checked={Boolean(isChecked)}
                                                     onChange={(e) => {
+                                                      if (isReadOnly) return;
+                                                      const optKey = getOptionKey(opt);
+                                                      const canonicalLetter = extractChoiceLetter(opt) || opt.trim();
                                                       let updated = [...selectedList];
+                                                      const existingIdx = updated.findIndex((item) => getOptionKey(item) === optKey);
                                                       if (e.target.checked) {
-                                                        if (updated.length < requiredCount) {
-                                                          updated.push(opt);
+                                                        if (existingIdx < 0 && updated.length < requiredCount) {
+                                                          updated.push(canonicalLetter);
                                                         }
                                                       } else {
-                                                        updated = updated.filter((item) => item !== opt);
+                                                        if (existingIdx >= 0) {
+                                                          updated.splice(existingIdx, 1);
+                                                        }
                                                       }
+                                                      updated.sort((a, b) => getOptionKey(a).localeCompare(getOptionKey(b)));
                                                       handleAnswerChange(q.id, updated.join(', '));
                                                     }}
-                                                    className="text-blue-600 rounded"
+                                                    className="text-blue-600 rounded cursor-pointer"
                                                   />
-                                                  <span>{opt}</span>
+                                                  <span className="select-none">{opt}</span>
                                                 </label>
                                               );
                                             })}

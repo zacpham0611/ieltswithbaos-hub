@@ -32,7 +32,8 @@ import { ExamListeningAudioPlayer } from '../../components/listening/ExamListeni
 import { renderCleanMarkdown } from '../../utils/textFormatter';
 import { ListeningQuestionRenderer } from '../../components/listening/ListeningQuestionRenderer';
 import { WritingTask1VisualRenderer, stripMarkdownTableFromPrompt } from '../../components/writing/WritingTask1VisualRenderer';
-import { extractAllNormalizedQuestions, extractQuestionNumber } from '../../lib/questionNormalizer';
+import { extractAllNormalizedQuestions, extractQuestionNumber, getOptionKey, isOptionSelected } from '../../lib/questionNormalizer';
+import { extractChoiceLetter } from '../../lib/assignmentGrader';
 
 interface RegularTestExamViewProps {
   test: RegularTest;
@@ -1543,35 +1544,69 @@ export const RegularTestExamView: React.FC<RegularTestExamViewProps> = ({
                       {/* Multiple Select Question Layout */}
                       {effectiveQType === 'multiple_select' && q.options && (
                         <div className="space-y-2 mt-3 pl-2 sm:pl-8">
-                          {q.options.map((opt, oIdx) => {
+                          {(() => {
+                            const requiredCount = (q as any).multipleSelectCount || 2;
                             const selectedArr: string[] = studentAns
-                              ? studentAns.split(',').map((s: string) => s.trim())
+                              ? studentAns.split(',').map((s: string) => s.trim()).filter(Boolean)
                               : [];
-                            const isChecked = selectedArr.includes(opt);
-                            return (
-                              <label
-                                key={oIdx}
-                                className={`flex items-center gap-3 p-3 rounded-xl border text-xs md:text-sm cursor-pointer transition-all ${
-                                  isChecked
-                                    ? 'bg-blue-50 border-blue-400 text-blue-900 font-medium'
-                                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => {
-                                    const next = isChecked
-                                      ? selectedArr.filter((s: string) => s !== opt)
-                                      : [...selectedArr, opt];
-                                    handleReadingAnswerChange(q.id, next.sort().join(', '));
-                                  }}
-                                  className="w-4 h-4 text-blue-600 rounded"
-                                />
-                                <span>{opt}</span>
-                              </label>
-                            );
-                          })}
+                            const atLimit = selectedArr.length >= requiredCount;
+                            return q.options.map((opt, oIdx) => {
+                              const optKey = extractChoiceLetter(opt) || opt.trim().toUpperCase();
+                              const isChecked = selectedArr.some((item) => {
+                                const itemKey = extractChoiceLetter(item) || item.trim().toUpperCase();
+                                return itemKey === optKey || item.trim().toUpperCase() === opt.trim().toUpperCase();
+                              });
+                              const isDisabledByLimit = !isChecked && atLimit;
+                              const inputId = `rt_ms_${q.id}_${oIdx}`;
+                              return (
+                                <label
+                                  key={oIdx}
+                                  htmlFor={inputId}
+                                  className={`flex items-center gap-3 p-3 rounded-xl border text-xs md:text-sm transition-all ${
+                                    isDisabledByLimit
+                                      ? 'opacity-60 cursor-not-allowed bg-slate-50 border-slate-200'
+                                      : 'cursor-pointer'
+                                  } ${
+                                    isChecked
+                                      ? 'bg-blue-50 border-blue-400 text-blue-900 font-medium'
+                                      : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                                  }`}
+                                >
+                                  <input
+                                    id={inputId}
+                                    type="checkbox"
+                                    disabled={isDisabledByLimit}
+                                    checked={Boolean(isChecked)}
+                                    onChange={(e) => {
+                                      let updated = [...selectedArr];
+                                      const existingIdx = updated.findIndex((item) => {
+                                        const itemKey = extractChoiceLetter(item) || item.trim().toUpperCase();
+                                        return itemKey === optKey;
+                                      });
+                                      if (e.target.checked) {
+                                        if (existingIdx < 0 && updated.length < requiredCount) {
+                                          const letter = extractChoiceLetter(opt) || opt.trim();
+                                          updated.push(letter);
+                                        }
+                                      } else {
+                                        if (existingIdx >= 0) {
+                                          updated.splice(existingIdx, 1);
+                                        }
+                                      }
+                                      updated.sort((a, b) => {
+                                        const kA = extractChoiceLetter(a) || a.trim().toUpperCase();
+                                        const kB = extractChoiceLetter(b) || b.trim().toUpperCase();
+                                        return kA.localeCompare(kB);
+                                      });
+                                      handleReadingAnswerChange(q.id, updated.join(', '));
+                                    }}
+                                    className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                                  />
+                                  <span className="select-none">{opt}</span>
+                                </label>
+                              );
+                            });
+                          })()}
                         </div>
                       )}
 

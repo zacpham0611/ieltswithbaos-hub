@@ -15,6 +15,8 @@ import {
   deduplicateQuestionGroups,
   normalizeReadingQuestion,
   buildQuestionRenderGroups,
+  getOptionKey,
+  isOptionSelected,
 } from '../src/lib/questionNormalizer.ts';
 import {
   gradeAssignmentSubmission,
@@ -805,5 +807,322 @@ Answer Key:
     const renderedQuestionIdsP3 = new Set(updatedGroupP3.questions.map((q) => q.id));
     const unrenderedP3 = reindexedP3.filter((q) => !renderedQuestionIdsP3.has(q.id));
     assert.strictEqual(unrenderedP3.length, 0, 'Passage 3 must have 0 unrendered questions (NO Questions 33-34 duplicate after Q40)');
+  });
+
+  test('16. Question Type Integrity: Summary Completion Group Prevents Substring Collisions (eyesight != yes)', () => {
+    const rawPassage3Summary = `
+READING PASSAGE 3 - The Dugong: Sea Cow
+Dugongs are large herbivorous marine mammals.
+
+Questions 28–31
+Dạng câu hỏi: Summary Completion (Hoàn thành đoạn tóm tắt)
+Complete the following summary of the paragraphs of Reading Passage 3, using NO MORE THAN TWO WORDS from the Reading Passage for each answer.
+Write your answers in boxes 28–31 on your answer sheet.
+Dugongs are herbivorous mammals that spend their entire lives in the sea. Yet dugongs are picky on their feeding seagrass, and only chose seagrass with higher 28 …………… and lower fibre. To compensate for their poor eyesight, they use their 29 …………… to feel their surroundings.
+It is like dugongs are “farming” seagrass. They often leave 30 …………… randomly in all directions across the sea bed. Dugongs prefer eating the newly grew seagrass recovering from the tiny 31 …………… left behind by the grazing dugongs.
+`;
+
+    const parsed = parseSinglePassage(rawPassage3Summary, 3, {}, {});
+    assert.strictEqual(parsed.questions.length, 4, 'Must extract 4 questions (28-31)');
+    assert.strictEqual(parsed.questionGroups.length, 1, 'Must extract 1 question group');
+    assert.strictEqual(parsed.questionGroups[0].questionType, 'summary_completion', 'Group type must be summary_completion');
+
+    // Verify all 4 questions are typed as summary_completion (Q29 with eyesight must NOT be yes_no_not_given)
+    for (const q of parsed.questions) {
+      assert.strictEqual(
+        q.type,
+        'summary_completion',
+        `Question ${q.id} must be summary_completion, got ${q.type}`
+      );
+    }
+
+    const normalized = extractAllNormalizedQuestions({
+      passages: [
+        {
+          id: 'p_3',
+          title: 'The Dugong: Sea Cow',
+          content: 'Dugongs are herbivorous mammals...',
+          questions: parsed.questions,
+          questionGroups: parsed.questionGroups,
+        },
+      ],
+      readingQuestions: parsed.questions,
+    });
+
+    const normQ29 = normalized.questions.find((q) => extractQuestionNumber(q) === 29);
+    assert.ok(normQ29, 'Question 29 must exist');
+    assert.strictEqual(normQ29?.type, 'summary_completion', 'Normalized Q29 must be summary_completion');
+    assert.notStrictEqual(normQ29?.type, 'yes_no_not_given', 'Q29 must NOT be yes_no_not_given');
+  });
+
+  await t.test('17. Duplicate Group Prevention and Clean Group Instructions', () => {
+    // 1. Verify cleanDisplayGroupInstructions removes option letters and question prompts
+    const rawInstruction = `Dạng câu hỏi: Multiple Selection (choose THREE answers) (Trắc nghiệm chọn ba đáp án đúng)
+Choose THREE letters, A–F.
+Which THREE of the following statements are true of the study of drives?
+Write your answers in boxes 32–34 on your answer sheet, in any order.
+A Employees will be motivated if they feel belonged to the company.
+B If employees get an opportunity of training and development program, their motivation will be enhanced.
+C If employees' working goals are complied with organisational objectives, their motivation will be reinforced.
+D If employees' motivation is very low, companies should find a way to increase their salary as their first priority.
+E If employees find their work lacking challenging, they will leave the company.
+F Employees will worry if their company is sold.`;
+
+    const group = {
+      groupType: 'multiple_select',
+      questions: [
+        {
+          q: {
+            id: 'q_32',
+            type: 'multiple_select' as const,
+            questionNumber: 32,
+            prompt: 'Which THREE of the following statements are true of the study of drives?',
+            options: [
+              'A. Employees will be motivated if they feel belonged to the company.',
+              'B. If employees get an opportunity of training and development program, their motivation will be enhanced.',
+              'C. If employees\' working goals are complied with organisational objectives, their motivation will be reinforced.',
+              'D. If employees\' motivation is very low, companies should find a way to increase their salary as their first priority.',
+              'E. If employees find their work lacking challenging, they will leave the company.',
+              'F. Employees will worry if their company is sold.',
+            ],
+            correctAnswer: 'A, B, C',
+            explanation: '',
+            points: 1,
+          },
+          idx: 31,
+        },
+      ],
+    };
+
+    const cleaned = cleanDisplayGroupInstructions(rawInstruction, group as any);
+    assert.ok(!cleaned.includes('A Employees will be motivated'), 'Options must NOT appear in instruction container');
+    assert.ok(!cleaned.includes('Which THREE of the following statements'), 'Question statement must NOT appear in instruction container');
+    assert.ok(!cleaned.includes('Dạng câu hỏi'), 'Type banner must NOT appear in student instructions');
+    assert.ok(cleaned.includes('Choose THREE letters, A–F.'), 'Must retain authentic instructions');
+    assert.ok(cleaned.includes('Write your answers in boxes 32–34'), 'Must retain answer sheet instructions');
+
+    // 2. Verify deduplicateQuestionGroups consolidates overlapping completion groups (20-26 and 23-26)
+    const p2Qs: ReadingQuestion[] = [
+      { id: 'q_20', questionNumber: 20, prompt: 'Carlson 20', type: 'note_completion', correctAnswer: '', explanation: '', points: 1 },
+      { id: 'q_21', questionNumber: 21, prompt: 'Carlson 21', type: 'note_completion', correctAnswer: '', explanation: '', points: 1 },
+      { id: 'q_22', questionNumber: 22, prompt: 'Carlson 22', type: 'note_completion', correctAnswer: '', explanation: '', points: 1 },
+      { id: 'q_23', questionNumber: 23, prompt: 'Carlson 23', type: 'note_completion', correctAnswer: '', explanation: '', points: 1 },
+      { id: 'q_24', questionNumber: 24, prompt: 'Carlson 24', type: 'note_completion', correctAnswer: '', explanation: '', points: 1 },
+      { id: 'q_25', questionNumber: 25, prompt: 'Carlson 25', type: 'note_completion', correctAnswer: '', explanation: '', points: 1 },
+      { id: 'q_26', questionNumber: 26, prompt: 'Carlson 26', type: 'note_completion', correctAnswer: '', explanation: '', points: 1 },
+    ];
+
+    const groupParent: QuestionGroup = {
+      id: 'g_parent',
+      groupTitle: 'Questions 20–26',
+      questionType: 'note_completion',
+      instructions: 'Complete the notes below using NO MORE THAN THREE WORDS.',
+      questions: p2Qs,
+    };
+
+    const groupSubset: QuestionGroup = {
+      id: 'g_subset',
+      groupTitle: 'Questions 23–26',
+      questionType: 'summary_completion',
+      instructions: 'Complete the summary below.',
+      questions: p2Qs.slice(3), // Q23-26
+    };
+
+    const deduplicated = deduplicateQuestionGroups([groupParent, groupSubset]);
+    assert.strictEqual(deduplicated.length, 1, 'Must merge subset group 23-26 into parent group 20-26');
+    assert.strictEqual(deduplicated[0].groupTitle, 'Questions 20–26', 'Group range must remain Questions 20–26');
+    assert.strictEqual(deduplicated[0].questions.length, 7, 'Group must retain all 7 questions (20-26)');
+  });
+
+  await t.test('18. Matching Information & Specific Types Never Coerced by F/T Answers (De3 Docx Baseline)', () => {
+    // 1. Individual questions with type matching_information and answers 'F' or 'T' must NOT be converted to TFNG
+    const rawMatchQ: ReadingQuestion = {
+      id: 'q_2',
+      questionNumber: 2,
+      prompt: 'Searching for new specimens to overcome leaf blight.',
+      type: 'matching_information',
+      correctAnswer: 'F',
+      explanation: 'Paragraph F',
+      points: 1,
+    };
+    const normMatchQ = normalizeReadingQuestion(rawMatchQ, 2);
+    assert.strictEqual(normMatchQ.type, 'matching_information', 'Answer "F" must not coerce matching_information to true_false_not_given');
+
+    // 2. Full Passage 1 from IELTS_Reading_De3_Rubber_Amateur_Dugong.docx
+    // Group 1: Questions 1–7 (Matching Information, with answers G, F, B, E, D, C, F)
+    const matchQuestions: ReadingQuestion[] = [
+      { id: 'q_1', questionNumber: 1, prompt: 'The extensive acceptance of radial tires.', type: 'matching_information', correctAnswer: 'G', explanation: '', points: 1 },
+      { id: 'q_2', questionNumber: 2, prompt: 'Searching for new specimens to overcome leaf blight.', type: 'matching_information', correctAnswer: 'F', explanation: '', points: 1 },
+      { id: 'q_3', questionNumber: 3, prompt: 'The first trading center for the rubber business.', type: 'matching_information', correctAnswer: 'B', explanation: '', points: 1 },
+      { id: 'q_4', questionNumber: 4, prompt: 'Asia dominated the rubber market year by year.', type: 'matching_information', correctAnswer: 'E', explanation: '', points: 1 },
+      { id: 'q_5', questionNumber: 5, prompt: 'Rubber seeds are vulnerable to long distance transport.', type: 'matching_information', correctAnswer: 'D', explanation: '', points: 1 },
+      { id: 'q_6', questionNumber: 6, prompt: 'Individual wealth accumulated by rubber trading.', type: 'matching_information', correctAnswer: 'C', explanation: '', points: 1 },
+      { id: 'q_7', questionNumber: 7, prompt: 'Natural rubber gave way to its replacement.', type: 'matching_information', correctAnswer: 'F', explanation: '', points: 1 },
+    ];
+    // Group 2: Questions 8–13 (Summary Completion)
+    const summaryQuestions: ReadingQuestion[] = [
+      { id: 'q_8', questionNumber: 8, prompt: 'OPEC doubled revenue [8]', type: 'summary_completion', correctAnswer: 'gas mileage', explanation: '', points: 1 },
+      { id: 'q_9', questionNumber: 9, prompt: 'Threats to synthetic market [9]', type: 'summary_completion', correctAnswer: 'radial tire', explanation: '', points: 1 },
+      { id: 'q_10', questionNumber: 10, prompt: 'Because 10 …………… is only material [10]', type: 'summary_completion', correctAnswer: 'natural rubber', explanation: '', points: 1 },
+      { id: 'q_11', questionNumber: 11, prompt: 'US industry fragile [11]', type: 'summary_completion', correctAnswer: 'embargo', explanation: '', points: 1 },
+      { id: 'q_12', questionNumber: 12, prompt: 'Rubber trees in plantation [12]', type: 'summary_completion', correctAnswer: 'blight', explanation: '', points: 1 },
+      { id: 'q_13', questionNumber: 13, prompt: 'Rubber most 13 …………… raw material [13]', type: 'summary_completion', correctAnswer: 'vital and vulnerable', explanation: '', points: 1 },
+    ];
+
+    const p1 = {
+      id: 'p_1',
+      title: 'A Brief History of Rubber',
+      content: 'Passage 1 content...',
+      questions: [...matchQuestions, ...summaryQuestions],
+      questionGroups: [
+        {
+          id: 'g_1',
+          groupTitle: 'Questions 1–7',
+          questionType: 'matching_information' as const,
+          instructions: 'Reading Passage 1 contains 7 paragraphs, A–G. Which paragraph states the following information?',
+          questions: matchQuestions,
+        },
+        {
+          id: 'g_2',
+          groupTitle: 'Questions 8–13',
+          questionType: 'summary_completion' as const,
+          instructions: 'Complete the summary below based on paragraph G. Use NO MORE THAN THREE WORDS.',
+          questions: summaryQuestions,
+        },
+      ],
+    };
+
+    // Simulate Materials Library round-trip
+    const payload = {
+      title: 'IELTS Reading De 3',
+      passages: [p1],
+      questionGroups: p1.questionGroups,
+      questions: [...matchQuestions, ...summaryQuestions],
+    };
+    const serialized = JSON.stringify(payload);
+    const retrieved = JSON.parse(serialized);
+
+    const extracted = extractAllNormalizedQuestions(retrieved);
+    assert.strictEqual(extracted.questions.length, 13, 'Must have 13 questions in Passage 1');
+
+    // All questions 1-7 must be matching_information
+    for (let i = 0; i < 7; i++) {
+      assert.strictEqual(extracted.questions[i].type, 'matching_information', `Question ${i + 1} must be matching_information`);
+    }
+
+    // Build render groups for student view
+    const renderGroups = buildQuestionRenderGroups(extracted.questions);
+    assert.strictEqual(renderGroups.length, 2, 'Passage 1 must produce exactly 2 question groups, not fragmented by Q2 or Q7');
+    assert.strictEqual(renderGroups[0].groupType, 'matching_information');
+    assert.strictEqual(renderGroups[0].questions.length, 7, 'Group 1 must contain all 7 matching information questions');
+    assert.strictEqual(renderGroups[1].groupType, 'summary_completion');
+    assert.strictEqual(renderGroups[1].questions.length, 6, 'Group 2 must contain all 6 summary completion questions');
+  });
+
+  await t.test('19. Multiple Select Question Answering Pipeline: Selection, Deselection, State Sync & Grading', () => {
+    // 1. Key extraction & option matching
+    assert.strictEqual(getOptionKey('A. Employees will be motivated'), 'A');
+    assert.strictEqual(getOptionKey('B) Training and development'), 'B');
+    assert.strictEqual(getOptionKey('c'), 'C');
+    assert.strictEqual(getOptionKey('D . Salary increase'), 'D');
+
+    const rawOptions = [
+      'A. Employees will be motivated if they feel belonged to the company.',
+      'B. If employees get an opportunity of training and development program, their motivation will be enhanced.',
+      'C. If employees’ working goals are complied with organisational objectives, their motivation will be reinforced.',
+      'D. If employees’ motivation is very low, companies should find a way to increase their salary as their first priority.',
+      'E. If employees find their work lacking challenging, they will leave the company.',
+      'F. Employees will worry if their company is sold.',
+    ];
+
+    // Selected answers from draft storage can be canonical letters or full text
+    const savedAnswers = ['A', 'C'];
+    assert.ok(isOptionSelected(rawOptions[0], savedAnswers), 'Option A must match letter "A"');
+    assert.ok(isOptionSelected(rawOptions[2], savedAnswers), 'Option C must match letter "C"');
+    assert.ok(!isOptionSelected(rawOptions[1], savedAnswers), 'Option B must not be selected');
+    assert.ok(!isOptionSelected(rawOptions[3], savedAnswers), 'Option D must not be selected');
+
+    // 2. Multi-slot answer mapping simulation (Questions 32, 33, 34)
+    const requiredCount = 3;
+    const questions = [
+      { id: 'q_32', questionNumber: 32, type: 'multiple_select' as const },
+      { id: 'q_33', questionNumber: 33, type: 'multiple_select' as const },
+      { id: 'q_34', questionNumber: 34, type: 'multiple_select' as const },
+    ];
+
+    let currentSelected: string[] = [];
+
+    // Helper simulating handleToggleOption
+    const buildSlotUpdates = (list: string[]) => {
+      const up: Record<string, string> = {};
+      questions.forEach((q, qIdx) => {
+        const item = list[qIdx];
+        up[q.id] = item ? getOptionKey(item) : '';
+      });
+      return up;
+    };
+
+    const toggle = (opt: string, shouldCheck: boolean) => {
+      const optKey = getOptionKey(opt);
+      let updated = [...currentSelected];
+      const existingIdx = updated.findIndex((item) => getOptionKey(item) === optKey);
+
+      if (existingIdx >= 0 && !shouldCheck) {
+        updated.splice(existingIdx, 1);
+      } else if (existingIdx < 0 && shouldCheck) {
+        if (updated.length < requiredCount) {
+          updated.push(opt);
+        } else {
+          return buildSlotUpdates(currentSelected); // at limit
+        }
+      }
+      updated.sort((a, b) => getOptionKey(a).localeCompare(getOptionKey(b)));
+      currentSelected = updated;
+      return buildSlotUpdates(updated);
+    };
+
+    // Step A: Select Option B
+    let updates = toggle(rawOptions[1], true);
+    assert.deepStrictEqual(updates, { q_32: 'B', q_33: '', q_34: '' }, 'Slot 32 gets B');
+
+    // Step B: Select Option D
+    updates = toggle(rawOptions[3], true);
+    assert.deepStrictEqual(updates, { q_32: 'B', q_33: 'D', q_34: '' }, 'Slots get sorted B, D');
+
+    // Step C: Select Option A (should sort to front)
+    updates = toggle(rawOptions[0], true);
+    assert.deepStrictEqual(updates, { q_32: 'A', q_33: 'B', q_34: 'D' }, 'Slots sorted A, B, D');
+
+    // Step D: Attempt to select a 4th option (Option F) -> must not exceed limit
+    updates = toggle(rawOptions[5], true);
+    assert.strictEqual(currentSelected.length, 3, 'Must not exceed 3 selected options');
+    assert.deepStrictEqual(updates, { q_32: 'A', q_33: 'B', q_34: 'D' }, 'Selections remain A, B, D');
+
+    // Step E: Deselect Option B -> retains A and D, frees slot 3
+    updates = toggle(rawOptions[1], false);
+    assert.deepStrictEqual(updates, { q_32: 'A', q_33: 'D', q_34: '' }, 'Deselecting B retains A and D');
+
+    // Step F: Select Option F now that a slot is free
+    updates = toggle(rawOptions[5], true);
+    assert.deepStrictEqual(updates, { q_32: 'A', q_33: 'D', q_34: 'F' }, 'Slots become A, D, F');
+
+    // 3. Draft restoration & order-independent pooled grading
+    const mockQuestions: ReadingQuestion[] = [
+      { id: 'q_32', questionNumber: 32, type: 'multiple_select', correctAnswer: 'B', prompt: 'Drives', questionRange: [32, 33, 34] as any },
+      { id: 'q_33', questionNumber: 33, type: 'multiple_select', correctAnswer: 'D', prompt: 'Drives', questionRange: [32, 33, 34] as any },
+      { id: 'q_34', questionNumber: 34, type: 'multiple_select', correctAnswer: 'F', prompt: 'Drives', questionRange: [32, 33, 34] as any },
+    ];
+
+    // Student submitted in order: F in slot 32, B in slot 33, D in slot 34 (arbitrary order)
+    const studentSubmission: Record<string, string> = {
+      q_32: 'F',
+      q_33: 'B',
+      q_34: 'D',
+    };
+
+    const graded = gradeAssignmentSubmission(mockQuestions, studentSubmission);
+    assert.strictEqual(graded.earnedScore, 3, 'All 3 answers must be recognized as correct regardless of order');
+    assert.strictEqual(graded.correctCount, 3, 'All 3 slots counted as correct');
+    assert.strictEqual(graded.errorAnalysis.filter((e) => e.isCorrect).length, 3, 'All 3 slots marked isCorrect = true');
   });
 });
