@@ -232,6 +232,12 @@ const toValidUUID = (str?: string): string => {
   return `${hex.slice(0, 8)}-0000-4000-8000-${hex.padEnd(12, '0').slice(0, 12)}`;
 };
 
+const matchesStudentId = (idA?: string, idB?: string): boolean => {
+  if (!idA || !idB) return false;
+  if (idA === idB) return true;
+  return toValidUUID(idA) === toValidUUID(idB);
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const currentUserRef = useRef<User | null>(null);
@@ -1415,20 +1421,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // Student Regular Test Attempts (Fetch first so attempt testIds are guaranteed to be hydrated)
         let studentAttemptsData: any[] | null = null;
+        const studentIdsToCheck = Array.from(
+          new Set([currentUser.id, toValidUUID(currentUser.id)].filter(Boolean))
+        );
         try {
           const { data: attData } = await supabase
             .from('regular_test_attempts')
             .select('*')
-            .eq('student_id', currentUser.id)
+            .in('student_id', studentIdsToCheck)
             .order('created_at', { ascending: false });
           studentAttemptsData = attData;
         } catch (attErr) {
           console.warn('Student regular_test_attempts fetch notice:', attErr);
         }
 
-        const attemptTestIds: string[] = studentAttemptsData && Array.isArray(studentAttemptsData)
-          ? Array.from(new Set(studentAttemptsData.map((a: any) => a.test_id).filter(Boolean)))
-          : [];
+        // Resilient cache hydration: retrieve any locally preserved attempts for this student
+        let cachedAttempts: RegularTestAttempt[] = [];
+        if (typeof window !== 'undefined' && window.localStorage) {
+          try {
+            const rawCached = localStorage.getItem(`ielts_regular_test_attempts_${currentUser.id}`);
+            if (rawCached) {
+              cachedAttempts = JSON.parse(rawCached);
+            }
+          } catch {}
+        }
+
+        const attemptTestIds: string[] = Array.from(new Set([
+          ...(studentAttemptsData && Array.isArray(studentAttemptsData) ? studentAttemptsData.map((a: any) => a.test_id) : []),
+          ...cachedAttempts.map((a) => a.testId),
+        ].filter(Boolean)));
+
+        let mappedTests: RegularTest[] = [];
 
         // Student Regular Tests: fetch tests for approved courses, direct student eligibility, and any active/submitted attempts
         try {
@@ -1511,7 +1534,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const rtData = Array.from(testMap.values());
 
           if (fetchSeq === fetchSequenceRef.current) {
-            let mappedTests: RegularTest[] = [];
+            mappedTests = [];
 
             if (rtData.length > 0) {
               // Hydrate sections from regular_test_versions if empty
@@ -1569,52 +1592,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 updatedAt: t.updated_at?.split('T')[0] || '',
               }));
             }
-
-            setRegularTests(mappedTests);
           }
         } catch (rtErr) {
           console.warn('DB regular_tests fetch notice for student:', rtErr);
         }
 
-        // Map and set Student Regular Test Attempts (In-progress & Completed Attempts)
-        if (studentAttemptsData && Array.isArray(studentAttemptsData) && fetchSeq === fetchSequenceRef.current) {
-          const mappedStudentAttempts: RegularTestAttempt[] = studentAttemptsData.map((a: any) => ({
-            id: a.id,
-            testId: a.test_id,
-            testTitle: a.test_title || 'Regular Test',
-            versionId: a.version_id,
-            studentId: a.student_id,
-            studentName: currentUser.name,
-            studentEmail: currentUser.email,
-            courseId: a.course_id,
-            courseName: loadedCourses.find((c: any) => c.id === a.course_id)?.name || 'Course',
-            attemptNumber: a.attempt_number || 1,
-            serverStartTime: a.server_start_time,
-            serverDeadline: a.server_deadline,
-            extraTimeMinutes: a.extra_time_minutes || 0,
-            currentSectionIndex: a.current_section_index || 0,
-            status: a.status,
-            submittedAt: a.submitted_at,
-            autoSubmitted: Boolean(a.auto_submitted),
-            sessionToken: a.session_token,
-            deviceInfo: a.device_info,
-            answers: a.answers || { reading: {}, writing: { text: '', wordCount: 0 } },
-            flaggedQuestions: a.flagged_questions || {},
-            writingRevisions: a.writing_revisions || [],
-            saveRevisionSequence: a.save_revision_sequence || 0,
-            scores: a.scores,
-            overallBand: a.overall_band,
-            gradingStatus: a.grading_status || 'pending',
-            isReleased: Boolean(a.is_released),
-            releasedAt: a.released_at,
-            createdAt: a.created_at,
-            updatedAt: a.updated_at,
-          }));
+        // Map and set Student Regular Test Attempts (In-progress & Completed Attempts) with local cache preservation
+        const mergedAttemptsMap = new Map<string, RegularTestAttempt>();
+        for (const ca of cachedAttempts) {
+          if (ca && ca.id) mergedAttemptsMap.set(ca.id, ca);
+        }
 
-          setRegularTestAttempts(mappedStudentAttempts);
+        if (studentAttemptsData && Array.isArray(studentAttemptsData)) {
+          for (const a of studentAttemptsData) {
+            const mappedAttempt: RegularTestAttempt = {
+              id: a.id,
+              testId: a.test_id,
+              testTitle: a.test_title || 'Regular Test',
+              versionId: a.version_id,
+              studentId: a.student_id,
+              studentName: currentUser.name,
+              studentEmail: currentUser.email,
+              courseId: a.course_id,
+              courseName: loadedCourses.find((c: any) => c.id === a.course_id)?.name || 'Course',
+              attemptNumber: a.attempt_number || 1,
+              serverStartTime: a.server_start_time,
+              serverDeadline: a.server_deadline,
+              extraTimeMinutes: a.extra_time_minutes || 0,
+              currentSectionIndex: a.current_section_index || 0,
+              status: a.status,
+              submittedAt: a.submitted_at,
+              autoSubmitted: Boolean(a.auto_submitted),
+              sessionToken: a.session_token,
+              deviceInfo: a.device_info,
+              answers: a.answers || { reading: {}, writing: { text: '', wordCount: 0 } },
+              flaggedQuestions: a.flagged_questions || {},
+              writingRevisions: a.writing_revisions || [],
+              saveRevisionSequence: a.save_revision_sequence || 0,
+              scores: a.scores,
+              overallBand: a.overall_band,
+              gradingStatus: a.grading_status || 'pending',
+              isReleased: Boolean(a.is_released),
+              releasedAt: a.released_at,
+              createdAt: a.created_at,
+              updatedAt: a.updated_at,
+            };
+            mergedAttemptsMap.set(a.id, mappedAttempt);
+          }
+        }
+
+        const finalStudentAttempts = Array.from(mergedAttemptsMap.values());
+        if (typeof window !== 'undefined' && window.localStorage && finalStudentAttempts.length > 0) {
+          try {
+            localStorage.setItem(
+              `ielts_regular_test_attempts_${currentUser.id}`,
+              JSON.stringify(finalStudentAttempts)
+            );
+          } catch {}
+        }
+
+        if (fetchSeq === fetchSequenceRef.current) {
+          // Atomically commit both tests and attempts together to prevent intermediate desynchronization
+          setRegularTests(mappedTests);
+          setRegularTestAttempts(finalStudentAttempts);
 
           // Restore active exam attempt if student is in progress
-          const inProgressAttempt = mappedStudentAttempts.find((a) => a.status === 'in_progress');
+          const inProgressAttempt = finalStudentAttempts.find((a) => a.status === 'in_progress');
           if (inProgressAttempt) {
             setActiveExamAttempt(inProgressAttempt);
             if (typeof window !== 'undefined' && window.sessionStorage) {
@@ -1850,6 +1893,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTuitionStatements([]);
     setActivities([]);
     setNotifications([]);
+    setRegularTests([]);
+    setRegularTestAttempts([]);
+    setActiveExamAttempt(null);
+    setRegularTestReportLinks([]);
     setActiveTab('dashboard');
   };
 
@@ -1873,6 +1920,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setTuitionStatements([]);
         setActivities([]);
         setNotifications([]);
+        setRegularTests([]);
+        setRegularTestAttempts([]);
+        setActiveExamAttempt(null);
+        setRegularTestReportLinks([]);
         setLoadingAuth(false);
         return;
       }
@@ -1904,45 +1955,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
+  const refreshDataRef = useRef(refreshData);
+  refreshDataRef.current = refreshData;
+  const realtimeDebounceTimerRef = useRef<any>(null);
+
+  const triggerDebouncedRefresh = useCallback(() => {
+    if (activeExamAttemptRef.current) return;
+    if (realtimeDebounceTimerRef.current) clearTimeout(realtimeDebounceTimerRef.current);
+    realtimeDebounceTimerRef.current = setTimeout(() => {
+      refreshDataRef.current?.();
+    }, 300);
+  }, []);
+
   // 3. LOAD DATA ON USER CHANGE & REALTIME SUBSCRIPTIONS
   useEffect(() => {
     if (!currentUser) return;
-    refreshData();
+    refreshDataRef.current();
 
     // Supabase Realtime Channels for Cross-Device Synchronization
     const channel = supabase
       .channel('public_realtime_channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, () => {
-        refreshData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'submissions' }, () => {
-        refreshData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tuition_statements' }, () => {
-        refreshData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_assessments' }, () => {
-        refreshData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-        refreshData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_tests' }, () => {
-        refreshData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_test_attempts' }, () => {
-        // Suppress full background refetch during active exam taking to prevent exam UI disruption/reload
-        if (activeExamAttemptRef.current) {
-          return;
-        }
-        refreshData();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollments' }, triggerDebouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'submissions' }, triggerDebouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tuition_statements' }, triggerDebouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_assessments' }, triggerDebouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, triggerDebouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_tests' }, triggerDebouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_test_attempts' }, triggerDebouncedRefresh)
       .subscribe();
 
     return () => {
+      if (realtimeDebounceTimerRef.current) clearTimeout(realtimeDebounceTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [currentUser, refreshData]);
+  }, [currentUser?.id, triggerDebouncedRefresh]);
 
   // UPDATE PROFILE
   const updateProfile = async (updates: Partial<User>) => {
@@ -4200,12 +4246,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
 
       try {
+        const effectiveAttemptId = isUUID(createdAttempt.id) ? createdAttempt.id : toValidUUID(createdAttempt.id);
+        const effectiveTestId = isUUID(createdAttempt.testId) ? createdAttempt.testId : toValidUUID(createdAttempt.testId);
+        const effectiveVersionId = isUUID(createdAttempt.versionId) ? createdAttempt.versionId : toValidUUID(createdAttempt.versionId);
+        const effectiveStudentId = isUUID(createdAttempt.studentId) ? createdAttempt.studentId : toValidUUID(createdAttempt.studentId);
+        const effectiveCourseId = isUUID(createdAttempt.courseId) ? createdAttempt.courseId : toValidUUID(createdAttempt.courseId);
+
         const { error: insertError } = await supabase.from('regular_test_attempts').insert({
-          id: createdAttempt.id,
-          test_id: createdAttempt.testId,
-          version_id: createdAttempt.versionId,
-          student_id: createdAttempt.studentId,
-          course_id: createdAttempt.courseId,
+          id: effectiveAttemptId,
+          test_id: effectiveTestId,
+          version_id: effectiveVersionId,
+          student_id: effectiveStudentId,
+          course_id: effectiveCourseId,
           attempt_number: createdAttempt.attemptNumber,
           server_start_time: createdAttempt.serverStartTime,
           server_deadline: createdAttempt.serverDeadline,
@@ -4228,8 +4280,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const finalAttempt = createdAttempt;
-    setRegularTestAttempts((prev) => [finalAttempt, ...prev]);
+    setRegularTestAttempts((prev) => [finalAttempt, ...prev.filter((a) => a.id !== finalAttempt.id)]);
     setActiveExamAttempt(finalAttempt);
+
+    if (typeof window !== 'undefined' && window.localStorage && currentUser) {
+      try {
+        const existingCachedRaw = localStorage.getItem(`ielts_regular_test_attempts_${currentUser.id}`);
+        const existingCached: RegularTestAttempt[] = existingCachedRaw ? JSON.parse(existingCachedRaw) : [];
+        const updatedCached = [finalAttempt, ...existingCached.filter((a) => a.id !== finalAttempt.id)];
+        localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(updatedCached));
+      } catch {}
+    }
 
     const examData = sanitizeExamDataForStudent(test);
     return { attempt: finalAttempt, examData };
@@ -4323,7 +4384,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (activeExamAttempt?.id === attemptId) {
       setActiveExamAttempt(null);
     }
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      sessionStorage.removeItem('ielts_active_session_token');
+    }
+    if (typeof window !== 'undefined' && window.localStorage && currentUser) {
+      try {
+        const existingCachedRaw = localStorage.getItem(`ielts_regular_test_attempts_${currentUser.id}`);
+        const existingCached: RegularTestAttempt[] = existingCachedRaw ? JSON.parse(existingCachedRaw) : [];
+        const updatedCached = [
+          updatedAttempt,
+          ...existingCached.filter((a) => a.id !== updatedAttempt.id),
+        ];
+        localStorage.setItem(`ielts_regular_test_attempts_${currentUser.id}`, JSON.stringify(updatedCached));
+      } catch {}
+    }
 
+    const effectiveAttemptId = isUUID(attemptId) ? attemptId : toValidUUID(attemptId);
     try {
       const { error: submitError } = await supabase
         .from('regular_test_attempts')
@@ -4338,7 +4414,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           released_at: updatedAttempt.releasedAt,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', attemptId);
+        .or(`id.eq.${attemptId},id.eq.${effectiveAttemptId}`);
 
       if (submitError) {
         console.warn('Submit attempt DB error notice:', submitError);

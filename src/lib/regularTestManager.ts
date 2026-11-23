@@ -383,6 +383,27 @@ export function computeRiskLevel(events: RegularTestEvent[]): 'low' | 'medium' |
   return 'low';
 }
 
+export const isUUID = (str?: string): boolean =>
+  Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+
+export const toValidUUID = (str?: string): string => {
+  if (isUUID(str)) return str!;
+  let hash = 0;
+  const s = str || 'default-id';
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash |= 0;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, '0');
+  return `${hex.slice(0, 8)}-0000-4000-8000-${hex.padEnd(12, '0').slice(0, 12)}`;
+};
+
+export const matchesStudentId = (idA?: string, idB?: string): boolean => {
+  if (!idA || !idB) return false;
+  if (idA === idB) return true;
+  return toValidUUID(idA) === toValidUUID(idB);
+};
+
 /**
  * Categorizes tests for the Student Portal into 5 tabs:
  * 'available' | 'upcoming' | 'in_progress' | 'submitted' | 'results_released'
@@ -410,15 +431,29 @@ export function categorizeStudentTests(
       continue;
     }
 
-    // Check eligible students if specified
-    if (test.eligibleStudentIds && test.eligibleStudentIds.length > 0) {
-      if (!test.eligibleStudentIds.includes(studentId)) {
+    // Resolve all matching student attempts with ID normalization
+    const studentAttempts = attempts.filter(
+      (a) => a.testId === test.id && matchesStudentId(a.studentId, studentId)
+    );
+
+    // Sort deterministically: highest attemptNumber first, then most recently created/started
+    studentAttempts.sort((a, b) => {
+      const attemptDiff = (b.attemptNumber || 0) - (a.attemptNumber || 0);
+      if (attemptDiff !== 0) return attemptDiff;
+      const timeB = new Date(b.createdAt || b.serverStartTime || 0).getTime();
+      const timeA = new Date(a.createdAt || a.serverStartTime || 0).getTime();
+      return timeB - timeA;
+    });
+
+    const latestAttempt = studentAttempts[0];
+
+    // Check eligible students if specified (students with existing attempts are never locked out of results)
+    if (!latestAttempt && test.eligibleStudentIds && test.eligibleStudentIds.length > 0) {
+      const isEligible = test.eligibleStudentIds.some((eid) => matchesStudentId(eid, studentId));
+      if (!isEligible) {
         continue;
       }
     }
-
-    const studentAttempts = attempts.filter((a) => a.testId === test.id && a.studentId === studentId);
-    const latestAttempt = studentAttempts[0]; // assuming sorted by attemptNumber desc or created desc
 
     if (latestAttempt) {
       if (latestAttempt.status === 'in_progress') {
@@ -426,7 +461,11 @@ export function categorizeStudentTests(
         continue;
       }
 
-      if (latestAttempt.status === 'submitted' || latestAttempt.status === 'auto_submitted') {
+      if (
+        latestAttempt.status === 'submitted' ||
+        latestAttempt.status === 'auto_submitted' ||
+        latestAttempt.status === 'overdue'
+      ) {
         if (latestAttempt.isReleased) {
           resultsReleased.push({ test, attempt: latestAttempt });
         } else {
@@ -451,11 +490,6 @@ export function categorizeStudentTests(
 
     if (!isPastEnd && !isPastHard && (test.status === 'live' || test.status === 'scheduled')) {
       available.push({ test, attempt: latestAttempt });
-    } else {
-      // If closed and student never took it
-      if (test.status === 'closed') {
-        // past closed
-      }
     }
   }
 

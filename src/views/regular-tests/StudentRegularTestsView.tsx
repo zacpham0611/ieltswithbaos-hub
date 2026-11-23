@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useI18n } from '../../i18n/context';
 import type { RegularTest, RegularTestAttempt } from '../../types';
@@ -48,6 +48,23 @@ export const StudentRegularTestsView: React.FC = () => {
   if (!currentUser) return null;
 
   const categorized = categorizeStudentTests(regularTests, regularTestAttempts, currentUser.id);
+
+  // Preserve last non-empty categorized state during background refetches to prevent temporary disappearing/flicker
+  const lastNonEmptyCategorizedRef = useRef(categorized);
+  const totalCount =
+    categorized.available.length +
+    categorized.upcoming.length +
+    categorized.inProgress.length +
+    categorized.submitted.length +
+    categorized.resultsReleased.length;
+
+  if (totalCount > 0 || !loadingData) {
+    lastNonEmptyCategorizedRef.current = categorized;
+  }
+
+  const effectiveCategorized = loadingData && totalCount === 0 && regularTests.length === 0
+    ? lastNonEmptyCategorizedRef.current
+    : categorized;
 
   if (loadingData && regularTests.length === 0) {
     return (
@@ -121,11 +138,11 @@ export const StudentRegularTestsView: React.FC = () => {
 
   const getTabCount = (tab: typeof activeTab) => {
     switch (tab) {
-      case 'available': return categorized.available.length;
-      case 'upcoming': return categorized.upcoming.length;
-      case 'in_progress': return categorized.inProgress.length;
-      case 'submitted': return categorized.submitted.length;
-      case 'results_released': return categorized.resultsReleased.length;
+      case 'available': return effectiveCategorized.available.length;
+      case 'upcoming': return effectiveCategorized.upcoming.length;
+      case 'in_progress': return effectiveCategorized.inProgress.length;
+      case 'submitted': return effectiveCategorized.submitted.length;
+      case 'results_released': return effectiveCategorized.resultsReleased.length;
     }
   };
 
@@ -179,13 +196,13 @@ export const StudentRegularTestsView: React.FC = () => {
       {/* Tab Content Cards */}
       <div className="space-y-4">
         {activeTab === 'available' && (
-          categorized.available.length === 0 ? (
+          effectiveCategorized.available.length === 0 ? (
             <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-xs">
               No tests currently available to take.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {categorized.available.map(({ test, attempt }) => (
+              {effectiveCategorized.available.map(({ test, attempt }) => (
                 <div
                   key={test.id}
                   className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 flex flex-col justify-between space-y-4 hover:border-blue-400 transition-colors"
@@ -234,13 +251,13 @@ export const StudentRegularTestsView: React.FC = () => {
         )}
 
         {activeTab === 'in_progress' && (
-          categorized.inProgress.length === 0 ? (
+          effectiveCategorized.inProgress.length === 0 ? (
             <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-xs">
               No tests in progress.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {categorized.inProgress.map(({ test, attempt }) => (
+              {effectiveCategorized.inProgress.map(({ test, attempt }) => (
                 <div
                   key={test.id}
                   className="bg-white rounded-2xl border-2 border-blue-500 shadow-md p-5 flex flex-col justify-between space-y-4"
@@ -269,13 +286,13 @@ export const StudentRegularTestsView: React.FC = () => {
         )}
 
         {activeTab === 'upcoming' && (
-          categorized.upcoming.length === 0 ? (
+          effectiveCategorized.upcoming.length === 0 ? (
             <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-xs">
               No upcoming tests scheduled.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {categorized.upcoming.map(({ test }) => (
+              {effectiveCategorized.upcoming.map(({ test }) => (
                 <div key={test.id} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 opacity-80">
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 uppercase">
                     Upcoming
@@ -292,13 +309,13 @@ export const StudentRegularTestsView: React.FC = () => {
         )}
 
         {activeTab === 'submitted' && (
-          categorized.submitted.length === 0 ? (
+          effectiveCategorized.submitted.length === 0 ? (
             <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-xs">
               No tests pending grading.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {categorized.submitted.map(({ test, attempt }) => (
+              {effectiveCategorized.submitted.map(({ test, attempt }) => (
                 <div key={attempt.id} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 uppercase">
@@ -317,13 +334,13 @@ export const StudentRegularTestsView: React.FC = () => {
         )}
 
         {activeTab === 'results_released' && (
-          categorized.resultsReleased.length === 0 ? (
+          effectiveCategorized.resultsReleased.length === 0 ? (
             <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-xs">
               No test results released yet.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {categorized.resultsReleased.map(({ test, attempt }) => (
+              {effectiveCategorized.resultsReleased.map(({ test, attempt }) => (
                 <div key={attempt.id} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 uppercase">

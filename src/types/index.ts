@@ -928,6 +928,7 @@ export interface RegularTestAttempt {
     overall?: number;
   };
   gradingStatus: 'pending' | 'auto_graded' | 'pending_manual' | 'fully_graded';
+  overallBand?: number;
   isReleased: boolean;
   releasedAt?: string;
   scoreAdjustments?: Array<{
@@ -940,6 +941,7 @@ export interface RegularTestAttempt {
   eventCount?: number;
   events?: RegularTestEvent[];
   riskLevel?: 'low' | 'medium' | 'high';
+  deviceInfo?: Record<string, any>;
   createdAt?: string;
   updatedAt?: string;
 }
